@@ -1,5 +1,19 @@
 # Claude Code ↔ SillyTavern Bridge
 
+## Fork notes
+
+This fork of [MissSinful/claude-code-sillytavern-bridge](https://github.com/MissSinful/claude-code-sillytavern-bridge) adapts the bridge for a headless Linux VPS. Prompts, memory logic and RP behaviour are unchanged. Changes vs upstream:
+
+- **Listens on `127.0.0.1` by default** instead of `0.0.0.0`. Override with `BRIDGE_HOST`; `BRIDGE_PORT` overrides the GUI port setting.
+- **Optional auth**: `BRIDGE_API_KEY` requires `Authorization: Bearer <key>` on `/v1/*`, and `BRIDGE_DASHBOARD_PASSWORD` puts HTTP Basic auth on the dashboard and `/api/*`. Both are off unless set.
+- **CORS is no longer allow-all.** Only origins listed in `BRIDGE_CORS_ORIGINS` get CORS headers. Allow-all is kept only when bound to `0.0.0.0`, and SillyTavern doesn't need CORS either way.
+- **Split requirements**: `requirements.txt` is core only (flask, flask-cors); `requirements-memory.txt` adds sentence-transformers and numpy for Character Memory. `run_bridge.bat` still installs both.
+- **Linux run support**: `run_bridge.sh`, a hardened systemd unit in `deploy/`, and an env file template. See [Linux / VPS deployment](#linux--vps-deployment).
+
+With no environment variables set, the only behaviour change is the default listen address.
+
+---
+
 **A Flask-based roleplay bridge that wraps the Claude Code CLI as a SillyTavern-compatible backend.**
 
 Sits between SillyTavern and the Claude Code CLI, translating OpenAI-compatible API requests into `claude -p` subprocess calls, injecting narrative-focused system prompts, and layering a full roleplay feature stack on top — per-character running summaries, auto-lorebook generation, image handling via Claude Code's `Read` tool, editable prompt templates, and a GUI dashboard to configure everything.
@@ -73,9 +87,10 @@ This is what the bridge is *for*. The features in the list above all exist to ma
 git clone https://github.com/MissSinful/claude-code-sillytavern-bridge.git
 cd claude-code-sillytavern-bridge
 pip install -r requirements.txt
+pip install -r requirements-memory.txt   # optional, for Character Memory
 ```
 
-`requirements.txt` includes `sentence-transformers` and `numpy` for Character Memory's semantic retrieval. The first time the model is needed (when you enable Character Memory in the GUI), it downloads `all-MiniLM-L6-v2` (~80MB) into `~/.cache/huggingface`. If you don't enable Character Memory, the model never loads.
+`requirements.txt` is all the bridge needs to run. `requirements-memory.txt` adds `sentence-transformers` and `numpy` for Character Memory's semantic retrieval (`run_bridge.bat` installs both). Without them, the bridge runs normally and Character Memory logs "sentence-transformers not installed" and skips semantic search. The first time the model is needed (when you enable Character Memory in the GUI), it downloads `all-MiniLM-L6-v2` (~80MB) into `~/.cache/huggingface`. If you don't enable Character Memory, the model never loads.
 
 Start the bridge:
 
@@ -86,21 +101,98 @@ run_bridge.bat
 
 **macOS / Linux:**
 ```bash
-python claude_bridge.py
+./run_bridge.sh        # uses ./.venv if present; or: python3 claude_bridge.py
 ```
 
-The bridge starts on `http://localhost:5001`. Open it in a browser to see the dashboard.
+The bridge starts on `http://localhost:5001`, listening on `127.0.0.1` only. Open it in a browser to see the dashboard. To reach it from other machines, set `BRIDGE_HOST=0.0.0.0` and a `BRIDGE_API_KEY` (see [Linux / VPS deployment](#linux--vps-deployment)).
 
 ## SillyTavern setup
 
 1. In SillyTavern, open **API Connections**
 2. Select **Chat Completion** → **OpenAI Compatible** (or "Custom OpenAI" depending on your ST version)
 3. Set the endpoint to `http://localhost:5001/v1`
-4. Enter any API key — the bridge doesn't check it, but SillyTavern requires the field to be non-empty. `sk-placeholder` works.
+4. Enter any API key — the bridge doesn't check it unless `BRIDGE_API_KEY` is set (then enter that value), but SillyTavern requires the field to be non-empty. `sk-placeholder` works.
 5. Model selector in SillyTavern is ignored — pick your model in the Settings tab of the bridge GUI instead
 6. Save and connect
 
 Send a test message. If it works, you're set. If not, check the bridge terminal for logs — debug output is on by default.
+
+## Linux / VPS deployment
+
+This assumes SillyTavern and the bridge run on the same server (as user `st` here), with SillyTavern pointed at `http://127.0.0.1:5001/v1`. SillyTavern calls the bridge from its Node server, so the bridge only needs to listen on loopback.
+
+### 1. Install
+
+As the user that will run the bridge, install [Claude Code](https://docs.anthropic.com/en/docs/claude-code) (the native installer puts `claude` in `~/.local/bin`). Run `claude` once interactively to log in, then check `claude --version` works.
+
+```bash
+sudo apt install python3-venv git                 # Debian / Ubuntu
+cd ~
+git clone <this repo> claude-code-sillytavern-bridge
+cd claude-code-sillytavern-bridge
+python3 -m venv .venv
+.venv/bin/pip install -r requirements.txt         # core: enough to run the bridge
+```
+
+Optional, for Character Memory: install CPU-only PyTorch **first**, so pip doesn't pull in ~2GB of CUDA wheels a VPS can't use. Then install the memory extras:
+
+```bash
+.venv/bin/pip install torch --index-url https://download.pytorch.org/whl/cpu
+.venv/bin/pip install -r requirements-memory.txt
+mkdir -p ~/.cache/huggingface                     # model download location (must exist for the systemd sandbox)
+```
+
+Without them, the bridge runs normally and Character Memory logs `sentence-transformers not installed` and skips semantic search.
+
+### 2. Configure
+
+All settings are optional environment variables:
+
+| Variable | Default | Effect |
+|---|---|---|
+| `BRIDGE_HOST` | `127.0.0.1` | Address to listen on. `0.0.0.0` exposes it on every interface. |
+| `BRIDGE_PORT` | GUI setting (5001) | Port to listen on. Overrides the port saved in the Settings tab. |
+| `BRIDGE_API_KEY` | unset | Every `/v1/*` route requires `Authorization: Bearer <key>`. Put the same value in SillyTavern's API key field. |
+| `BRIDGE_DASHBOARD_PASSWORD` | unset | The dashboard and `/api/*` require HTTP Basic auth: any username, this password. |
+| `BRIDGE_CORS_ORIGINS` | unset | Comma-separated browser origins (or `*`) allowed to call the bridge cross-origin. Not needed for SillyTavern. When unset, there are no CORS headers, except with `BRIDGE_HOST=0.0.0.0`, where any origin is allowed (upstream behaviour). |
+
+Behind Tailscale with SillyTavern on the same box, loopback alone keeps the bridge private. Setting `BRIDGE_API_KEY` and `BRIDGE_DASHBOARD_PASSWORD` too is cheap defence in depth against other local processes. With both set, the GUI's Test tab still works: requests to `/v1` also accept the dashboard login.
+
+Generate secrets with `openssl rand -hex 32`. To try it in the foreground:
+
+```bash
+BRIDGE_API_KEY=... BRIDGE_DASHBOARD_PASSWORD=... ./run_bridge.sh
+```
+
+### 3. Run as a systemd service
+
+`deploy/claude-bridge.service` runs the bridge as user `st` from `/home/st/claude-code-sillytavern-bridge` using the venv's Python. Edit `User=`, `Group=` and the paths if yours differ.
+
+```bash
+sudo cp deploy/claude-bridge.service /etc/systemd/system/
+sudo install -m 600 deploy/claude-bridge.env.example /etc/claude-bridge.env
+sudoedit /etc/claude-bridge.env                   # uncomment and set BRIDGE_API_KEY etc.
+sudo systemctl daemon-reload
+sudo systemctl enable --now claude-bridge
+journalctl -u claude-bridge -f                    # logs
+```
+
+How the unit is set up:
+
+- **PATH** includes `/home/st/.local/bin`, so `claude` is found. The startup banner shows which `claude` binary the bridge resolved.
+- **Secrets** go in `/etc/claude-bridge.env` (root-only, read by systemd before it drops privileges). Values there override the unit's `Environment=` lines.
+- **Sandbox**: `ProtectSystem=strict` makes the filesystem read-only except for the bridge directory, the `claude` CLI's state (`~/.claude`, `~/.cache/claude`, `~/.cache/claude-cli-nodejs`, `~/.local/state/claude`), `~/.cache/huggingface`, and `~/SillyTavern/data` (auto-lorebook writes its World Info file into SillyTavern's worlds folder). If your Lorebook path lives elsewhere, add a `ReadWritePaths=` line for it.
+- **`~/.claude.json` stays read-only.** `claude` rewrites it through a lock directory and temp files created directly in your home directory. Allowing that would mean making all of `/home/st` writable. `claude` treats the failure as non-fatal; the unit's comments show the one-line opt-out if that ever changes.
+- **Auto-update is disabled** inside the service, because the `claude` binary sits on a read-only path there. Update with `claude update` from a normal shell, then `sudo systemctl restart claude-bridge`.
+
+### 4. Reach the dashboard
+
+The dashboard listens on the server's loopback only. From your own machine, either:
+
+- **SSH tunnel:** `ssh -L 5001:127.0.0.1:5001 user@host`, then open `http://localhost:5001`.
+- **Tailscale Serve:** on the server, run `sudo tailscale serve --bg 5001`. The dashboard is then at `https://<machine-name>.<tailnet>.ts.net/`, visible only to your tailnet. Turn it off with `sudo tailscale serve reset`. Serve exposes the whole bridge to your tailnet, `/v1` included, so set both `BRIDGE_DASHBOARD_PASSWORD` and `BRIDGE_API_KEY` if anyone else is on it.
+
+Keep the SillyTavern connection itself on `http://127.0.0.1:5001/v1`.
 
 ## Using it
 
@@ -141,8 +233,13 @@ claude-code-sillytavern-bridge/
 ├── claude_bridge.py           # Main Flask server and subprocess wrapper
 ├── memory_v2.py               # Character Memory: SQLite + embeddings + Sonnet librarian
 ├── modify_preset.py           # Standalone utility for SillyTavern preset tweaks
-├── requirements.txt           # Python dependencies
+├── requirements.txt           # Core Python dependencies
+├── requirements-memory.txt    # Optional: Character Memory embeddings
 ├── run_bridge.bat             # Windows launcher
+├── run_bridge.sh              # Linux / macOS launcher (uses ./.venv if present)
+├── deploy/
+│   ├── claude-bridge.service  # Hardened systemd unit
+│   └── claude-bridge.env.example  # Env vars for the unit (copy to /etc/claude-bridge.env)
 ├── templates/
 │   └── index.html             # GUI dashboard (single-page, vanilla JS)
 ├── prompts/                   # Editable prompt templates (hot-reloaded)
