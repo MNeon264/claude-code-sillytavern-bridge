@@ -13,6 +13,7 @@ import sys
 import tempfile
 import os
 import hashlib
+import hmac
 import base64
 import re
 import shutil
@@ -113,6 +114,12 @@ if CLAUDE_EXE is None:
     print("      bin (usually %APPDATA%\\npm on Windows) isn't on PATH.")
     print("      Add it to your user PATH and restart the terminal.")
     print()
+    if sys.platform != "win32":
+        print("   3. Linux/macOS service (systemd etc.): the native installer")
+        print("      puts claude in ~/.local/bin. Run the bridge as the same")
+        print("      user that installed and logged in to claude, and include")
+        print("      that directory in the service's PATH.")
+        print()
     print(" Verify with:  claude --version")
     print("=" * 62)
     print()
@@ -1777,7 +1784,77 @@ AVAILABLE TOOLS:
 """
 
 app = Flask(__name__, template_folder='templates')
-CORS(app)  # Enable CORS for SillyTavern
+
+# Interface to listen on. Defaults to loopback so the bridge (and the Claude
+# subscription behind it) is only reachable from this machine — SillyTavern
+# calls it server-side, so that's all it needs. Set BRIDGE_HOST=0.0.0.0 to
+# expose it on the network (pair with BRIDGE_API_KEY).
+BRIDGE_HOST = os.environ.get("BRIDGE_HOST", "").strip() or "127.0.0.1"
+_ALL_INTERFACES = ("0.0.0.0", "::")
+
+# CORS only matters for browser JS on another origin calling the bridge
+# directly. SillyTavern proxies chat-completion and model-list requests
+# through its own Node server, and the dashboard is same-origin, so neither
+# needs it. BRIDGE_CORS_ORIGINS (comma-separated, or "*") allows specific
+# origins; when unset, keep the old allow-all only on a wildcard bind.
+_cors_origins = [o.strip() for o in os.environ.get("BRIDGE_CORS_ORIGINS", "").split(",") if o.strip()]
+if _cors_origins:
+    CORS(app, origins=_cors_origins)
+elif BRIDGE_HOST in _ALL_INTERFACES:
+    CORS(app)  # Enable CORS for SillyTavern
+
+# Optional auth, both off unless set in the environment:
+#   BRIDGE_API_KEY             -> /v1/* requires "Authorization: Bearer <key>"
+#                                 (SillyTavern's API key field sends exactly this)
+#   BRIDGE_DASHBOARD_PASSWORD  -> everything else (GUI + /api/*) requires HTTP
+#                                 Basic auth with this password, any username
+BRIDGE_API_KEY = os.environ.get("BRIDGE_API_KEY", "")
+BRIDGE_DASHBOARD_PASSWORD = os.environ.get("BRIDGE_DASHBOARD_PASSWORD", "")
+
+
+def _secret_matches(given: str, expected: str) -> bool:
+    return hmac.compare_digest(given.encode("utf-8"), expected.encode("utf-8"))
+
+
+def _dashboard_auth_ok() -> bool:
+    auth = request.authorization
+    return bool(
+        auth is not None
+        and auth.type == "basic"
+        and auth.password is not None
+        and _secret_matches(auth.password, BRIDGE_DASHBOARD_PASSWORD)
+    )
+
+
+@app.before_request
+def _require_auth():
+    """Gate every request in one place so routes added later are covered too."""
+    if request.method == "OPTIONS":
+        return None  # CORS preflights never carry credentials
+    if request.path == "/v1" or request.path.startswith("/v1/"):
+        if not BRIDGE_API_KEY:
+            return None
+        scheme, _, token = request.headers.get("Authorization", "").partition(" ")
+        if scheme.lower() == "bearer" and _secret_matches(token.strip(), BRIDGE_API_KEY):
+            return None
+        # The GUI's Test tab posts to /v1 from the browser, which re-sends the
+        # dashboard's Basic credentials. Accept them — the dashboard password
+        # already grants full control of the bridge.
+        if BRIDGE_DASHBOARD_PASSWORD and _dashboard_auth_ok():
+            return None
+        return jsonify({"error": {
+            "message": "Invalid or missing API key. Send 'Authorization: Bearer <BRIDGE_API_KEY>'.",
+            "type": "invalid_request_error",
+            "param": None,
+            "code": "invalid_api_key",
+        }}), 401
+    if BRIDGE_DASHBOARD_PASSWORD and not _dashboard_auth_ok():
+        return Response(
+            "Authentication required.\n", 401,
+            {"WWW-Authenticate": 'Basic realm="Claude Code Bridge", charset="UTF-8"'},
+        )
+    return None
+
 
 # =============================================================================
 # CONFIGURATION - Edit these settings as needed
@@ -5499,13 +5576,23 @@ if __name__ == "__main__":
     print(f"  {Colors.DIM}Effort:{Colors.RESET}     {Colors.GREEN}{runtime_settings['effort_level']}{Colors.RESET}")
     print(f"  {Colors.DIM}Model:{Colors.RESET}      {Colors.GREEN}{runtime_settings['model']}{Colors.RESET}")
     print(f"  {Colors.DIM}Thinking:{Colors.RESET}   {Colors.GREEN}{'visible' if runtime_settings['show_thinking_console'] else 'hidden'}{Colors.RESET}")
+    print(f"  {Colors.DIM}Claude CLI:{Colors.RESET} {CLAUDE_EXE}")
     print()
-    bridge_port = int(runtime_settings.get("bridge_port", 5001))
-    print(f"  {Colors.CYAN}Server:{Colors.RESET}     http://localhost:{bridge_port}")
-    print(f"  {Colors.CYAN}API URL:{Colors.RESET}    http://localhost:{bridge_port}/v1")
-    print(f"  {Colors.CYAN}Dashboard:{Colors.RESET}  http://localhost:{bridge_port}")
+    # BRIDGE_PORT (env) overrides the port saved from the GUI.
+    bridge_port = int(os.environ.get("BRIDGE_PORT", "").strip() or runtime_settings.get("bridge_port", 5001))
+    # Wildcard binds aren't browsable addresses; show localhost for the URLs.
+    url_host = "localhost" if BRIDGE_HOST in _ALL_INTERFACES else BRIDGE_HOST
+    if ":" in url_host:
+        url_host = f"[{url_host}]"  # IPv6 literal
+    print(f"  {Colors.CYAN}Listening:{Colors.RESET}  {BRIDGE_HOST}:{bridge_port}{' (all interfaces)' if BRIDGE_HOST in _ALL_INTERFACES else ''}")
+    print(f"  {Colors.CYAN}Server:{Colors.RESET}     http://{url_host}:{bridge_port}")
+    print(f"  {Colors.CYAN}API URL:{Colors.RESET}    http://{url_host}:{bridge_port}/v1")
+    print(f"  {Colors.CYAN}Dashboard:{Colors.RESET}  http://{url_host}:{bridge_port}")
+    print(f"  {Colors.DIM}Auth:{Colors.RESET}       API key {'required' if BRIDGE_API_KEY else 'off'}, dashboard password {'required' if BRIDGE_DASHBOARD_PASSWORD else 'off'}")
+    if not BRIDGE_API_KEY and not (BRIDGE_HOST in ("localhost", "::1") or BRIDGE_HOST.startswith("127.")):
+        print(f"  {Colors.YELLOW}⚠ Listening beyond loopback with no BRIDGE_API_KEY — anyone who can reach this port can use your Claude subscription.{Colors.RESET}")
     print()
     print(f"  {Colors.DIM}Press Ctrl+C to stop{Colors.RESET}")
     print()
 
-    app.run(host="0.0.0.0", port=bridge_port, debug=False)
+    app.run(host=BRIDGE_HOST, port=bridge_port, debug=False)

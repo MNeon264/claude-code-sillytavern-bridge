@@ -821,7 +821,7 @@ def _load_embed_model():
         except ImportError:
             log(
                 "sentence-transformers not installed — embeddings disabled. "
-                "Run: pip install sentence-transformers",
+                "Run: pip install -r requirements-memory.txt",
                 "WARN",
             )
             _embed_load_failed = True

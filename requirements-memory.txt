@@ -1,0 +1,8 @@
+# Optional: Character Memory v2 — embeddings for semantic retrieval.
+# The bridge runs without these; memory then logs "sentence-transformers not
+# installed" and skips the semantic-search part.
+# On a CPU-only server, install CPU torch first to avoid ~2GB of CUDA wheels:
+#   pip install torch --index-url https://download.pytorch.org/whl/cpu
+# First import downloads ~80MB model into ~/.cache/huggingface.
+sentence-transformers>=2.2.0
+numpy>=1.24.0
