@@ -114,6 +114,12 @@ if CLAUDE_EXE is None:
     print("      bin (usually %APPDATA%\\npm on Windows) isn't on PATH.")
     print("      Add it to your user PATH and restart the terminal.")
     print()
+    if sys.platform != "win32":
+        print("   3. Linux/macOS service (systemd etc.): the native installer")
+        print("      puts claude in ~/.local/bin. Run the bridge as the same")
+        print("      user that installed and logged in to claude, and include")
+        print("      that directory in the service's PATH.")
+        print()
     print(" Verify with:  claude --version")
     print("=" * 62)
     print()
@@ -5570,6 +5576,7 @@ if __name__ == "__main__":
     print(f"  {Colors.DIM}Effort:{Colors.RESET}     {Colors.GREEN}{runtime_settings['effort_level']}{Colors.RESET}")
     print(f"  {Colors.DIM}Model:{Colors.RESET}      {Colors.GREEN}{runtime_settings['model']}{Colors.RESET}")
     print(f"  {Colors.DIM}Thinking:{Colors.RESET}   {Colors.GREEN}{'visible' if runtime_settings['show_thinking_console'] else 'hidden'}{Colors.RESET}")
+    print(f"  {Colors.DIM}Claude CLI:{Colors.RESET} {CLAUDE_EXE}")
     print()
     # BRIDGE_PORT (env) overrides the port saved from the GUI.
     bridge_port = int(os.environ.get("BRIDGE_PORT", "").strip() or runtime_settings.get("bridge_port", 5001))
