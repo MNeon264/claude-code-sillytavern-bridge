@@ -26,8 +26,8 @@ Environment=PATH=/home/st/.local/bin:/usr/local/bin:/usr/bin:/bin
 Environment=BRIDGE_HOST=127.0.0.1
 # Without this, print() output sits in a buffer instead of reaching the journal.
 Environment=PYTHONUNBUFFERED=1
-# The claude binary lives under ~/.local, which is read-only here. Update it
-# from a normal shell instead (`claude update`).
+# Don't let a background update swap the claude binary under a running
+# service. Update it from a normal shell instead (`claude update`).
 Environment=DISABLE_AUTOUPDATER=1
 # Secrets and overrides (BRIDGE_API_KEY, BRIDGE_DASHBOARD_PASSWORD, ...).
 # Values in this file override the Environment= lines above. "-" = optional.
@@ -44,31 +44,15 @@ ProtectControlGroups=true
 RestrictSUIDSGID=true
 LockPersonality=true
 UMask=0077
-# The whole filesystem is read-only except the paths below ("-" = skip if
-# missing). Create optional ones before starting if you need them.
+# The whole filesystem is read-only except the user's home directory.
 ProtectSystem=strict
-# Bridge state: bridge_settings.json, bridge_sessions.json, cache/,
-# character_memory/, temp_images/.
-ReadWritePaths=/home/st/claude-code-sillytavern-bridge
-# claude CLI: credentials refresh, session transcripts (needed for --resume
-# session reuse), backups.
-ReadWritePaths=-/home/st/.claude
-# claude CLI: atomic-write staging, per-project logs, version locks.
-ReadWritePaths=-/home/st/.cache/claude
-ReadWritePaths=-/home/st/.cache/claude-cli-nodejs
-ReadWritePaths=-/home/st/.local/state/claude
-# Character Memory embedding model download (mkdir -p it first).
-ReadWritePaths=-/home/st/.cache/huggingface
-# Auto-lorebook writes its World Info JSON into SillyTavern's worlds folder
-# (the Lorebook path set in the GUI). Only needed if you use auto-lorebook.
-ReadWritePaths=-/home/st/SillyTavern/data
-#
-# Not writable on purpose: ~/.claude.json. claude updates it via a lock dir
-# and temp files created directly in /home/st, so allowing it would mean
-# making all of /home/st writable. Tested with claude 2.1.293: it logs
-# "continuing without persisting" and runs normally. If a future claude
-# version needs it, replace the ReadWritePaths lines above with:
-#   ReadWritePaths=/home/st
+# All of /home/st is writable: besides the bridge's own state (bridge
+# directory) and ~/.claude, ~/.cache and ~/.local/state, claude rewrites
+# ~/.claude.json through a lock dir and temp files created directly in
+# /home/st. With only those subdirectories writable it logs "continuing
+# without persisting" on every call. Also covers ~/.cache/huggingface
+# (Character Memory) and ~/SillyTavern/data (auto-lorebook World Info).
+ReadWritePaths=/home/st
 
 [Install]
 WantedBy=multi-user.target

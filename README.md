@@ -181,9 +181,8 @@ How the unit is set up:
 
 - **PATH** includes `/home/st/.local/bin`, so `claude` is found. The startup banner shows which `claude` binary the bridge resolved.
 - **Secrets** go in `/etc/claude-bridge.env` (root-only, read by systemd before it drops privileges). Values there override the unit's `Environment=` lines.
-- **Sandbox**: `ProtectSystem=strict` makes the filesystem read-only except for the bridge directory, the `claude` CLI's state (`~/.claude`, `~/.cache/claude`, `~/.cache/claude-cli-nodejs`, `~/.local/state/claude`), `~/.cache/huggingface`, and `~/SillyTavern/data` (auto-lorebook writes its World Info file into SillyTavern's worlds folder). If your Lorebook path lives elsewhere, add a `ReadWritePaths=` line for it.
-- **`~/.claude.json` stays read-only.** `claude` rewrites it through a lock directory and temp files created directly in your home directory. Allowing that would mean making all of `/home/st` writable. `claude` treats the failure as non-fatal; the unit's comments show the one-line opt-out if that ever changes.
-- **Auto-update is disabled** inside the service, because the `claude` binary sits on a read-only path there. Update with `claude update` from a normal shell, then `sudo systemctl restart claude-bridge`.
+- **Sandbox**: `ProtectSystem=strict` makes the filesystem read-only except for `/home/st`. The whole home directory is writable because `claude` rewrites `~/.claude.json` through a lock directory and temp files created directly in it; with only the CLI's state directories writable, every call logs "continuing without persisting". That also covers the bridge directory, `~/.cache/huggingface` and `~/SillyTavern/data` (auto-lorebook writes its World Info file into SillyTavern's worlds folder). If your Lorebook path lives outside your home directory, add a `ReadWritePaths=` line for it.
+- **Auto-update is disabled** inside the service, so a background update never swaps the `claude` binary under a running bridge. Update with `claude update` from a normal shell, then `sudo systemctl restart claude-bridge`.
 
 ### 4. Reach the dashboard
 
