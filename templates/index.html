@@ -999,7 +999,7 @@
 
                 <div class="setting-card">
                     <h3>Character Memory</h3>
-                    <p style="color:var(--paper-faint);font-size:12px;margin-bottom:10px;">Structured per-character SQLite + embeddings + Sonnet librarian. Sonnet curates relevant memories before each Opus turn (~3-8s added latency) and updates the DB after (background, non-blocking). See <code>MEMORY_DESIGN.md</code> for the full architecture. Requires <code>sentence-transformers</code> (auto-installed via requirements.txt). First turn for a new character runs a one-time bootstrap pass (~5s). Old <code>state.md</code> / <code>diary.md</code> / <code>rules.md</code> files from the previous markdown-based system are migrated into the DB automatically on first enable.</p>
+                    <p style="color:var(--paper-faint);font-size:12px;margin-bottom:10px;">Structured per-character SQLite + embeddings + Sonnet librarian. Sonnet curates relevant memories before each Opus turn (~3-8s added latency) and updates the DB after (background, non-blocking). See <code>MEMORY_DESIGN.md</code> for the full architecture. Requires <code>sentence-transformers</code> (installed by run_bridge.bat, or <code>pip install -r requirements-memory.txt</code>). First turn for a new character runs a one-time bootstrap pass (~5s). Old <code>state.md</code> / <code>diary.md</code> / <code>rules.md</code> files from the previous markdown-based system are migrated into the DB automatically on first enable.</p>
                     <div class="switch-container">
                         <label class="switch">
                             <input type="checkbox" id="characterMemoryV2">

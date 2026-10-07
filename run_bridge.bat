@@ -1,6 +1,6 @@
 @echo off
 echo Installing dependencies...
-pip install -r requirements.txt
+pip install -r requirements.txt -r requirements-memory.txt
 
 echo.
 echo Starting Claude Code Bridge...
