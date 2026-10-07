@@ -1,8 +1,13 @@
 # Personal runtime state and caches
 bridge_settings.json
+bridge_sessions.json
 cache/
 temp_images/
 character_memory/
+
+# Secrets (e.g. a local copy of deploy/claude-bridge.env.example)
+*.env
+!*.env.example
 
 # Claude Code's local session state (should never be committed)
 .claude/
