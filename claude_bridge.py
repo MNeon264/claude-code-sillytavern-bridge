@@ -1778,7 +1778,6 @@ AVAILABLE TOOLS:
 """
 
 app = Flask(__name__, template_folder='templates')
-CORS(app)  # Enable CORS for SillyTavern
 
 # Interface to listen on. Defaults to loopback so the bridge (and the Claude
 # subscription behind it) is only reachable from this machine — SillyTavern
@@ -1786,6 +1785,17 @@ CORS(app)  # Enable CORS for SillyTavern
 # expose it on the network (pair with BRIDGE_API_KEY).
 BRIDGE_HOST = os.environ.get("BRIDGE_HOST", "").strip() or "127.0.0.1"
 _ALL_INTERFACES = ("0.0.0.0", "::")
+
+# CORS only matters for browser JS on another origin calling the bridge
+# directly. SillyTavern proxies chat-completion and model-list requests
+# through its own Node server, and the dashboard is same-origin, so neither
+# needs it. BRIDGE_CORS_ORIGINS (comma-separated, or "*") allows specific
+# origins; when unset, keep the old allow-all only on a wildcard bind.
+_cors_origins = [o.strip() for o in os.environ.get("BRIDGE_CORS_ORIGINS", "").split(",") if o.strip()]
+if _cors_origins:
+    CORS(app, origins=_cors_origins)
+elif BRIDGE_HOST in _ALL_INTERFACES:
+    CORS(app)  # Enable CORS for SillyTavern
 
 # Optional auth, both off unless set in the environment:
 #   BRIDGE_API_KEY             -> /v1/* requires "Authorization: Bearer <key>"
