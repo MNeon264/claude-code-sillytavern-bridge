@@ -29,6 +29,10 @@ Environment=PYTHONUNBUFFERED=1
 # Don't let a background update swap the claude binary under a running
 # service. Update it from a normal shell instead (`claude update`).
 Environment=DISABLE_AUTOUPDATER=1
+# Don't load the claude.ai connectors (Gmail, Drive, Calendar, ...) of the
+# logged-in account into the bridge's `claude -p` calls. Only affects processes
+# started by this unit; interactive `claude` sessions keep their connectors.
+Environment=ENABLE_CLAUDEAI_MCP_SERVERS=false
 # Secrets and overrides (BRIDGE_API_KEY, BRIDGE_DASHBOARD_PASSWORD, ...).
 # Values in this file override the Environment= lines above. "-" = optional.
 EnvironmentFile=-/etc/claude-bridge.env
