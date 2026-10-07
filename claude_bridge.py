@@ -13,6 +13,7 @@ import sys
 import tempfile
 import os
 import hashlib
+import hmac
 import base64
 import re
 import shutil
@@ -1785,6 +1786,59 @@ CORS(app)  # Enable CORS for SillyTavern
 # expose it on the network (pair with BRIDGE_API_KEY).
 BRIDGE_HOST = os.environ.get("BRIDGE_HOST", "").strip() or "127.0.0.1"
 _ALL_INTERFACES = ("0.0.0.0", "::")
+
+# Optional auth, both off unless set in the environment:
+#   BRIDGE_API_KEY             -> /v1/* requires "Authorization: Bearer <key>"
+#                                 (SillyTavern's API key field sends exactly this)
+#   BRIDGE_DASHBOARD_PASSWORD  -> everything else (GUI + /api/*) requires HTTP
+#                                 Basic auth with this password, any username
+BRIDGE_API_KEY = os.environ.get("BRIDGE_API_KEY", "")
+BRIDGE_DASHBOARD_PASSWORD = os.environ.get("BRIDGE_DASHBOARD_PASSWORD", "")
+
+
+def _secret_matches(given: str, expected: str) -> bool:
+    return hmac.compare_digest(given.encode("utf-8"), expected.encode("utf-8"))
+
+
+def _dashboard_auth_ok() -> bool:
+    auth = request.authorization
+    return bool(
+        auth is not None
+        and auth.type == "basic"
+        and auth.password is not None
+        and _secret_matches(auth.password, BRIDGE_DASHBOARD_PASSWORD)
+    )
+
+
+@app.before_request
+def _require_auth():
+    """Gate every request in one place so routes added later are covered too."""
+    if request.method == "OPTIONS":
+        return None  # CORS preflights never carry credentials
+    if request.path == "/v1" or request.path.startswith("/v1/"):
+        if not BRIDGE_API_KEY:
+            return None
+        scheme, _, token = request.headers.get("Authorization", "").partition(" ")
+        if scheme.lower() == "bearer" and _secret_matches(token.strip(), BRIDGE_API_KEY):
+            return None
+        # The GUI's Test tab posts to /v1 from the browser, which re-sends the
+        # dashboard's Basic credentials. Accept them — the dashboard password
+        # already grants full control of the bridge.
+        if BRIDGE_DASHBOARD_PASSWORD and _dashboard_auth_ok():
+            return None
+        return jsonify({"error": {
+            "message": "Invalid or missing API key. Send 'Authorization: Bearer <BRIDGE_API_KEY>'.",
+            "type": "invalid_request_error",
+            "param": None,
+            "code": "invalid_api_key",
+        }}), 401
+    if BRIDGE_DASHBOARD_PASSWORD and not _dashboard_auth_ok():
+        return Response(
+            "Authentication required.\n", 401,
+            {"WWW-Authenticate": 'Basic realm="Claude Code Bridge", charset="UTF-8"'},
+        )
+    return None
+
 
 # =============================================================================
 # CONFIGURATION - Edit these settings as needed
@@ -5517,6 +5571,9 @@ if __name__ == "__main__":
     print(f"  {Colors.CYAN}Server:{Colors.RESET}     http://{url_host}:{bridge_port}")
     print(f"  {Colors.CYAN}API URL:{Colors.RESET}    http://{url_host}:{bridge_port}/v1")
     print(f"  {Colors.CYAN}Dashboard:{Colors.RESET}  http://{url_host}:{bridge_port}")
+    print(f"  {Colors.DIM}Auth:{Colors.RESET}       API key {'required' if BRIDGE_API_KEY else 'off'}, dashboard password {'required' if BRIDGE_DASHBOARD_PASSWORD else 'off'}")
+    if not BRIDGE_API_KEY and not (BRIDGE_HOST in ("localhost", "::1") or BRIDGE_HOST.startswith("127.")):
+        print(f"  {Colors.YELLOW}⚠ Listening beyond loopback with no BRIDGE_API_KEY — anyone who can reach this port can use your Claude subscription.{Colors.RESET}")
     print()
     print(f"  {Colors.DIM}Press Ctrl+C to stop{Colors.RESET}")
     print()
