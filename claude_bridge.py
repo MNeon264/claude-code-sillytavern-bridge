@@ -1779,6 +1779,13 @@ AVAILABLE TOOLS:
 app = Flask(__name__, template_folder='templates')
 CORS(app)  # Enable CORS for SillyTavern
 
+# Interface to listen on. Defaults to loopback so the bridge (and the Claude
+# subscription behind it) is only reachable from this machine — SillyTavern
+# calls it server-side, so that's all it needs. Set BRIDGE_HOST=0.0.0.0 to
+# expose it on the network (pair with BRIDGE_API_KEY).
+BRIDGE_HOST = os.environ.get("BRIDGE_HOST", "").strip() or "127.0.0.1"
+_ALL_INTERFACES = ("0.0.0.0", "::")
+
 # =============================================================================
 # CONFIGURATION - Edit these settings as needed
 # =============================================================================
@@ -5500,12 +5507,18 @@ if __name__ == "__main__":
     print(f"  {Colors.DIM}Model:{Colors.RESET}      {Colors.GREEN}{runtime_settings['model']}{Colors.RESET}")
     print(f"  {Colors.DIM}Thinking:{Colors.RESET}   {Colors.GREEN}{'visible' if runtime_settings['show_thinking_console'] else 'hidden'}{Colors.RESET}")
     print()
-    bridge_port = int(runtime_settings.get("bridge_port", 5001))
-    print(f"  {Colors.CYAN}Server:{Colors.RESET}     http://localhost:{bridge_port}")
-    print(f"  {Colors.CYAN}API URL:{Colors.RESET}    http://localhost:{bridge_port}/v1")
-    print(f"  {Colors.CYAN}Dashboard:{Colors.RESET}  http://localhost:{bridge_port}")
+    # BRIDGE_PORT (env) overrides the port saved from the GUI.
+    bridge_port = int(os.environ.get("BRIDGE_PORT", "").strip() or runtime_settings.get("bridge_port", 5001))
+    # Wildcard binds aren't browsable addresses; show localhost for the URLs.
+    url_host = "localhost" if BRIDGE_HOST in _ALL_INTERFACES else BRIDGE_HOST
+    if ":" in url_host:
+        url_host = f"[{url_host}]"  # IPv6 literal
+    print(f"  {Colors.CYAN}Listening:{Colors.RESET}  {BRIDGE_HOST}:{bridge_port}{' (all interfaces)' if BRIDGE_HOST in _ALL_INTERFACES else ''}")
+    print(f"  {Colors.CYAN}Server:{Colors.RESET}     http://{url_host}:{bridge_port}")
+    print(f"  {Colors.CYAN}API URL:{Colors.RESET}    http://{url_host}:{bridge_port}/v1")
+    print(f"  {Colors.CYAN}Dashboard:{Colors.RESET}  http://{url_host}:{bridge_port}")
     print()
     print(f"  {Colors.DIM}Press Ctrl+C to stop{Colors.RESET}")
     print()
 
-    app.run(host="0.0.0.0", port=bridge_port, debug=False)
+    app.run(host=BRIDGE_HOST, port=bridge_port, debug=False)
