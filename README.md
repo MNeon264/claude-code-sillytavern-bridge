@@ -2,7 +2,7 @@
 
 ## Fork notes
 
-This fork of [MissSinful/claude-code-sillytavern-bridge](https://github.com/MissSinful/claude-code-sillytavern-bridge) adapts the bridge for a headless Linux VPS and changes how prompts reach Claude (SillyTavern's prompt is the system prompt; the bridge's own roleplay prompt is optional). Memory logic is unchanged. Changes vs upstream:
+This fork of [MissSinful/claude-code-sillytavern-bridge](https://github.com/MissSinful/claude-code-sillytavern-bridge) adapts the bridge for a headless Linux VPS and changes how prompts reach Claude (SillyTavern's prompt is the system prompt; the bridge's own roleplay prompt is optional). Changes vs upstream:
 
 - **Listens on `127.0.0.1` by default** instead of `0.0.0.0`. Override with `BRIDGE_HOST`; `BRIDGE_PORT` overrides the GUI port setting.
 - **Optional auth**: `BRIDGE_API_KEY` requires `Authorization: Bearer <key>` on `/v1/*`, and `BRIDGE_DASHBOARD_PASSWORD` puts HTTP Basic auth on the dashboard and `/api/*`. Both are off unless set.
@@ -13,9 +13,10 @@ This fork of [MissSinful/claude-code-sillytavern-bridge](https://github.com/Miss
 - **SillyTavern's prompt is the system prompt.** SillyTavern's system messages before the chat (preset, card, persona, lore) go into Claude's real system prompt, after a short bridge frame that explains the message layout. Post-History Instructions stay after the chat and in-chat notes stay in place, instead of everything being moved to the top of the first message. The upstream roleplay prompt is no longer sent by default; the Prompts tab can load it as optional style notes.
 - **CLI sessions keep their system prompt.** A resumed session re-sends the exact system prompt it started with, so Claude's earlier thinking stays valid (rebuilding it mid-session is a history edit, rejected for newer accounts on current Opus models) and the prompt cache stays warm. Lore or notes SillyTavern adds or changes mid-session are sent with that turn in a `<sillytavern_update>` block, and changed Post-History Instructions are re-sent. A change to the bridge's own part (style notes, Creativity, tools) starts a new session.
 - **Thinking goes to SillyTavern's reasoning block.** No prompt asks Claude to write `<think>` reasoning into the reply. With Include Thinking on, the bridge requests the CLI's summarized thinking (`--thinking-display summarized`) and returns it as `reasoning_content`, which SillyTavern shows when "Request model reasoning" is on. Effort controls how much Claude thinks.
+- **Character Memory keeps its must-keep rows itself.** Among a turn's candidate memories, desires with intensity 4 or higher, secrets, and relationships with characters in the scene are injected first, without going through Sonnet's ranking; upstream asked Sonnet to keep them. Sonnet ranks only the other candidates for the remaining slots, and its answer is checked against a JSON schema (`--json-schema`).
 - **Restyled dashboard with a prompt preview.** The dashboard uses a plain sans-serif layout instead of the serif/italic editorial styling. The Prompts tab previews what a roleplay turn sends to the CLI, for a new session and for a resumed turn: the bridge's own text placed around SillyTavern's prompt order, which `GET /api/prompt_preview` reads from SillyTavern's `settings.json` (found next to the bridge's folder, or via the Lorebook tab's worlds path). Card, lore and chat-history entries show as placeholders.
 
-With no environment variables set, the only behaviour change is the default listen address.
+With no environment variables set, the only network or auth change is the default listen address.
 
 ---
 
