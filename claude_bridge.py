@@ -1942,7 +1942,7 @@ Be unpredictable, experimental, and bold. Take dramatic narrative risks: unexpec
 }
 
 # The upstream project's roleplay prompt. No longer sent by default: the GUI's
-# System Prompt tab can load it as a starting point for the optional style
+# Prompts tab can load it as a starting point for the optional style
 # notes (runtime_settings["system_prompt_override"]).
 UPSTREAM_STYLE_PROMPT = """You are a Narrative Weaver, an expert collaborative fiction writer.
 
@@ -2045,7 +2045,7 @@ runtime_settings = {
     "lorebook_name": "claude_auto_lore.json",
     # Optional style notes added to every roleplay system prompt, after the
     # bridge frame and before SillyTavern's prompt. Empty = none. The GUI's
-    # System Prompt tab edits it (and can load UPSTREAM_STYLE_PROMPT).
+    # Prompts tab edits it (and can load UPSTREAM_STYLE_PROMPT).
     "system_prompt_override": "",
     # Creativity level: "precise", "balanced", "creative", "wild"
     "creativity": "balanced",
@@ -4299,6 +4299,87 @@ def get_default_system_prompt():
     """The upstream roleplay prompt, offered by the GUI as a starting point
     for the optional style notes. Nothing is sent by default."""
     return jsonify({"default_system_prompt": "", "upstream_style_prompt": UPSTREAM_STYLE_PROMPT})
+
+
+def _sillytavern_user_dir():
+    """SillyTavern's user data folder (data/default-user): the parent of the
+    Lorebook tab's worlds folder when that is set, else a SillyTavern checkout
+    next to the bridge's folder. None when neither has a settings.json."""
+    candidates = []
+    worlds = (runtime_settings.get("lorebook_path") or "").strip()
+    if worlds:
+        candidates.append(os.path.dirname(os.path.normpath(worlds)))
+    bridge_dir = os.path.dirname(os.path.abspath(__file__))
+    candidates.append(os.path.join(os.path.dirname(bridge_dir), "SillyTavern", "data", "default-user"))
+    for path in candidates:
+        if os.path.isfile(os.path.join(path, "settings.json")):
+            return path
+    return None
+
+
+def _sillytavern_prompt_tree() -> dict:
+    """SillyTavern's Chat Completion prompt order, read from its settings.json
+    for the Prompts tab's preview. Marker entries (character card, lore, chat
+    history) have no content here; SillyTavern fills them per chat."""
+    user_dir = _sillytavern_user_dir()
+    if not user_dir:
+        return {"found": False, "error": "SillyTavern's settings.json wasn't found. Set the Lorebook tab's worlds folder so the bridge can locate SillyTavern."}
+    path = os.path.join(user_dir, "settings.json")
+    try:
+        with open(path, encoding="utf-8") as f:
+            oai = json.load(f).get("oai_settings") or {}
+    except (OSError, ValueError) as e:
+        return {"found": False, "error": f"Could not read {path}: {e}"}
+
+    prompts = {p.get("identifier"): p for p in oai.get("prompts") or [] if isinstance(p, dict)}
+    orders = {o.get("character_id"): o.get("order") or [] for o in oai.get("prompt_order") or [] if isinstance(o, dict)}
+    # 100001 is the global prompt order current SillyTavern uses; 100000 is
+    # the older default.
+    order = next((orders[i] for i in (100001, 100000) if i in orders), None)
+    if order is None:
+        order = next(iter(orders.values()), [])
+
+    tree = []
+    for entry in order:
+        p = prompts.get(entry.get("identifier"))
+        if not p:
+            continue
+        tree.append({
+            "identifier": p.get("identifier"),
+            "name": p.get("name") or p.get("identifier"),
+            "enabled": bool(entry.get("enabled", True)),
+            "marker": bool(p.get("marker")),
+            "role": p.get("role") or "system",
+            "content": p.get("content") or "",
+            "injection_position": p.get("injection_position") or 0,
+            "injection_depth": p.get("injection_depth", 4),
+            "forbid_overrides": bool(p.get("forbid_overrides")),
+        })
+    return {
+        "found": True,
+        "source": path,
+        "preset": oai.get("preset_settings_openai") or "",
+        "chat_completion_source": oai.get("chat_completion_source") or "",
+        "post_processing": oai.get("custom_prompt_post_processing") or "",
+        "function_calling": bool(oai.get("function_calling")),
+        "new_chat_prompt": oai.get("new_chat_prompt") or "",
+        "prompts": tree,
+    }
+
+
+@app.route("/api/prompt_preview", methods=["GET"])
+def get_prompt_preview():
+    """The bridge's own prompt text plus SillyTavern's prompt order, for the
+    Prompts tab's preview of what a roleplay turn sends to the CLI."""
+    return jsonify({
+        "bridge": {
+            "frame": BRIDGE_FRAME,
+            "style_notes_line": BRIDGE_STYLE_NOTES_LINE,
+            "creativity": CREATIVITY_SECTIONS,
+            "tool_instructions": TOOL_CALLING_INSTRUCTIONS.strip(),
+        },
+        "sillytavern": _sillytavern_prompt_tree(),
+    })
 
 
 @app.route("/api/version", methods=["GET"])

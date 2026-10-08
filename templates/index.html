@@ -6,382 +6,446 @@
     <title>Claude Code ↔ SillyTavern Bridge</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Newsreader:ital,opsz,wght@0,6..72,300..700;1,6..72,300..700&family=IBM+Plex+Mono:wght@300;400;500&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
     <style>
         :root {
-            --ink: #0f0c0a;
-            --ink-raised: #17120f;
-            --ink-hover: #221a15;
-            --ink-sunk: #0a0807;
-            --rule: #3b2e26;
-            --rule-faint: #1f1712;
-            --paper: #f4ede1;
-            --paper-dim: #b8a999;
-            --paper-faint: #7d6e5f;
-            --paper-ghost: #4a3f36;
-            --accent: #d4461d;
-            --accent-soft: #e86a3d;
-            --accent-dim: #8a2a13;
-            --success: #8a9541;
-            --warn: #c99545;
-            --error: #a23d2a;
-            --gold: #c69a5a;
+            color-scheme: dark;
 
-            --font-display: 'Instrument Serif', Georgia, 'Times New Roman', serif;
-            --font-body: 'Newsreader', Georgia, 'Times New Roman', serif;
-            --font-mono: 'IBM Plex Mono', Menlo, Consolas, monospace;
+            /* Surfaces (darkest to lightest) */
+            --ink-sunk: #0c0d0f;
+            --ink: #111214;
+            --ink-raised: #17181b;
+            --ink-hover: #1f2124;
+
+            /* Borders */
+            --rule-faint: #1d1f23;
+            --rule: #282a2f;
+            --rule-strong: #393c43;
+
+            /* Text */
+            --paper: #ececee;
+            --paper-dim: #b4b6bc;
+            --paper-faint: #868990;
+            --paper-ghost: #5f626a;
+
+            /* Accent (Claude terracotta) and SillyTavern blue */
+            --accent: #d97757;
+            --accent-soft: #e8977c;
+            --accent-strong: #c2603e;
+            --accent-dim: #5a2c1f;
+            --accent-tint: rgba(217, 119, 87, 0.12);
+            --st: #86a6dc;
+            --st-tint: rgba(134, 166, 220, 0.12);
+
+            --success: #5cb88a;
+            --warn: #d9a548;
+            --error: #e0645c;
+
+            --radius: 10px;
+            --radius-sm: 6px;
+
+            --font-display: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+            --font-body: var(--font-display);
+            --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
         }
 
         * { box-sizing: border-box; }
 
-        html, body {
-            margin: 0;
-            padding: 0;
-        }
+        html, body { margin: 0; padding: 0; }
 
         body {
             font-family: var(--font-body);
-            font-weight: 400;
-            font-size: 15px;
-            line-height: 1.6;
+            font-size: 14px;
+            line-height: 1.55;
             background: var(--ink);
             color: var(--paper);
             min-height: 100vh;
-            font-feature-settings: 'kern', 'liga', 'onum';
             -webkit-font-smoothing: antialiased;
         }
 
-        /* Paper grain overlay for depth */
-        body::before {
-            content: '';
-            position: fixed;
-            inset: 0;
-            pointer-events: none;
-            z-index: 100;
-            opacity: 0.04;
-            mix-blend-mode: overlay;
-            background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
-        }
-
-        /* Soft vignette at top */
-        body::after {
-            content: '';
-            position: fixed;
-            top: 0;
-            left: 0;
-            right: 0;
-            height: 400px;
-            pointer-events: none;
-            z-index: 99;
-            background: radial-gradient(ellipse at top, rgba(212, 70, 29, 0.04) 0%, transparent 70%);
-        }
-
         .container {
-            max-width: 1120px;
+            max-width: 1080px;
             margin: 0 auto;
-            padding: 72px 56px 96px;
-            position: relative;
+            padding: 0 24px 72px;
         }
 
-        /* ========== PAGE LOAD STAGGER ========== */
-        @keyframes riseIn {
-            from { opacity: 0; transform: translateY(14px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
-
-        .masthead,
-        .tabs,
-        .panel.active {
-            animation: riseIn 0.7s cubic-bezier(0.22, 1, 0.36, 1) both;
-        }
-        .masthead { animation-delay: 0.05s; }
-        .tabs     { animation-delay: 0.18s; }
-        .panel.active { animation-delay: 0.32s; }
-
-        /* ========== MASTHEAD ========== */
-        .masthead {
-            border-bottom: 1px solid var(--rule);
-            padding-bottom: 36px;
-            margin-bottom: 48px;
-            display: grid;
-            grid-template-columns: 1fr auto;
-            align-items: end;
-            gap: 48px;
-            position: relative;
-        }
-
-        .masthead::before {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 48px;
-            height: 1px;
-            background: var(--accent);
-        }
-
-        .masthead-title {
-            font-family: var(--font-display);
-            font-size: clamp(44px, 6.5vw, 72px);
-            line-height: 0.95;
-            letter-spacing: -0.02em;
-            color: var(--paper);
-            margin: 0;
-            font-weight: 400;
-        }
-
-        .masthead-title em {
-            font-style: italic;
-            color: var(--accent);
-            font-weight: 400;
-        }
-
-        .masthead-kicker {
-            font-family: var(--font-mono);
-            font-size: 10px;
-            font-weight: 400;
-            letter-spacing: 0.24em;
-            text-transform: uppercase;
-            color: var(--paper-faint);
-            margin: 0 0 18px;
+        /* ========== TOP BAR ========== */
+        .topbar {
             display: flex;
             align-items: center;
-            gap: 12px;
-        }
-
-        .masthead-kicker::after {
-            content: '';
-            flex: 0 0 auto;
-            width: 32px;
-            height: 1px;
-            background: var(--paper-ghost);
-        }
-
-        .masthead-meta {
-            font-family: var(--font-mono);
-            font-size: 10px;
-            letter-spacing: 0.14em;
-            text-transform: uppercase;
-            color: var(--paper-faint);
-            text-align: right;
-            line-height: 2;
-            padding-bottom: 14px;
-        }
-
-        .masthead-meta .v { color: var(--paper-dim); }
-        .masthead-meta .sep { color: var(--paper-ghost); margin: 0 6px; }
-
-        /* ========== NAVIGATION / TABS ========== */
-        .tabs {
-            display: flex;
-            gap: 0;
-            margin-bottom: 64px;
-            border-bottom: 1px solid var(--rule);
+            justify-content: space-between;
+            gap: 16px;
             flex-wrap: wrap;
+            padding: 20px 0 18px;
         }
+
+        .brand { display: flex; align-items: center; gap: 12px; min-width: 0; }
+
+        .brand-mark {
+            width: 34px;
+            height: 34px;
+            flex: 0 0 auto;
+            border-radius: 8px;
+            display: grid;
+            place-items: center;
+            color: var(--accent);
+            background: var(--accent-tint);
+            border: 1px solid rgba(217, 119, 87, 0.3);
+        }
+
+        .brand-name {
+            margin: 0;
+            font-size: 15px;
+            font-weight: 600;
+            line-height: 1.25;
+            color: var(--paper);
+        }
+
+        .brand-sub { font-size: 12.5px; color: var(--paper-faint); }
+
+        .topbar-meta {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: wrap;
+            font-size: 12.5px;
+            color: var(--paper-faint);
+        }
+
+        .chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            height: 28px;
+            padding: 0 11px;
+            border: 1px solid var(--rule);
+            border-radius: 999px;
+            background: var(--ink-raised);
+            white-space: nowrap;
+            max-width: 100%;
+        }
+
+        .chip .mono { font-family: var(--font-mono); font-size: 11.5px; color: var(--paper-dim); overflow: hidden; text-overflow: ellipsis; }
+        .chip a { color: var(--accent); text-decoration: none; }
+        .chip a:hover { text-decoration: underline; }
+
+        /* ========== TABS ========== */
+        .tabs {
+            position: sticky;
+            top: 0;
+            z-index: 20;
+            display: flex;
+            gap: 2px;
+            margin: 0 0 32px;
+            background: var(--ink);
+            border-bottom: 1px solid var(--rule);
+            overflow-x: auto;
+            scrollbar-width: none;
+        }
+
+        .tabs::-webkit-scrollbar { display: none; }
 
         .tab {
+            position: relative;
+            flex: 0 0 auto;
             background: none;
             border: none;
-            padding: 0 28px 20px 0;
-            margin-right: 28px;
+            padding: 13px 12px;
             color: var(--paper-faint);
             cursor: pointer;
-            font-family: var(--font-display);
-            font-size: 22px;
-            letter-spacing: -0.005em;
-            font-weight: 400;
-            font-style: italic;
-            position: relative;
-            transition: color 0.25s ease;
-            display: flex;
-            align-items: baseline;
-            gap: 14px;
+            font-family: var(--font-body);
+            font-size: 13.5px;
+            font-weight: 500;
+            line-height: 1;
+            transition: color 0.15s ease;
         }
 
-        .tab:last-child { margin-right: 0; }
-
-        .tab::before {
-            content: attr(data-num);
-            font-family: var(--font-mono);
-            font-size: 10px;
-            font-style: normal;
-            letter-spacing: 0.12em;
-            color: var(--paper-ghost);
-            transition: color 0.25s ease;
-            flex: 0 0 auto;
-        }
-
-        .tab:hover { color: var(--paper-dim); }
-        .tab:hover::before { color: var(--accent); }
-
+        .tab:hover { color: var(--paper); }
         .tab.active { color: var(--paper); }
-        .tab.active::before { color: var(--accent); }
 
         .tab.active::after {
             content: '';
             position: absolute;
+            left: 12px;
+            right: 12px;
             bottom: -1px;
-            left: 0;
-            right: 28px;
-            height: 1px;
+            height: 2px;
+            border-radius: 2px 2px 0 0;
             background: var(--accent);
         }
 
-        /* ========== PANELS ========== */
-        .panel {
-            display: none;
-            animation: fadeUp 0.5s cubic-bezier(0.22, 1, 0.36, 1);
-        }
+        .tab:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; border-radius: 4px; }
 
+        /* ========== PANELS ========== */
+        .panel { display: none; }
         .panel.active { display: block; }
 
-        @keyframes fadeUp {
-            from { opacity: 0; transform: translateY(12px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
-
-        /* Panel section header (the big italic intro) */
-        .panel-intro {
-            margin-bottom: 44px;
-            max-width: 68ch;
-        }
-
-        .panel-intro h3,
         .panel > h3:first-of-type {
-            font-family: var(--font-display);
-            font-size: 44px;
-            font-weight: 400;
-            font-style: italic;
-            color: var(--paper);
-            margin: 0 0 14px;
-            letter-spacing: -0.015em;
-            line-height: 1.05;
-        }
-
-        .panel-intro p,
-        .panel > p:first-of-type {
-            color: var(--paper-dim);
-            font-size: 16px;
-            font-weight: 300;
-            line-height: 1.65;
-            margin: 0 0 40px;
-            max-width: 62ch;
-            font-family: var(--font-body);
-        }
-
-        /* Eyebrow / section divider for mid-panel sections */
-        .panel h3:not(:first-of-type) {
-            font-family: var(--font-display);
-            font-size: 28px;
-            font-style: italic;
-            font-weight: 400;
-            color: var(--paper);
-            margin: 56px 0 14px;
+            font-size: 20px;
+            font-weight: 600;
             letter-spacing: -0.01em;
+            line-height: 1.3;
+            color: var(--paper);
+            margin: 0 0 6px;
         }
 
-        /* ========== SETTINGS GRID ========== */
+        .panel > p {
+            color: var(--paper-dim);
+            max-width: 75ch;
+            margin: 0 0 16px;
+        }
+
+        .panel > p:first-of-type { margin-bottom: 24px; }
+
+        /* Mid-panel section headings */
+        .panel > h3:not(:first-of-type) {
+            font-size: 15px;
+            font-weight: 600;
+            color: var(--paper);
+            margin: 32px 0 8px;
+            padding-top: 24px;
+            border-top: 1px solid var(--rule-faint);
+        }
+
+        .group-label {
+            font-size: 11.5px;
+            font-weight: 600;
+            letter-spacing: 0.06em;
+            text-transform: uppercase;
+            color: var(--paper-faint);
+            margin: 28px 0 10px;
+        }
+
+        .group-label:first-child { margin-top: 0; }
+
+        /* ========== CARDS ========== */
         .settings-grid {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-            gap: 1px;
-            background: var(--rule-faint);
-            border: 1px solid var(--rule-faint);
-            margin-bottom: 32px;
+            gap: 12px;
+            margin-bottom: 16px;
         }
 
         .setting-card {
-            background: var(--ink);
-            padding: 32px 30px;
-            position: relative;
-            transition: background 0.2s ease;
+            background: var(--ink-raised);
+            border: 1px solid var(--rule);
+            border-radius: var(--radius);
+            padding: 18px 20px;
+            min-width: 0;
         }
 
-        .setting-card:hover { background: var(--ink-raised); }
+        .panel > .setting-card,
+        .panel > .tool-section { margin-bottom: 16px; }
 
         .setting-card h3 {
-            font-family: var(--font-mono) !important;
-            font-size: 10px !important;
-            font-weight: 500 !important;
-            letter-spacing: 0.18em !important;
-            text-transform: uppercase !important;
-            color: var(--accent) !important;
-            margin: 0 0 8px !important;
-            font-style: normal !important;
+            font-size: 14px;
+            font-weight: 600;
+            line-height: 1.35;
+            color: var(--paper);
+            margin: 0 0 4px;
         }
 
-        .setting-card > p {
+        .setting-card > p,
+        .card-desc {
             color: var(--paper-faint);
             font-size: 13px;
-            margin: 0 0 20px;
-            line-height: 1.55;
-            font-family: var(--font-body);
-            max-width: none;
+            line-height: 1.5;
+            margin: 0 0 14px;
         }
 
-        /* Standalone setting-cards (direct children of .panel, not inside a grid).
-           These get a raised surface treatment so they read as distinct sections. */
-        .panel > .setting-card {
-            background: var(--ink-raised);
-            padding: 36px 38px;
+        .card-head {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 12px;
+            flex-wrap: wrap;
+            margin-bottom: 4px;
+        }
+
+        .card-head h3 { margin: 0; }
+
+        .badge {
+            display: inline-block;
+            margin-left: 6px;
+            padding: 1px 7px;
             border: 1px solid var(--rule);
-            margin-bottom: 24px;
-            position: relative;
+            border-radius: 999px;
+            font-size: 11px;
+            font-weight: 500;
+            color: var(--paper-faint);
+            vertical-align: 1px;
         }
 
-        .panel > .setting-card::before {
-            content: '';
-            position: absolute;
-            top: -1px;
-            left: -1px;
-            width: 28px;
-            height: 2px;
-            background: var(--accent);
-        }
-
-        .panel > .setting-card:hover {
+        /* Settings rendered as a list of rows: text on the left, control on the right */
+        .settings-list {
             background: var(--ink-raised);
+            border: 1px solid var(--rule);
+            border-radius: var(--radius);
+            margin-bottom: 16px;
         }
 
-        /* ========== TOGGLE BUTTON GROUPS ========== */
+        .setting-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 24px;
+            padding: 14px 20px;
+        }
+
+        .setting-row + .setting-row { border-top: 1px solid var(--rule-faint); }
+
+        .setting-row h4 {
+            margin: 0 0 2px;
+            font-size: 13.5px;
+            font-weight: 600;
+            color: var(--paper);
+        }
+
+        .setting-row p {
+            margin: 0;
+            font-size: 12.5px;
+            line-height: 1.5;
+            color: var(--paper-faint);
+            max-width: 72ch;
+        }
+
+        .setting-row-control {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            flex-shrink: 0;
+        }
+
+        /* ========== BUTTONS ========== */
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            height: 34px;
+            padding: 0 14px;
+            border: 1px solid var(--accent-strong);
+            border-radius: var(--radius-sm);
+            background: var(--accent-strong);
+            color: #fff;
+            font-family: var(--font-body);
+            font-size: 13px;
+            font-weight: 500;
+            line-height: 1;
+            white-space: nowrap;
+            cursor: pointer;
+            transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+        }
+
+        .btn:hover { background: #cf6a47; border-color: #cf6a47; }
+
+        .btn:focus-visible,
+        .toggle-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .btn-secondary {
+            background: var(--ink-raised);
+            border-color: var(--rule-strong);
+            color: var(--paper);
+        }
+
+        .btn-secondary:hover {
+            background: var(--ink-hover);
+            border-color: #4a4d55;
+        }
+
+        .btn-danger {
+            background: transparent;
+            border-color: rgba(224, 100, 92, 0.45);
+            color: var(--error);
+        }
+
+        .btn-danger:hover {
+            background: rgba(224, 100, 92, 0.1);
+            border-color: var(--error);
+        }
+
+        .btn-sm { height: 28px; padding: 0 10px; font-size: 12px; }
+
+        .btn-row {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        .status-msg { font-size: 12.5px; color: var(--success); }
+
+        /* Small standalone button (Memory tab actions, entity pills, row actions) */
+        .toggle-btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            height: 30px;
+            padding: 0 12px;
+            border: 1px solid var(--rule-strong);
+            border-radius: var(--radius-sm);
+            background: var(--ink-raised);
+            color: var(--paper-dim);
+            font-family: var(--font-body);
+            font-size: 12.5px;
+            font-weight: 500;
+            line-height: 1;
+            white-space: nowrap;
+            cursor: pointer;
+            transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+        }
+
+        .toggle-btn:hover { background: var(--ink-hover); color: var(--paper); }
+
+        .toggle-btn.active {
+            background: var(--accent-tint);
+            border-color: rgba(217, 119, 87, 0.55);
+            color: var(--accent-soft);
+        }
+
+        .toggle-btn.sm { height: 24px; padding: 0 8px; font-size: 11.5px; }
+        .toggle-btn.danger { color: var(--error); border-color: rgba(224, 100, 92, 0.4); }
+        .toggle-btn.danger:hover { background: rgba(224, 100, 92, 0.1); }
+        .toggle-btn.primary { color: var(--accent-soft); border-color: rgba(217, 119, 87, 0.55); }
+
+        .toggle-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+        /* ========== SEGMENTED CONTROLS ========== */
         .toggle-group {
             display: flex;
             flex-wrap: wrap;
-            border: 1px solid var(--rule);
+            gap: 2px;
+            padding: 3px;
             background: var(--ink-sunk);
+            border: 1px solid var(--rule);
+            border-radius: 8px;
         }
 
-        .toggle-btn {
+        .toggle-group > .toggle-btn {
             flex: 1 1 0;
             min-width: 0;
-            background: transparent;
+            height: 28px;
+            padding: 0 8px;
             border: none;
-            padding: 11px 8px;
+            border-radius: 5px;
+            background: transparent;
             color: var(--paper-faint);
-            cursor: pointer;
-            font-family: var(--font-mono);
-            font-size: 10px;
-            font-weight: 500;
-            letter-spacing: 0.1em;
-            text-transform: uppercase;
-            transition: all 0.2s ease;
-            border-right: 1px solid var(--rule);
-            white-space: nowrap;
-            text-overflow: ellipsis;
             overflow: hidden;
+            text-overflow: ellipsis;
         }
 
-        .toggle-btn:last-child { border-right: none; }
+        .toggle-group > .toggle-btn:hover { color: var(--paper); background: var(--ink-hover); }
 
-        .toggle-btn:hover {
+        .toggle-group > .toggle-btn.active {
+            background: #2a2c32;
             color: var(--paper);
-            background: var(--ink-hover);
-        }
-
-        .toggle-btn.active {
-            background: var(--paper);
-            color: var(--ink);
+            box-shadow: 0 1px 2px rgba(0, 0, 0, 0.35), inset 0 0 0 1px rgba(255, 255, 255, 0.04);
         }
 
         .toggle-btn.disabled {
@@ -390,404 +454,676 @@
             pointer-events: none;
         }
 
-        /* ========== SWITCHES (minimal marks) ========== */
-        .switch-container {
-            display: flex;
-            align-items: center;
-            gap: 14px;
-        }
+        /* ========== SWITCHES ========== */
+        .switch-container { display: flex; align-items: center; gap: 10px; }
 
         .switch {
             position: relative;
-            width: 42px;
-            height: 22px;
+            display: inline-block;
+            flex: 0 0 auto;
+            width: 36px;
+            height: 20px;
         }
 
-        .switch input { opacity: 0; width: 0; height: 0; }
+        .switch input { position: absolute; opacity: 0; width: 0; height: 0; }
 
         .slider {
             position: absolute;
             inset: 0;
-            background: var(--ink-sunk);
-            border: 1px solid var(--rule);
+            background: #2e3036;
+            border-radius: 999px;
             cursor: pointer;
-            transition: all 0.25s ease;
+            transition: background 0.15s ease;
         }
 
         .slider::before {
             content: '';
             position: absolute;
-            width: 12px;
-            height: 12px;
-            left: 4px;
-            top: 50%;
-            transform: translateY(-50%);
-            background: var(--paper-faint);
-            transition: all 0.25s ease;
+            width: 16px;
+            height: 16px;
+            left: 2px;
+            top: 2px;
+            border-radius: 50%;
+            background: #c9cad0;
+            box-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+            transition: transform 0.15s ease, background 0.15s ease;
         }
 
-        input:checked + .slider {
-            border-color: var(--accent);
-            background: var(--ink-raised);
-        }
+        input:checked + .slider { background: var(--accent-strong); }
+        input:checked + .slider::before { transform: translateX(16px); background: #fff; }
+        input:focus-visible + .slider { outline: 2px solid var(--accent); outline-offset: 2px; }
 
-        input:checked + .slider::before {
-            transform: translate(22px, -50%);
-            background: var(--accent);
-        }
-
-        .switch-container span {
-            font-family: var(--font-mono);
-            font-size: 10px;
-            font-weight: 500;
-            letter-spacing: 0.14em;
-            text-transform: uppercase;
-            color: var(--paper-dim);
-        }
-
-        /* ========== BUTTONS ========== */
-        .btn {
-            padding: 13px 28px;
-            background: var(--accent);
-            border: 1px solid var(--accent);
-            color: var(--paper);
-            cursor: pointer;
-            font-family: var(--font-mono);
-            font-size: 10px;
-            font-weight: 500;
-            letter-spacing: 0.16em;
-            text-transform: uppercase;
-            transition: all 0.2s ease;
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            line-height: 1;
-        }
-
-        .btn:hover {
-            background: transparent;
-            color: var(--accent);
-        }
-
-        .btn:disabled {
-            background: var(--ink-raised);
-            border-color: var(--rule);
+        .switch-container > span,
+        .switch-label {
+            font-size: 12.5px;
             color: var(--paper-faint);
-            cursor: not-allowed;
+            min-width: 54px;
+            text-align: right;
         }
 
-        .btn-secondary {
-            background: transparent;
-            border-color: var(--rule);
-            color: var(--paper-dim);
-        }
-
-        .btn-secondary:hover {
-            background: var(--paper);
-            border-color: var(--paper);
-            color: var(--ink);
-        }
+        .switch-container > span { text-align: left; }
 
         /* ========== FORM INPUTS ========== */
-        .form-group { margin-bottom: 20px; }
-
-        .form-group label {
-            display: block;
-            margin-bottom: 8px;
-            font-family: var(--font-mono);
-            font-size: 9px;
-            font-weight: 500;
-            letter-spacing: 0.18em;
-            text-transform: uppercase;
-            color: var(--paper-faint);
-        }
-
-        .form-group input,
-        .form-group select,
-        .form-group textarea {
-            width: 100%;
-            padding: 12px 14px;
+        input[type="text"],
+        input[type="number"],
+        input[type="password"],
+        input:not([type]),
+        select,
+        textarea {
+            padding: 7px 10px;
             background: var(--ink-sunk);
             border: 1px solid var(--rule);
+            border-radius: var(--radius-sm);
             color: var(--paper);
             font-family: var(--font-body);
-            font-size: 14px;
-            transition: border-color 0.2s ease, background 0.2s ease;
+            font-size: 13px;
+            line-height: 1.4;
+            transition: border-color 0.15s ease, box-shadow 0.15s ease;
         }
 
-        .form-group input:focus,
-        .form-group select:focus,
-        .form-group textarea:focus {
+        input::placeholder,
+        textarea::placeholder { color: var(--paper-ghost); }
+
+        input:focus,
+        select:focus,
+        textarea:focus {
             outline: none;
-            border-color: var(--accent);
-            background: var(--ink-raised);
+            border-color: rgba(217, 119, 87, 0.7);
+            box-shadow: 0 0 0 3px var(--accent-tint);
         }
 
-        .form-group textarea {
+        select {
+            appearance: none;
+            -webkit-appearance: none;
+            padding-right: 30px;
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%23868990' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+            background-repeat: no-repeat;
+            background-position: right 11px center;
+            cursor: pointer;
+        }
+
+        select option, select optgroup { background: var(--ink-raised); color: var(--paper); }
+
+        textarea {
             font-family: var(--font-mono);
-            font-size: 12px;
-            line-height: 1.65;
-            min-height: 200px;
+            font-size: 12.5px;
+            line-height: 1.6;
             resize: vertical;
         }
 
-        /* ========== RESULT BOX ========== */
-        .result-box {
-            margin-top: 24px;
+        input[type="range"] { accent-color: var(--accent); }
+
+        input[type="file"] { font-family: var(--font-body); font-size: 12.5px; color: var(--paper-dim); }
+
+        input[type="file"]::file-selector-button {
+            margin-right: 10px;
+            height: 28px;
+            padding: 0 10px;
+            border: 1px solid var(--rule-strong);
+            border-radius: var(--radius-sm);
+            background: var(--ink-raised);
+            color: var(--paper);
+            font: inherit;
+            cursor: pointer;
+        }
+
+        .w-full { width: 100%; }
+
+        .form-group { margin-bottom: 14px; }
+
+        .form-group label,
+        .field-label {
+            display: block;
+            margin-bottom: 6px;
+            font-size: 12.5px;
+            font-weight: 500;
+            color: var(--paper-dim);
+        }
+
+        .form-group input:not([type="checkbox"]):not([type="range"]),
+        .form-group select,
+        .form-group textarea { width: 100%; }
+
+        .form-group textarea { min-height: 160px; }
+
+        .form-grid {
+            display: grid;
+            grid-template-columns: 150px 1fr;
+            gap: 10px 14px;
+            align-items: center;
+            font-size: 12.5px;
+        }
+
+        .form-grid > label { color: var(--paper-faint); }
+
+        .filter-row {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+
+        .filter-row > label {
+            font-size: 12px;
+            color: var(--paper-faint);
+        }
+
+        /* ========== CODE / RESULT BOXES ========== */
+        .result-box,
+        .code-block {
             background: var(--ink-sunk);
             border: 1px solid var(--rule);
-            border-left: 2px solid var(--accent);
-            padding: 24px 28px;
+            border-radius: var(--radius-sm);
+            padding: 12px 14px;
             font-family: var(--font-mono);
             font-size: 12px;
-            line-height: 1.7;
-            color: var(--paper);
+            line-height: 1.6;
+            color: var(--paper-dim);
             white-space: pre-wrap;
-            max-height: 500px;
-            overflow-y: auto;
+            overflow: auto;
+            margin: 0;
         }
 
-        /* ========== STATUS BAR (byline-style) ========== */
-        .status-bar {
-            display: flex;
-            gap: 40px;
-            margin-top: 48px;
-            padding: 22px 0 0;
-            border-top: 1px solid var(--rule);
-            font-family: var(--font-mono);
-            font-size: 9px;
-            font-weight: 500;
-            letter-spacing: 0.18em;
-            text-transform: uppercase;
-            color: var(--paper-faint);
-            flex-wrap: wrap;
+        .result-box { margin-top: 16px; max-height: 500px; color: var(--paper); }
+
+        .notice {
+            padding: 10px 14px;
+            background: var(--ink-sunk);
+            border: 1px solid var(--rule);
+            border-radius: var(--radius-sm);
+            font-size: 12.5px;
+            color: var(--paper-dim);
         }
 
-        .status-item {
+        .notice.warn {
+            background: rgba(217, 165, 72, 0.07);
+            border-color: rgba(217, 165, 72, 0.3);
+            color: #e2c07f;
+        }
+
+        /* ========== EXPANDABLE LIST ITEMS (summary cache, lorebook) ========== */
+        .list-item {
+            background: var(--ink-sunk);
+            border: 1px solid var(--rule);
+            border-left: 3px solid var(--item-color, var(--rule-strong));
+            border-radius: var(--radius-sm);
+            margin-bottom: 8px;
+            overflow: hidden;
+        }
+
+        .list-item-head {
             display: flex;
+            justify-content: space-between;
             align-items: center;
             gap: 12px;
+            padding: 10px 12px;
+            cursor: pointer;
         }
 
+        .list-item-head:hover { background: rgba(255, 255, 255, 0.02); }
+        .list-item-body { padding: 0 12px 12px; }
+
+        .list-item-title {
+            font-weight: 600;
+            color: var(--paper);
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .list-item-meta { font-size: 12px; color: var(--paper-faint); }
+        .caret { color: var(--paper-ghost); font-size: 10px; }
+
+        /* ========== TABLE ========== */
+        .table-wrap {
+            overflow-x: auto;
+            border: 1px solid var(--rule);
+            border-radius: var(--radius-sm);
+        }
+
+        .data-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 12.5px;
+            font-variant-numeric: tabular-nums;
+        }
+
+        .data-table th {
+            text-align: left;
+            font-size: 11.5px;
+            font-weight: 600;
+            color: var(--paper-faint);
+            background: var(--ink-sunk);
+            padding: 8px 10px;
+            border-bottom: 1px solid var(--rule);
+            white-space: nowrap;
+        }
+
+        .data-table td {
+            padding: 7px 10px;
+            border-bottom: 1px solid var(--rule-faint);
+            vertical-align: top;
+        }
+
+        .data-table tr:last-child td { border-bottom: none; }
+        .data-table .muted { color: var(--paper-faint); }
+        .data-table .actions { white-space: nowrap; display: flex; gap: 4px; }
+
+        /* ========== MODAL ========== */
+        .modal-overlay {
+            position: fixed;
+            inset: 0;
+            z-index: 1000;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            background: rgba(0, 0, 0, 0.6);
+        }
+
+        .modal {
+            width: 92vw;
+            max-width: 720px;
+            max-height: 90vh;
+            overflow: auto;
+            padding: 22px;
+            background: var(--ink-raised);
+            border: 1px solid var(--rule-strong);
+            border-radius: 12px;
+            box-shadow: 0 24px 60px rgba(0, 0, 0, 0.5);
+        }
+
+        .menu {
+            position: absolute;
+            z-index: 500;
+            min-width: 180px;
+            padding: 4px;
+            background: var(--ink-raised);
+            border: 1px solid var(--rule-strong);
+            border-radius: 8px;
+            box-shadow: 0 12px 30px rgba(0, 0, 0, 0.45);
+            font-size: 12.5px;
+        }
+
+        .menu-item { padding: 6px 10px; border-radius: 5px; cursor: pointer; color: var(--paper); }
+        .menu-item:hover { background: var(--ink-hover); }
+
+        /* ========== STATUS DOT / LOADER ========== */
         .status-dot {
-            width: 7px;
-            height: 7px;
+            display: inline-block;
+            flex: 0 0 auto;
+            width: 8px;
+            height: 8px;
             border-radius: 50%;
             background: var(--success);
-            box-shadow: 0 0 12px rgba(138, 149, 65, 0.6);
-            animation: pulse 2.4s ease-in-out infinite;
+            box-shadow: 0 0 0 3px rgba(92, 184, 138, 0.15);
         }
 
-        .status-dot.warning {
-            background: var(--warn);
-            box-shadow: 0 0 12px rgba(201, 149, 69, 0.6);
-        }
+        .status-dot.warning { background: var(--warn); box-shadow: 0 0 0 3px rgba(217, 165, 72, 0.15); }
+        .status-dot.error { background: var(--error); box-shadow: 0 0 0 3px rgba(224, 100, 92, 0.15); }
 
-        .status-dot.error {
-            background: var(--error);
-            box-shadow: 0 0 12px rgba(162, 61, 42, 0.6);
-        }
-
-        @keyframes pulse {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0.55; }
-        }
-
-        /* ========== LOADER ========== */
         .loader {
             display: none;
-            width: 12px;
-            height: 12px;
-            border: 1.5px solid var(--rule);
+            width: 14px;
+            height: 14px;
+            border: 2px solid var(--rule-strong);
             border-top-color: var(--accent);
             border-radius: 50%;
             animation: spin 0.75s linear infinite;
-            margin-left: 14px;
+            margin-left: 12px;
         }
 
-        @keyframes spin {
-            to { transform: rotate(360deg); }
-        }
+        @keyframes spin { to { transform: rotate(360deg); } }
 
-        .inline-flex {
-            display: flex;
-            align-items: center;
-        }
+        .inline-flex { display: flex; align-items: center; }
 
-        /* ========== SCROLLBAR ========== */
+        #memCharSummary:empty,
+        #cacheEntries:empty { display: none; }
+
+        /* ========== SCROLLBAR / SELECTION ========== */
+        * { scrollbar-width: thin; scrollbar-color: var(--rule-strong) transparent; }
         ::-webkit-scrollbar { width: 10px; height: 10px; }
-        ::-webkit-scrollbar-track { background: var(--ink); }
-        ::-webkit-scrollbar-thumb { background: var(--rule); }
-        ::-webkit-scrollbar-thumb:hover { background: var(--accent-dim); }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: var(--rule-strong); border-radius: 999px; border: 2px solid var(--ink); }
+        ::selection { background: rgba(217, 119, 87, 0.35); color: #fff; }
 
-        /* ========== TEXT SELECTION ========== */
-        ::selection {
-            background: var(--accent);
-            color: var(--paper);
-        }
-
-        /* ========== LINKS & STRONG ========== */
+        /* ========== TEXT ========== */
         strong { color: var(--paper); font-weight: 600; }
-        small { font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.06em; }
-
-        /* ========== HORIZONTAL RULE ========== */
-        hr {
-            border: none;
-            height: 1px;
-            background: var(--rule);
-            margin: 56px 0;
-        }
-
-        /* ========== HELPER: ornament between sections ========== */
-        .ornament {
-            text-align: center;
-            color: var(--paper-ghost);
-            font-family: var(--font-display);
-            font-style: italic;
-            font-size: 18px;
-            margin: 40px 0;
-            letter-spacing: 0.4em;
-        }
-
-        /* ========== PROSE (used by Welcome panel) ========== */
-        .panel dl.prose-dl {
-            display: grid;
-            grid-template-columns: 180px 1fr;
-            gap: 20px 40px;
-            margin: 28px 0 40px;
-            max-width: 780px;
-        }
-
-        .panel dl.prose-dl dt {
-            font-family: var(--font-mono);
-            font-size: 10px;
-            font-weight: 500;
-            letter-spacing: 0.14em;
-            text-transform: uppercase;
-            color: var(--accent);
-            padding-top: 5px;
-            line-height: 1.4;
-        }
-
-        .panel dl.prose-dl dd {
-            margin: 0;
-            color: var(--paper-dim);
-            font-size: 15px;
-            line-height: 1.65;
-            font-family: var(--font-body);
-        }
-
-        .panel dl.prose-dl dd strong {
-            color: var(--paper);
-            font-weight: 500;
-        }
-
-        .panel blockquote.pull-quote {
-            font-family: var(--font-display);
-            font-style: italic;
-            font-size: clamp(22px, 2.4vw, 28px);
-            line-height: 1.3;
-            color: var(--paper);
-            border-left: 2px solid var(--accent);
-            padding: 6px 0 6px 28px;
-            margin: 44px 0;
-            max-width: 56ch;
-        }
-
-        .panel .prose p {
-            color: var(--paper-dim);
-            font-size: 15px;
-            line-height: 1.7;
-            max-width: 62ch;
-            margin: 0 0 20px;
-            font-family: var(--font-body);
-        }
-
-        .panel .prose p strong {
-            color: var(--paper);
-            font-weight: 500;
-        }
+        small { font-size: 12px; }
+        a { color: var(--accent); }
 
         .panel code {
             font-family: var(--font-mono);
-            font-size: 12px;
-            background: var(--ink-sunk);
-            padding: 2px 7px;
-            color: var(--accent-soft);
+            font-size: 0.88em;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 4px;
+            padding: 1px 5px;
+            color: var(--paper-dim);
+        }
+
+        .plain-list {
+            margin: 0;
+            padding-left: 18px;
+            color: var(--paper-dim);
+            font-size: 13px;
+            line-height: 1.6;
+        }
+
+        .plain-list li + li { margin-top: 6px; }
+
+        /* ========== WELCOME ========== */
+        .panel .prose p {
+            color: var(--paper-dim);
+            line-height: 1.65;
+            max-width: 75ch;
+            margin: 0 0 14px;
+        }
+
+        .panel dl.prose-dl {
+            display: grid;
+            grid-template-columns: 170px 1fr;
+            margin: 0 0 8px;
+            max-width: 860px;
+            background: var(--ink-raised);
             border: 1px solid var(--rule);
-            letter-spacing: 0.02em;
+            border-radius: var(--radius);
+            overflow: hidden;
+        }
+
+        .panel dl.prose-dl dt,
+        .panel dl.prose-dl dd {
+            margin: 0;
+            padding: 12px 16px;
+            border-top: 1px solid var(--rule-faint);
+        }
+
+        .panel dl.prose-dl dt:first-of-type,
+        .panel dl.prose-dl dt:first-of-type + dd { border-top: none; }
+
+        .panel dl.prose-dl dt {
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--paper);
+        }
+
+        .panel dl.prose-dl dd {
+            color: var(--paper-dim);
+            font-size: 13.5px;
+            line-height: 1.6;
         }
 
         .welcome-footer {
-            margin-top: 72px;
-            padding-top: 32px;
+            margin-top: 48px;
+            padding-top: 20px;
             border-top: 1px solid var(--rule);
-            font-family: var(--font-mono);
-            font-size: 10px;
-            letter-spacing: 0.14em;
-            text-transform: uppercase;
+            font-size: 12px;
             color: var(--paper-ghost);
             display: flex;
             justify-content: space-between;
             flex-wrap: wrap;
-            gap: 16px;
+            gap: 12px;
         }
+
+        /* ========== PROMPT PREVIEW ========== */
+        .pv {
+            background: var(--ink-raised);
+            border: 1px solid var(--rule);
+            border-radius: var(--radius);
+            overflow: hidden;
+        }
+
+        .pv-toolbar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            flex-wrap: wrap;
+            padding: 12px 16px;
+            border-bottom: 1px solid var(--rule);
+        }
+
+        .pv-toolbar .toggle-group > .toggle-btn { flex: 0 0 auto; padding: 0 12px; }
+
+        .pv-legend {
+            display: flex;
+            gap: 14px;
+            flex-wrap: wrap;
+            font-size: 12px;
+            color: var(--paper-faint);
+        }
+
+        .pv-legend span { display: inline-flex; align-items: center; gap: 6px; }
+
+        .pv-swatch { display: inline-block; width: 10px; height: 10px; border-radius: 3px; }
+        .pv-swatch.bridge { background: var(--accent); }
+        .pv-swatch.st { background: var(--st); }
+        .pv-swatch.ph { border: 1px dashed var(--st); }
+        .pv-swatch.off { border: 1px dashed var(--paper-ghost); }
+
+        .pv-source {
+            display: flex;
+            align-items: center;
+            gap: 6px 12px;
+            flex-wrap: wrap;
+            padding: 10px 16px;
+            border-bottom: 1px solid var(--rule);
+            font-size: 12px;
+            color: var(--paper-faint);
+        }
+
+        .pv-source .notice { width: 100%; }
+
+        .pv-section { padding: 16px; }
+        .pv-section + .pv-section { border-top: 1px solid var(--rule); }
+
+        .pv-section-head {
+            display: flex;
+            align-items: baseline;
+            gap: 4px 10px;
+            flex-wrap: wrap;
+            margin-bottom: 12px;
+        }
+
+        .pv-section-head h4 { margin: 0; font-size: 13.5px; font-weight: 600; color: var(--paper); }
+        .pv-section-meta { font-family: var(--font-mono); font-size: 11.5px; color: var(--paper-faint); }
+        .pv-section-note { width: 100%; font-size: 12.5px; color: var(--paper-faint); }
+
+        .pv-section.dim .pv-list { opacity: 0.55; }
+
+        .pv-list,
+        .pv-wrap,
+        .pv-children { display: flex; flex-direction: column; gap: 6px; }
+
+        .pv-block {
+            --kind: var(--st);
+            background: var(--ink-sunk);
+            border: 1px solid var(--rule);
+            border-left: 3px solid var(--kind);
+            border-radius: var(--radius-sm);
+            min-width: 0;
+        }
+
+        .pv-block.bridge { --kind: var(--accent); }
+
+        .pv-block.ph {
+            background: transparent;
+            border-style: dashed;
+            border-left-style: solid;
+            border-left-color: color-mix(in srgb, var(--kind) 45%, transparent);
+        }
+
+        .pv-block.off {
+            background: transparent;
+            border: 1px dashed var(--rule);
+            border-left: 3px solid var(--rule);
+        }
+
+        .pv-block.off .pv-name { color: var(--paper-faint); font-weight: 500; }
+        .pv-block.off .pv-meta { font-family: var(--font-body); font-size: 12px; }
+
+        .pv-head {
+            display: flex;
+            align-items: center;
+            gap: 6px 8px;
+            flex-wrap: wrap;
+            min-height: 34px;
+            padding: 6px 10px;
+            font-size: 12.5px;
+        }
+
+        .pv-block.clampable > .pv-head { cursor: pointer; }
+        .pv-block.clampable > .pv-head:hover .pv-name { text-decoration: underline; text-decoration-color: var(--rule-strong); }
+
+        .pv-caret { color: var(--paper-ghost); font-size: 9px; transition: transform 0.15s ease; }
+        .pv-block.open .pv-caret { transform: rotate(90deg); }
+
+        .pv-prefix { font-family: var(--font-mono); font-size: 11.5px; color: var(--accent); }
+        .pv-name { font-weight: 600; color: var(--paper); }
+
+        .pv-pill {
+            padding: 1px 7px;
+            border: 1px solid var(--rule);
+            border-radius: 999px;
+            font-family: var(--font-body);
+            font-size: 11px;
+            color: var(--paper-faint);
+            white-space: nowrap;
+        }
+
+        .pv-pill.when { border-color: rgba(217, 165, 72, 0.35); color: var(--warn); }
+
+        .pv-meta {
+            margin-left: auto;
+            font-family: var(--font-mono);
+            font-size: 11px;
+            color: var(--paper-ghost);
+            white-space: nowrap;
+        }
+
+        .pv-body {
+            margin: 0;
+            padding: 0 12px 10px;
+            font-family: var(--font-mono);
+            font-size: 12px;
+            line-height: 1.6;
+            color: var(--paper-dim);
+            white-space: pre-wrap;
+            overflow-wrap: anywhere;
+        }
+
+        .pv-block.clampable:not(.open) .pv-body {
+            max-height: 6.4em;
+            overflow: hidden;
+            -webkit-mask-image: linear-gradient(#000 50%, transparent);
+            mask-image: linear-gradient(#000 50%, transparent);
+        }
+
+        .pv-desc { font-size: 12.5px; color: var(--paper-faint); }
+        .pv-note { padding: 0 12px 9px; font-size: 12px; color: var(--warn); }
+
+        .pv-tagline {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-family: var(--font-mono);
+            font-size: 12px;
+            color: var(--accent);
+        }
+
+        .pv-children {
+            margin-left: 6px;
+            padding-left: 14px;
+            border-left: 1px dashed var(--rule-strong);
+        }
+
+        .pv-sublabel { font-size: 12px; color: var(--paper-faint); margin: 4px 0 0; }
+
+        .pv-cmd {
+            margin: 0;
+            padding: 10px 12px;
+            background: var(--ink-sunk);
+            border: 1px solid var(--rule);
+            border-radius: var(--radius-sm);
+            font-family: var(--font-mono);
+            font-size: 12px;
+            line-height: 1.7;
+            color: var(--paper-faint);
+            white-space: pre-wrap;
+            overflow-wrap: anywhere;
+        }
+
+        .pv-cmd b { font-weight: 400; color: var(--paper); }
+        .pv-cmd i { font-style: normal; color: var(--accent-soft); }
+
+        .pv-empty { padding: 24px 16px; font-size: 13px; color: var(--paper-faint); }
 
         /* ========== RESPONSIVE ========== */
         @media (max-width: 720px) {
-            .container { padding: 48px 24px 64px; }
-            .masthead { grid-template-columns: 1fr; gap: 20px; }
-            .masthead-meta { text-align: left; }
-            .tabs { gap: 0; }
-            .tab { font-size: 18px; margin-right: 20px; padding-right: 20px; }
-            .panel > h3:first-of-type { font-size: 32px; }
+            .container { padding: 0 16px 56px; }
+            .topbar { padding-top: 16px; }
+            .tabs { margin-bottom: 24px; }
+            .setting-row { flex-direction: column; align-items: flex-start; gap: 10px; padding: 14px 16px; }
+            .setting-card { padding: 16px; }
+            .panel dl.prose-dl { grid-template-columns: 1fr; }
+            .panel dl.prose-dl dd { border-top: none; padding-top: 0; }
+            .form-grid { grid-template-columns: 1fr; gap: 6px; }
+            .pv-section { padding: 14px 12px; }
+            .pv-children { padding-left: 10px; }
         }
     </style>
 </head>
 <body>
     <div class="container">
-        <header class="masthead">
-            <div>
-                <p class="masthead-kicker">A Bridge for Collaborative Fiction</p>
-                <h1 class="masthead-title">Claude Code<br><em>↔</em> SillyTavern Bridge</h1>
+        <header class="topbar">
+            <div class="brand">
+                <div class="brand-mark" aria-hidden="true">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 7h11l-3-3"/><path d="M17 17H6l3 3"/></svg>
+                </div>
+                <div>
+                    <h1 class="brand-name">Claude Code Bridge</h1>
+                    <div class="brand-sub">SillyTavern ↔ Claude Code CLI</div>
+                </div>
             </div>
-            <div class="masthead-meta">
-                <div><span class="v">Vol. I</span><span class="sep">·</span>Issue 042</div>
-                <div>Subprocess <span class="sep">·</span> OpenAI-Compatible</div>
-                <div>Localhost <span class="sep">:</span>5001</div>
+            <div class="topbar-meta">
+                <span class="chip">
+                    <span class="status-dot" id="connectionDot"></span>
+                    <span>Running</span>
+                    <span class="mono" id="endpointDisplay">http://localhost:5001/v1</span>
+                </span>
+                <span class="chip" id="versionBanner">
+                    <span class="mono" id="versionCurrent">—</span>
+                    <span id="versionStatus" style="color:var(--paper-ghost);">checking…</span>
+                    <a id="versionReleaseLink" href="#" target="_blank" rel="noopener noreferrer" style="display:none;">View release</a>
+                </span>
             </div>
         </header>
 
         <nav class="tabs">
-            <button class="tab active" data-num="I" onclick="showTab('welcome')">Welcome</button>
-            <button class="tab" data-num="II" onclick="showTab('settings')">Settings</button>
-            <button class="tab" data-num="III" onclick="showTab('system')">Prompts (System / Thinking)</button>
-            <button class="tab" data-num="IV" onclick="showTab('tools')">Tools</button>
-            <button class="tab" data-num="V" onclick="showTab('lorebook')">Lorebook</button>
-            <button class="tab" data-num="VI" onclick="showTab('memory')">Memory</button>
-            <button class="tab" data-num="VII" onclick="showTab('test')">Test</button>
+            <button class="tab active" onclick="showTab('welcome')">Welcome</button>
+            <button class="tab" onclick="showTab('settings')">Settings</button>
+            <button class="tab" onclick="showTab('system')">Prompts</button>
+            <button class="tab" onclick="showTab('tools')">Tools</button>
+            <button class="tab" onclick="showTab('lorebook')">Lorebook</button>
+            <button class="tab" onclick="showTab('memory')">Memory</button>
+            <button class="tab" onclick="showTab('test')">Test</button>
         </nav>
 
         <!-- Welcome Panel -->
         <div id="welcome" class="panel active">
-            <h3>A field guide to the bridge.</h3>
+            <h3>Welcome</h3>
             <div class="prose">
                 <p>
-                    A subprocess bridge between <strong>SillyTavern</strong> and <strong>Claude Code CLI</strong>. SillyTavern sends OpenAI-compatible requests to this server; the bridge translates them, injects narrative-focused system prompts, pipes the result through <code>claude -p</code>, and returns the response. Everything in this interface controls how that translation works.
+                    A subprocess bridge between <strong>SillyTavern</strong> and <strong>Claude Code CLI</strong>. SillyTavern sends OpenAI-compatible requests to this server; the bridge translates them, frames SillyTavern's prompt for the CLI, pipes the result through <code>claude -p</code>, and returns the response. Everything in this interface controls how that translation works.
                 </p>
             </div>
 
-            <blockquote class="pull-quote">
-                One endpoint. Six tabs. Per-character memory, editable prompts, and whatever you add next.
-            </blockquote>
-
-            <h3>Getting Started</h3>
+            <h3>Getting started</h3>
             <dl class="prose-dl">
                 <dt>Endpoint</dt>
-                <dd>Point SillyTavern's OpenAI-compatible API at <code>http://localhost:5001/v1</code>. Any API key string works — the bridge doesn't check.</dd>
+                <dd>Point SillyTavern's Chat Completion API (Custom, OpenAI-compatible) at <code>http://localhost:5001/v1</code>. When the bridge runs with <code>BRIDGE_API_KEY</code> set, use that key as the API key.</dd>
 
                 <dt>Model</dt>
-                <dd>SillyTavern's model selector is ignored. Choose Opus, Opus 4.6, or Sonnet in the Settings tab instead.</dd>
+                <dd>Choose the model in the Settings tab, or pick "Use SillyTavern's model" there to take the one selected in SillyTavern's connection.</dd>
 
                 <dt>Start command</dt>
                 <dd>Run <code>run_bridge.bat</code> (or <code>python claude_bridge.py</code>) and keep the terminal visible — structured logs appear there while the bridge is running.</dd>
@@ -796,28 +1132,31 @@
                 <dd>The bridge binds <code>:5001</code> by default. Change it in the Settings tab — the value persists to <code>bridge_settings.json</code>, but you'll need to restart the bridge for the new port to take effect (the GUI shows a <em>Restart bridge</em> reminder when there's a pending change).</dd>
             </dl>
 
-            <h3>The Six Tabs</h3>
+            <h3>The tabs</h3>
             <dl class="prose-dl">
-                <dt>I · Welcome</dt>
+                <dt>Welcome</dt>
                 <dd>This page. Documentation, orientation, reference.</dd>
 
-                <dt>II · Settings</dt>
+                <dt>Settings</dt>
                 <dd>Model selection, effort level, creativity mode (a prompt-based stand-in for temperature, since Claude Code CLI doesn't expose the real parameter), and toggles for thinking visibility, debug logging, and tool calling.</dd>
 
-                <dt>III · System Prompt</dt>
-                <dd>The bridge injects a "narrative writer, not coding assistant" preamble before every request. Override it here if you want different framing. Leave empty to use the default — the default is fetched from the backend, so there's only one source of truth.</dd>
+                <dt>Prompts</dt>
+                <dd>Optional style notes added to every roleplay's system prompt, and a preview of how the bridge assembles a turn from your SillyTavern prompt: where its own text goes, and where SillyTavern's prompts end up.</dd>
 
-                <dt>IV · Tools</dt>
+                <dt>Tools</dt>
                 <dd><strong>Auto-Summary</strong> (the important one): maintains a running narrative digest per character. Cuts per-request usage massively on long RPs — instead of re-sending 200 raw messages every turn, you send <em>summary + last 15</em>. One summarization call pays back over dozens of subsequent turns, and prompt caching makes the stable parts near-free. <strong>Chunking</strong>: one-shot manual reset that rebuilds a character's summary from scratch. <strong>Summary Cache</strong>: inspector for every stored summary, one row per character, with per-entry delete.</dd>
 
-                <dt>V · Lorebook</dt>
+                <dt>Lorebook</dt>
                 <dd>Auto-generates World Info entries in the background after each RP message, using Sonnet for efficiency. Deep Analysis scans a full chat file for a more thorough pass. Manual Entry lets you add lore by hand.</dd>
 
-                <dt>VI · Test</dt>
+                <dt>Memory</dt>
+                <dd>Inspect and edit Character Memory: each character's memories, needs and NPCs.</dd>
+
+                <dt>Test</dt>
                 <dd>Send a message directly at the bridge without going through SillyTavern. Useful when debugging or checking that a new system prompt is wired up correctly.</dd>
             </dl>
 
-            <h3>Per-Character Summaries</h3>
+            <h3>Per-character summaries</h3>
             <div class="prose">
                 <p>
                     Every character gets its own summary bucket. The bridge identifies a character by hashing the first assistant message (the character's greeting) and stores summaries under <code>auto_&lt;hash&gt;</code> cache keys. Switching characters in SillyTavern auto-swaps buckets — no manual cache clearing, and two characters can't cross-contaminate each other's narrative.
@@ -827,7 +1166,7 @@
                 </p>
             </div>
 
-            <h3>Editing Prompts</h3>
+            <h3>Editing prompts</h3>
             <div class="prose">
                 <p>
                     The bridge's internal prompts — summarization, condensation, chunk processing — live as editable Markdown files in the <code>prompts/</code> directory next to <code>claude_bridge.py</code>:
@@ -846,19 +1185,19 @@
                 <dt>condense_chronological</dt>
                 <dd>Final pass in the file-based summary generator when combined chunks exceed 50K characters. Organizes events chronologically across the whole chat.</dd>
             </dl>
-            <div class="prose">
+            <div class="prose" style="margin-top:14px;">
                 <p>
                     Templates use Python <code>&#123;variable&#125;</code> placeholders. Edits apply on the next request — no server restart needed, because <code>load_prompt()</code> re-reads the file every call. If you need a literal brace in a prompt (rare), double it: <code>&#123;&#123;</code> and <code>&#125;&#125;</code>.
                 </p>
                 <p>
-                    The main RP system prompt is <em>not</em> in this folder — it's the <code>DEFAULT_BRIDGE_SYSTEM_PROMPT</code> constant in <code>claude_bridge.py</code>, editable via the System Prompt tab.
+                    The roleplay framing is <em>not</em> in this folder — it's the <code>BRIDGE_FRAME</code> constant in <code>claude_bridge.py</code>. The Prompts tab shows where it goes.
                 </p>
             </div>
 
-            <h3>Tips &amp; Gotchas</h3>
+            <h3>Tips &amp; gotchas</h3>
             <dl class="prose-dl">
                 <dt>Images</dt>
-                <dd>SillyTavern sends base64 images. The bridge saves them to <code>temp_images/</code> and injects a file path so Claude Code can <code>Read</code> them directly — no OCR step, no subprocess refusals.</dd>
+                <dd>SillyTavern sends base64 images. The bridge saves them to <code>temp_images/</code> and has a separate Claude call describe them before the turn; the descriptions are cached and added to the turn as text.</dd>
 
                 <dt>Tool calling</dt>
                 <dd>Extensions like TunnelVision route through the tool-calling toggle. Disable it if you're getting strange outputs or the extension is in an odd state.</dd>
@@ -877,27 +1216,22 @@
             </dl>
 
             <div class="welcome-footer">
-                <span>Bridge for collaborative fiction</span>
-                <span>Localhost · Flask · Claude Code CLI</span>
+                <span>Claude Code ↔ SillyTavern Bridge</span>
+                <span>Flask · Claude Code CLI</span>
             </div>
         </div>
 
         <!-- Settings Panel -->
         <div id="settings" class="panel">
-            <div id="versionBanner" style="margin-bottom:18px;padding:10px 14px;background:var(--ink-sunk);border:1px solid var(--rule);font-size:12px;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;">
-                <div>
-                    <span style="color:var(--paper-faint);">Bridge version</span>
-                    <span id="versionCurrent" style="color:var(--paper);font-family:var(--font-mono);margin-left:6px;">—</span>
-                    <span id="versionStatus" style="color:var(--paper-ghost);margin-left:10px;">checking…</span>
-                </div>
-                <a id="versionReleaseLink" href="#" target="_blank" rel="noopener noreferrer" style="display:none;color:var(--accent);text-decoration:underline;font-family:var(--font-mono);">View release →</a>
-            </div>
+            <h3>Settings</h3>
+            <p>Changes save as you make them.</p>
 
+            <div class="group-label">Generation</div>
             <div class="settings-grid">
                 <div class="setting-card">
                     <h3>Model</h3>
-                    <p style="color:var(--paper-faint);font-size:12px;margin-bottom:10px;">"(latest)" follows the newest model of that family · Fable = most capable · Opus = default · Sonnet = faster · Haiku = fastest. "Use SillyTavern's model" takes the model picked in SillyTavern's API connection instead.</p>
-                    <select id="modelSelect" style="width:100%;padding:10px 12px;background:var(--ink-sunk);border:1px solid var(--rule);color:var(--paper);font-family:var(--font-mono);font-size:13px;">
+                    <p>"(latest)" follows the newest model of that family · Fable = most capable · Opus = default · Sonnet = faster · Haiku = fastest. "Use SillyTavern's model" takes the model picked in SillyTavern's API connection instead.</p>
+                    <select id="modelSelect" class="w-full">
                         {% for model_id, label in models %}
                         <option value="{{ model_id }}">{{ label }}</option>
                         {% endfor %}
@@ -907,7 +1241,7 @@
 
                 <div class="setting-card">
                     <h3>Effort Level</h3>
-                    <p style="color:var(--paper-faint);font-size:12px;margin-bottom:10px;">Higher = more thinking/reasoning</p>
+                    <p>Higher = more thinking/reasoning</p>
                     <div class="toggle-group">
                         <button class="toggle-btn" data-setting="effort" data-value="low">Low</button>
                         <button class="toggle-btn" data-setting="effort" data-value="medium">Medium</button>
@@ -915,14 +1249,14 @@
                         <button class="toggle-btn" data-setting="effort" data-value="xhigh">xHigh</button>
                         <button class="toggle-btn" data-setting="effort" data-value="max">Max</button>
                     </div>
-                    <p id="effortSonnetNote" style="display:none;color:var(--warn,#d4a15a);font-size:11px;margin-top:8px;line-height:1.4;">
-                        <strong>Sonnet 4.x cap:</strong> High / xHigh / Max are disabled for Sonnet 4.6 and 4.5 — at those levels they spend so long reasoning that they emit thinking only (or nothing) and never get to the narrative. Medium and Low are the usable range for them. Opus and newer Sonnets support the full range.
+                    <p id="effortSonnetNote" style="display:none;color:var(--warn);font-size:12px;margin:10px 0 0;line-height:1.5;">
+                        <strong style="color:inherit;">Sonnet 4.x cap:</strong> High / xHigh / Max are disabled for Sonnet 4.6 and 4.5 — at those levels they spend so long reasoning that they emit thinking only (or nothing) and never get to the narrative. Medium and Low are the usable range for them. Opus and newer Sonnets support the full range.
                     </p>
                 </div>
 
                 <div class="setting-card">
                     <h3>Creativity</h3>
-                    <p style="color:var(--paper-faint);font-size:12px;margin-bottom:10px;">Simulates temperature - controls writing style variation</p>
+                    <p>Simulates temperature - controls writing style variation</p>
                     <div class="toggle-group">
                         <button class="toggle-btn" data-setting="creativity" data-value="precise">Precise</button>
                         <button class="toggle-btn active" data-setting="creativity" data-value="balanced">Balanced</button>
@@ -930,146 +1264,172 @@
                         <button class="toggle-btn" data-setting="creativity" data-value="wild">Wild</button>
                     </div>
                 </div>
+            </div>
 
-                <div class="setting-card">
-                    <h3>Include Thinking in Response</h3>
-                    <p style="color:var(--paper-faint);font-size:12px;margin-bottom:10px;">Send Claude's thinking summary to SillyTavern's reasoning block (turn on "Request model reasoning" in SillyTavern)</p>
-                    <div class="switch-container">
+            <div class="group-label">Thinking &amp; logging</div>
+            <div class="settings-list">
+                <div class="setting-row">
+                    <div>
+                        <h4>Include Thinking in Response</h4>
+                        <p>Send Claude's thinking summary to SillyTavern's reasoning block (turn on "Request model reasoning" in SillyTavern)</p>
+                    </div>
+                    <div class="setting-row-control">
+                        <span class="switch-label" id="thinkingStatus">Enabled</span>
                         <label class="switch">
                             <input type="checkbox" id="includeThinking" checked>
                             <span class="slider"></span>
                         </label>
-                        <span id="thinkingStatus">Enabled</span>
                     </div>
                 </div>
 
-                <div class="setting-card">
-                    <h3>Show Thinking in Console</h3>
-                    <p style="color:var(--paper-faint);font-size:12px;margin-bottom:10px;">Display thinking in bridge terminal</p>
-                    <div class="switch-container">
+                <div class="setting-row">
+                    <div>
+                        <h4>Show Thinking in Console</h4>
+                        <p>Display thinking in bridge terminal</p>
+                    </div>
+                    <div class="setting-row-control">
+                        <span class="switch-label" id="consoleStatus">Enabled</span>
                         <label class="switch">
                             <input type="checkbox" id="consoleThinking" checked>
                             <span class="slider"></span>
                         </label>
-                        <span id="consoleStatus">Enabled</span>
                     </div>
                 </div>
 
-                <div class="setting-card">
-                    <h3>Debug Output</h3>
-                    <p style="color:var(--paper-faint);font-size:12px;margin-bottom:10px;">Verbose logging in console</p>
-                    <div class="switch-container">
+                <div class="setting-row">
+                    <div>
+                        <h4>Debug Output</h4>
+                        <p>Verbose logging in console</p>
+                    </div>
+                    <div class="setting-row-control">
+                        <span class="switch-label" id="debugStatus">Enabled</span>
                         <label class="switch">
                             <input type="checkbox" id="debugOutput" checked>
                             <span class="slider"></span>
                         </label>
-                        <span id="debugStatus">Enabled</span>
                     </div>
                 </div>
+            </div>
 
-                <div class="setting-card">
-                    <h3>Tool Calling</h3>
-                    <p style="color:var(--paper-faint);font-size:12px;margin-bottom:10px;">Support for extensions like TunnelVision</p>
-                    <div class="switch-container">
+            <div class="group-label">Features</div>
+            <div class="settings-list">
+                <div class="setting-row">
+                    <div>
+                        <h4>Tool Calling</h4>
+                        <p>Support for extensions like TunnelVision</p>
+                    </div>
+                    <div class="setting-row-control">
+                        <span class="switch-label" id="toolCallingStatus">Enabled</span>
                         <label class="switch">
                             <input type="checkbox" id="toolCalling" checked>
                             <span class="slider"></span>
                         </label>
-                        <span id="toolCallingStatus">Enabled</span>
                     </div>
                 </div>
 
-                <div class="setting-card">
-                    <h3>Bridge Port</h3>
-                    <p style="color:var(--paper-faint);font-size:12px;margin-bottom:10px;">HTTP server port. Restart required to apply.</p>
-                    <input type="number" id="bridgePort" min="1" max="65535" step="1" value="5001" style="width:120px;padding:10px 12px;background:var(--ink-sunk);border:1px solid var(--rule);color:var(--paper);font-family:var(--font-mono);font-size:13px;">
-                    <span id="bridgePortNotice" style="display:none;margin-left:10px;font-family:var(--font-mono);font-size:10px;letter-spacing:0.12em;text-transform:uppercase;color:var(--warn);">Restart bridge</span>
-                </div>
-
-                <div class="setting-card">
-                    <h3>CLI Session Reuse</h3>
-                    <p style="color:var(--paper-faint);font-size:12px;margin-bottom:10px;">Reuses the Claude CLI's own session via <code>--resume</code> so follow-up turns ship only the newest message instead of the full history. Big input-token savings on long RPs (especially helpful on Pro tier). Auto-invalidates on swipes, edits, or prefix changes.</p>
-                    <div class="switch-container">
+                <div class="setting-row">
+                    <div>
+                        <h4>CLI Session Reuse</h4>
+                        <p>Reuses the Claude CLI's own session via <code>--resume</code> so follow-up turns ship only the newest message instead of the full history. Big input-token savings on long RPs (especially helpful on Pro tier). Auto-invalidates on swipes, edits, or prefix changes.</p>
+                    </div>
+                    <div class="setting-row-control">
+                        <span class="switch-label" id="cliSessionReuseStatus">Enabled</span>
                         <label class="switch">
                             <input type="checkbox" id="cliSessionReuse" checked>
                             <span class="slider"></span>
                         </label>
-                        <span id="cliSessionReuseStatus">Enabled</span>
                     </div>
                 </div>
 
-                <div class="setting-card">
-                    <h3>Character Memory</h3>
-                    <p style="color:var(--paper-faint);font-size:12px;margin-bottom:10px;">Structured per-character SQLite + embeddings + Sonnet librarian. Sonnet curates relevant memories before each Opus turn (~3-8s added latency) and updates the DB after (background, non-blocking). See <code>MEMORY_DESIGN.md</code> for the full architecture. Requires <code>sentence-transformers</code> (installed by run_bridge.bat, or <code>pip install -r requirements-memory.txt</code>). First turn for a new character runs a one-time bootstrap pass (~5s). Old <code>state.md</code> / <code>diary.md</code> / <code>rules.md</code> files from the previous markdown-based system are migrated into the DB automatically on first enable.</p>
-                    <div class="switch-container">
+                <div class="setting-row">
+                    <div>
+                        <h4>Character Memory</h4>
+                        <p>Structured per-character SQLite + embeddings + Sonnet librarian. Sonnet curates relevant memories before each Opus turn (~3-8s added latency) and updates the DB after (background, non-blocking). See <code>MEMORY_DESIGN.md</code> for the full architecture. Requires <code>sentence-transformers</code> (installed by run_bridge.bat, or <code>pip install -r requirements-memory.txt</code>). First turn for a new character runs a one-time bootstrap pass (~5s). Old <code>state.md</code> / <code>diary.md</code> / <code>rules.md</code> files from the previous markdown-based system are migrated into the DB automatically on first enable.</p>
+                    </div>
+                    <div class="setting-row-control">
+                        <span class="switch-label" id="characterMemoryV2Status">Disabled</span>
                         <label class="switch">
                             <input type="checkbox" id="characterMemoryV2">
                             <span class="slider"></span>
                         </label>
-                        <span id="characterMemoryV2Status">Disabled</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="group-label">Server</div>
+            <div class="settings-list">
+                <div class="setting-row">
+                    <div>
+                        <h4>Bridge Port</h4>
+                        <p>HTTP server port. Restart required to apply.</p>
+                    </div>
+                    <div class="setting-row-control">
+                        <span id="bridgePortNotice" style="display:none;font-size:12px;color:var(--warn);">Restart bridge</span>
+                        <input type="number" id="bridgePort" min="1" max="65535" step="1" value="5001" style="width:110px;">
                     </div>
                 </div>
 
-                <div class="setting-card">
-                    <h3>Update Check</h3>
-                    <p style="color:var(--paper-faint);font-size:12px;margin-bottom:10px;">Check GitHub for new releases on startup. One unauthenticated API call. Non-blocking, logs a warning if outdated. No auto-install.</p>
-                    <div class="switch-container">
+                <div class="setting-row">
+                    <div>
+                        <h4>Update Check</h4>
+                        <p>Check GitHub for new releases on startup. One unauthenticated API call. Non-blocking, logs a warning if outdated. No auto-install.</p>
+                    </div>
+                    <div class="setting-row-control">
+                        <span class="switch-label" id="updateCheckStatus">Enabled</span>
                         <label class="switch">
                             <input type="checkbox" id="updateCheck" checked>
                             <span class="slider"></span>
                         </label>
-                        <span id="updateCheckStatus">Enabled</span>
                     </div>
                 </div>
             </div>
 
-            <div class="status-bar">
-                <div class="status-item">
-                    <div class="status-dot" id="connectionDot"></div>
-                    <span>Bridge Active</span>
-                </div>
-                <div class="status-item">
-                    <span style="color:var(--paper-faint);">Endpoint:</span>
-                    <span id="endpointDisplay">http://localhost:5001/v1</span>
-                </div>
+            <div class="btn-row" style="margin-top:20px;">
+                <button class="btn" onclick="saveSettings()">Save Settings</button>
+                <span id="saveStatus" class="status-msg" style="display:none;">Settings saved!</span>
             </div>
-
-            <button class="btn" style="margin-top:20px;" onclick="saveSettings()">Save Settings</button>
-            <span id="saveStatus" style="margin-left:15px;color:var(--success);display:none;">Settings saved!</span>
         </div>
 
-        <!-- Prompts Panel: System Prompt + Thinking Prompts -->
+        <!-- Prompts Panel: style notes + preview of the assembled prompt -->
         <div id="system" class="panel">
-            <h3>Bridge Prompts</h3>
+            <h3>Prompts</h3>
             <p>
                 Your SillyTavern prompt (preset, character card, persona, lore, Post-History Instructions) is what tells Claude how to write. The bridge adds only a short frame explaining how SillyTavern's messages are laid out, plus the optional style notes below.
             </p>
 
-            <div class="setting-card" style="max-width:100%;">
-                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
-                    <h3 style="margin:0;">Style Notes (optional)</h3>
-                    <div style="display:flex;gap:8px;">
-                        <button class="btn" onclick="loadUpstreamStylePrompt()" style="padding:5px 10px;font-size:12px;">Load upstream prompt</button>
-                        <button class="btn" onclick="clearSystemPrompt()" style="padding:5px 10px;font-size:12px;">Clear</button>
+            <div class="setting-card">
+                <div class="card-head">
+                    <h3>Style Notes <span class="badge">optional</span></h3>
+                    <div class="btn-row">
+                        <button class="btn btn-secondary btn-sm" onclick="loadUpstreamStylePrompt()">Load upstream prompt</button>
+                        <button class="btn btn-secondary btn-sm" onclick="clearSystemPrompt()">Clear</button>
                     </div>
                 </div>
-                <p style="color:var(--paper-faint);font-size:12px;margin-bottom:15px;">
+                <p>
                     Added to every roleplay's system prompt, before SillyTavern's prompt; where they disagree, SillyTavern's prompt wins. Empty by default. "Load upstream prompt" fills in the original bridge's roleplay prompt for you to edit and save. Changing this starts a new CLI session on each character's next turn.
                 </p>
-                <textarea id="systemPromptEditor" style="width:100%;height:460px;background:var(--ink-sunk);color:var(--paper);border:1px solid var(--rule);padding:20px;font-family:var(--font-mono);font-size:12.5px;line-height:1.7;resize:vertical;"></textarea>
-                <div style="margin-top:15px;display:flex;gap:10px;align-items:center;">
+                <textarea id="systemPromptEditor" class="w-full" style="height:260px;padding:12px 14px;"></textarea>
+                <div class="btn-row" style="margin-top:12px;">
                     <button class="btn" onclick="saveSystemPrompt()">Save Style Notes</button>
-                    <span id="systemPromptStatus" style="color:var(--success);display:none;">Saved!</span>
+                    <span id="systemPromptStatus" class="status-msg" style="display:none;">Saved!</span>
                 </div>
             </div>
 
-            <div class="setting-card" style="max-width:100%;margin-top:20px;">
+            <div class="setting-card">
                 <h3>How This Works</h3>
-                <ul style="color:var(--paper-dim);font-size:13px;line-height:1.8;">
+                <ul class="plain-list" style="margin-top:8px;">
                     <li><strong>System prompt</strong>: the bridge frame, your style notes (if any), SillyTavern's prompt, the Creativity mode, and tool definitions. It stays fixed for a CLI session, which keeps Claude's earlier thinking valid and the prompt cache warm.</li>
                     <li><strong>Chat</strong>: a new session gets the chat so far as a transcript; later turns send only your new message. Lore or notes that SillyTavern adds or changes mid-session are added to that turn, and Post-History Instructions are re-sent when they change.</li>
                     <li><strong>Thinking</strong>: Claude always thinks before replying; the Effort setting controls how much. No prompt asks it to write its reasoning out. With "Include Thinking" on, its thinking summary goes to SillyTavern's reasoning block.</li>
                 </ul>
+            </div>
+
+            <h3>Prompt Preview</h3>
+            <p>
+                What one roleplay turn sends to the Claude CLI: the bridge's own text placed around your SillyTavern prompt order, read from SillyTavern's settings. Dashed blocks are filled in by SillyTavern for each chat (card, lore, chat history). Click a long block to expand it.
+            </p>
+            <div id="promptPreview" class="pv">
+                <div class="pv-empty">Loading…</div>
             </div>
         </div>
 
@@ -1080,126 +1440,120 @@
                 <strong>Cuts per-request token usage dramatically on long RPs.</strong> Without it, SillyTavern re-sends your entire message history every turn — at message 200, that's the whole conversation going up the pipe on every single reply. Auto-summary replaces old messages with a condensed narrative digest the bridge keeps per character, so each request sends <em>summary + last 15 messages</em> instead of the full backlog. The one-time cost of generating the summary is paid back many times over the next dozens of turns, and because the summary + system prompt stay stable across requests, Claude's prompt cache kicks in and most of those tokens come back as cheap cache reads instead of full reads. New events get appended without losing old ones, and each character's story lives in its own bucket — switching characters won't cross-contaminate context.
             </p>
 
-            <div class="setting-card" style="max-width:500px;">
-                <h3>Toggle</h3>
-                <p style="color:var(--paper-faint);font-size:12px;margin-bottom:15px;">
+            <div class="setting-card">
+                <div class="card-head">
+                    <h3>Auto-Summary</h3>
+                    <div class="switch-container">
+                        <span id="autoSummaryStatus">Disabled</span>
+                        <label class="switch">
+                            <input type="checkbox" id="autoSummary">
+                            <span class="slider"></span>
+                        </label>
+                    </div>
+                </div>
+                <p>
                     When enabled, summarizes new messages incrementally and appends to that character's existing summary.
                 </p>
-                <div class="switch-container" style="margin-bottom:15px;">
-                    <label class="switch">
-                        <input type="checkbox" id="autoSummary">
-                        <span class="slider"></span>
-                    </label>
-                    <span id="autoSummaryStatus">Disabled</span>
-                </div>
 
                 <div id="autoSummarySettings" style="display:none;">
-                    <div class="form-group" style="margin-bottom:10px;">
-                        <label style="font-size:12px;">Update after X new messages:</label>
-                        <input type="number" id="autoSummaryThreshold" value="20" min="5" max="100" style="width:80px;">
+                    <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:flex-end;margin-bottom:14px;">
+                        <div>
+                            <label class="field-label" for="autoSummaryThreshold">Update after X new messages</label>
+                            <input type="number" id="autoSummaryThreshold" value="20" min="5" max="100" style="width:110px;">
+                        </div>
+                        <div>
+                            <label class="field-label" for="autoSummaryMaxLength">Condense when longer than (chars)</label>
+                            <input type="number" id="autoSummaryMaxLength" value="50000" min="10000" max="200000" style="width:130px;">
+                        </div>
+                        <button class="btn btn-secondary" onclick="saveAutoSummarySettings()">Save Thresholds</button>
                     </div>
-                    <div class="form-group" style="margin-bottom:10px;">
-                        <label style="font-size:12px;">Condense summary when exceeds (chars):</label>
-                        <input type="number" id="autoSummaryMaxLength" value="50000" min="10000" max="200000" style="width:100px;">
-                    </div>
-                    <button class="btn btn-secondary" style="font-size:12px;padding:6px 12px;" onclick="saveAutoSummarySettings()">
-                        Save Thresholds
-                    </button>
                 </div>
 
-                <p id="autoSummaryInfo" style="color:var(--paper-faint);font-size:12px;margin-top:10px;">
+                <div id="autoSummaryInfo" class="notice">
                     Loading status...
-                </p>
+                </div>
             </div>
-
-            <hr style="border-color:var(--rule);margin:30px 0;">
 
             <h3>Generate from Chat File</h3>
             <p>
                 Create a summary directly from a SillyTavern chat file. More accurate than relying on what ST sends.
             </p>
 
-            <div class="setting-card" style="max-width:600px;margin-bottom:20px;">
+            <div class="setting-card">
                 <h3>Chat File</h3>
-                <p style="color:var(--paper-faint);font-size:12px;margin-bottom:15px;">
+                <p>
                     Select a chat file to generate a comprehensive summary. Supports chunking for long conversations.
                 </p>
 
-                <div class="form-group" style="margin-bottom:10px;">
-                    <label style="font-size:12px;">Chat File:</label>
+                <div class="form-group">
+                    <label for="summaryFileSelect">Chat file</label>
                     <select id="summaryFileSelect" style="margin-bottom:8px;" onchange="updateSummaryFilePath()">
                         <option value="">-- Select a chat file --</option>
                     </select>
-                    <input type="text" id="summaryFilePath" placeholder="Or paste full path to .jsonl chat file" style="font-size:12px;">
+                    <input type="text" id="summaryFilePath" placeholder="Or paste full path to .jsonl chat file">
                 </div>
 
-                <div class="form-group" style="margin-bottom:15px;">
-                    <label style="font-size:12px;">Model:</label>
-                    <div class="toggle-group" style="margin-top:5px;">
+                <div class="form-group">
+                    <label>Model</label>
+                    <div class="toggle-group" style="max-width:360px;">
                         <button class="toggle-btn active" data-setting="summary-model" data-value="sonnet">Sonnet (Fast)</button>
                         <button class="toggle-btn" data-setting="summary-model" data-value="opus">Opus (Thorough)</button>
                     </div>
                 </div>
 
-                <button class="btn" onclick="generateSummaryFromFile()" id="genSummaryBtn">
-                    Generate Summary
-                </button>
+                <button class="btn" onclick="generateSummaryFromFile()" id="genSummaryBtn">Generate Summary</button>
             </div>
-
-            <hr style="border-color:var(--rule);margin:30px 0;">
 
             <h3>Manual Chunking</h3>
             <p>
                 Manually trigger a full conversation summary. Useful for initial setup or reset.
             </p>
 
-            <div class="setting-card" style="max-width:400px;">
-                <h3>One-Shot Chunking</h3>
-                <p style="color:var(--paper-faint);font-size:12px;margin-bottom:15px;">
-                    When enabled, the next request will be split into chunks,<br>
-                    summarized, and combined. Auto-disables after use.
-                </p>
-                <button class="btn" id="chunkingBtn" onclick="toggleChunking()">
-                    Enable Chunking
-                </button>
-                <button class="btn btn-secondary" id="chunkingCancelBtn" onclick="disableChunking()" style="display:none;margin-left:8px;">
-                    Cancel
-                </button>
-                <p id="chunkingStatus" style="color:var(--paper-faint);font-size:12px;margin-top:10px;">
-                    Status: Disabled
-                </p>
-            </div>
-
-            <div class="setting-card" style="max-width:800px;margin-top:20px;">
-                <h3>Summary Cache</h3>
-                <p style="color:var(--paper-faint);font-size:12px;margin-bottom:15px;">
-                    Each character gets its own summary bucket — switching characters in SillyTavern auto-swaps entries, no manual cache clearing needed.
-                    The bridge identifies a character by hashing its greeting (first assistant message).
-                </p>
-                <div id="cacheInfo" style="color:var(--paper-dim);font-size:13px;margin-bottom:15px;">
-                    Loading cache info...
+            <div class="settings-grid">
+                <div class="setting-card">
+                    <h3>One-Shot Chunking</h3>
+                    <p>
+                        When enabled, the next request will be split into chunks, summarized, and combined. Auto-disables after use.
+                    </p>
+                    <div class="btn-row">
+                        <button class="btn" id="chunkingBtn" onclick="toggleChunking()">Enable Chunking</button>
+                        <button class="btn btn-secondary" id="chunkingCancelBtn" onclick="disableChunking()" style="display:none;">Cancel</button>
+                    </div>
+                    <p id="chunkingStatus" style="color:var(--paper-faint);font-size:12.5px;margin:12px 0 0;">
+                        Status: Disabled
+                    </p>
                 </div>
-                <div id="cacheEntries" style="margin-bottom:15px;"></div>
-                <button class="btn btn-secondary" onclick="refreshCache()" style="margin-right:10px;">
-                    Refresh
-                </button>
-                <button class="btn btn-secondary" onclick="clearCache()">
-                    Clear All
-                </button>
-            </div>
 
-            <div class="tool-section" style="margin-top:30px;">
-                <h3>How It Works</h3>
-                <div style="background:var(--ink-sunk);padding:20px;">
-                    <ol style="color:var(--paper-dim);margin:0;padding-left:20px;">
-                        <li style="margin-bottom:10px;">Click <strong style="color:var(--accent);">"Enable Chunking"</strong> above</li>
-                        <li style="margin-bottom:10px;">Go to SillyTavern and send any message</li>
-                        <li style="margin-bottom:10px;">The conversation is split into ~80K token chunks</li>
-                        <li style="margin-bottom:10px;">Each chunk is summarized (cached for reuse)</li>
-                        <li style="margin-bottom:10px;">Summaries are combined into context</li>
+                <div class="setting-card tool-section">
+                    <h3>How It Works</h3>
+                    <ol class="plain-list" style="margin-top:8px;">
+                        <li>Click <strong>Enable Chunking</strong></li>
+                        <li>Go to SillyTavern and send any message</li>
+                        <li>The conversation is split into ~80K token chunks</li>
+                        <li>Each chunk is summarized (cached for reuse)</li>
+                        <li>Summaries are combined into context</li>
                         <li>Your request is sent with the summary context</li>
                     </ol>
                 </div>
+            </div>
+
+            <h3>Summary Cache</h3>
+            <p>
+                Each character gets its own summary bucket — switching characters in SillyTavern auto-swaps entries, no manual cache clearing needed.
+                The bridge identifies a character by hashing its greeting (first assistant message).
+            </p>
+
+            <div class="setting-card">
+                <div class="card-head">
+                    <div id="cacheInfo" style="color:var(--paper-dim);font-size:13px;">
+                        Loading cache info...
+                    </div>
+                    <div class="btn-row">
+                        <button class="btn btn-secondary btn-sm" onclick="refreshCache()">Refresh</button>
+                        <button class="btn btn-danger btn-sm" onclick="clearCache()">Clear All</button>
+                    </div>
+                </div>
+                <div id="cacheEntries" style="margin-top:14px;"></div>
             </div>
         </div>
 
@@ -1210,122 +1564,119 @@
                 Automatically generates World Info entries from your roleplay. Runs in the <strong>background</strong> after you send a new message (meaning you accepted the previous response). Uses a separate Claude call with Sonnet for efficiency — zero impact on your RP response time.
             </p>
 
-            <div class="settings-grid" style="margin-bottom:20px;">
+            <div class="settings-grid">
                 <div class="setting-card">
-                    <h3>Toggle</h3>
-                    <p style="color:var(--paper-faint);font-size:12px;margin-bottom:15px;">
+                    <div class="card-head">
+                        <h3>Auto-Lorebook</h3>
+                        <div class="switch-container">
+                            <span id="lorebookStatus">Disabled</span>
+                            <label class="switch">
+                                <input type="checkbox" id="lorebookEnabled">
+                                <span class="slider"></span>
+                            </label>
+                        </div>
+                    </div>
+                    <p>
                         When enabled, Claude will automatically add lore entries for significant new information.
                     </p>
-                    <div class="switch-container">
-                        <label class="switch">
-                            <input type="checkbox" id="lorebookEnabled">
-                            <span class="slider"></span>
-                        </label>
-                        <span id="lorebookStatus">Disabled</span>
+                    <div id="lorebookStatusBox" class="notice">
+                        <div style="display:flex;align-items:flex-start;gap:10px;">
+                            <span id="lorebookDot" class="status-dot" style="background:var(--paper-faint);margin-top:6px;"></span>
+                            <span id="lorebookPathStatus" style="min-width:0;overflow-wrap:anywhere;">Loading...</span>
+                        </div>
+                        <p style="color:var(--paper-faint);font-size:12px;margin:8px 0 0;">
+                            Auto: Runs every 4 messages using Sonnet (recent only). <strong>Deep Analysis</strong>: Full conversation with chunking support for long RPs, uses Opus, can update existing entries.
+                        </p>
                     </div>
                 </div>
 
                 <div class="setting-card">
                     <h3>SillyTavern Path</h3>
-                    <p style="color:var(--paper-faint);font-size:12px;margin-bottom:10px;">Path to SillyTavern worlds folder</p>
-                    <input type="text" id="lorebookPath" style="font-size:12px;margin-bottom:10px;"
-                        placeholder="e.g. D:\Sillytavern\SillyTavern\data\default-user\worlds">
-                    <div class="form-group" style="margin-bottom:10px;">
-                        <label style="font-size:12px;">Lorebook filename:</label>
-                        <input type="text" id="lorebookName" value="claude_auto_lore.json" style="font-size:12px;">
+                    <p>Path to SillyTavern worlds folder</p>
+                    <div class="form-group">
+                        <label for="lorebookPath">Worlds folder</label>
+                        <input type="text" id="lorebookPath" placeholder="e.g. D:\Sillytavern\SillyTavern\data\default-user\worlds">
                     </div>
-                    <button class="btn btn-secondary" style="font-size:12px;padding:6px 12px;" onclick="saveLorebookSettings()">
-                        Save Path
-                    </button>
+                    <div class="form-group">
+                        <label for="lorebookName">Lorebook filename</label>
+                        <input type="text" id="lorebookName" value="claude_auto_lore.json">
+                    </div>
+                    <button class="btn btn-secondary" onclick="saveLorebookSettings()">Save Path</button>
                 </div>
             </div>
 
-            <div id="lorebookStatusBox" style="background:var(--ink-sunk);padding:15px;margin-bottom:20px;">
-                <div style="display:flex;align-items:center;gap:10px;justify-content:space-between;">
-                    <div style="display:flex;align-items:center;gap:10px;">
-                        <span id="lorebookDot" class="status-dot" style="background:var(--paper-faint);"></span>
-                        <span id="lorebookPathStatus">Loading...</span>
-                    </div>
-                </div>
-                <p style="color:var(--paper-ghost);font-size:11px;margin-top:10px;margin-bottom:0;">
-                    Auto: Runs every 4 messages using Sonnet (recent only). <strong>Deep Analysis</strong>: Full conversation with chunking support for long RPs, uses Opus, can update existing entries.
-                </p>
-            </div>
-
-            <div class="setting-card" style="margin-bottom:20px;">
+            <div class="setting-card">
                 <h3>Deep Analysis</h3>
-                <p style="color:var(--paper-faint);font-size:12px;margin-bottom:15px;">
+                <p>
                     Analyze a full conversation for lore. Can read directly from SillyTavern chat files.
                 </p>
 
-                <div class="form-group" style="margin-bottom:10px;">
-                    <label style="font-size:12px;">Chat File (select or paste path):</label>
+                <div class="form-group">
+                    <label for="chatFileSelect">Chat file (select or paste path)</label>
                     <select id="chatFileSelect" style="margin-bottom:8px;" onchange="updateChatFilePath()">
                         <option value="">-- Select a chat file --</option>
                     </select>
-                    <input type="text" id="chatFilePath" placeholder="Or paste full path to .jsonl chat file" style="font-size:12px;">
+                    <input type="text" id="chatFilePath" placeholder="Or paste full path to .jsonl chat file">
                 </div>
 
-                <div class="form-group" style="margin-bottom:15px;">
-                    <label style="font-size:12px;">Model for analysis:</label>
-                    <div class="toggle-group" style="margin-top:5px;">
+                <div class="form-group">
+                    <label>Model for analysis</label>
+                    <div class="toggle-group" style="max-width:360px;">
                         <button class="toggle-btn active" data-setting="deep-model" data-value="sonnet">Sonnet (Fast)</button>
                         <button class="toggle-btn" data-setting="deep-model" data-value="opus">Opus (Thorough)</button>
                     </div>
                 </div>
 
-                <button class="btn" onclick="triggerQuickAnalysis()" style="margin-right:10px;">
-                    Quick Analyze Now
-                </button>
-                <button class="btn" onclick="triggerDeepAnalysis()" id="deepAnalyzeBtn" style="margin-right:10px;">
-                    Run Deep Analysis
-                </button>
-                <button class="btn btn-secondary" onclick="loadChatFiles()" style="padding:8px 12px;">
-                    Refresh Chats
-                </button>
+                <div class="btn-row">
+                    <button class="btn" onclick="triggerQuickAnalysis()">Quick Analyze Now</button>
+                    <button class="btn" onclick="triggerDeepAnalysis()" id="deepAnalyzeBtn">Run Deep Analysis</button>
+                    <button class="btn btn-secondary" onclick="loadChatFiles()">Refresh Chats</button>
+                </div>
             </div>
 
-            <div class="setting-card" style="margin-bottom:20px;">
+            <div class="setting-card">
                 <h3>Manual Entry</h3>
-                <p style="color:var(--paper-faint);font-size:12px;margin-bottom:15px;">Add a lorebook entry manually</p>
+                <p>Add a lorebook entry manually</p>
 
-                <div class="form-group" style="margin-bottom:10px;">
-                    <label style="font-size:12px;">Keywords (comma-separated):</label>
-                    <input type="text" id="entryKeywords" placeholder="Morgan, Morgan Henderson">
+                <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:0 14px;">
+                    <div class="form-group">
+                        <label for="entryKeywords">Keywords (comma-separated)</label>
+                        <input type="text" id="entryKeywords" placeholder="Morgan, Morgan Henderson">
+                    </div>
+                    <div class="form-group">
+                        <label for="entryName">Entry name</label>
+                        <input type="text" id="entryName" placeholder="Morgan Henderson">
+                    </div>
+                    <div class="form-group">
+                        <label for="entryPosition">Position</label>
+                        <select id="entryPosition">
+                            <option value="0">Before Character Definition</option>
+                            <option value="1">After Character Definition</option>
+                            <option value="4">At Depth</option>
+                        </select>
+                    </div>
                 </div>
-                <div class="form-group" style="margin-bottom:10px;">
-                    <label style="font-size:12px;">Entry Name:</label>
-                    <input type="text" id="entryName" placeholder="Morgan Henderson">
-                </div>
-                <div class="form-group" style="margin-bottom:10px;">
-                    <label style="font-size:12px;">Position:</label>
-                    <select id="entryPosition" style="padding:8px;">
-                        <option value="0">Before Character Definition</option>
-                        <option value="1">After Character Definition</option>
-                        <option value="4">At Depth</option>
-                    </select>
-                </div>
-                <div class="form-group" style="margin-bottom:10px;">
-                    <label style="font-size:12px;">Content:</label>
-                    <textarea id="entryContent" style="min-height:100px;" placeholder="Detailed lore content..."></textarea>
+                <div class="form-group">
+                    <label for="entryContent">Content</label>
+                    <textarea id="entryContent" style="min-height:110px;" placeholder="Detailed lore content..."></textarea>
                 </div>
                 <button class="btn" onclick="addLorebookEntry()">Add Entry</button>
             </div>
 
             <div class="setting-card">
-                <h3>Current Entries</h3>
-                <p style="color:var(--paper-faint);font-size:12px;margin-bottom:15px;">
-                    Entries in your auto-lorebook (click to expand)
-                </p>
-                <div id="lorebookEntries" style="margin-bottom:15px;">
+                <div class="card-head" style="margin-bottom:14px;">
+                    <div>
+                        <h3>Current Entries</h3>
+                        <div class="card-desc" style="margin:0;">Entries in your auto-lorebook (click to expand)</div>
+                    </div>
+                    <div class="btn-row">
+                        <button class="btn btn-secondary btn-sm" onclick="refreshLorebook()">Refresh</button>
+                        <button class="btn btn-danger btn-sm" onclick="clearLorebook()">Clear All</button>
+                    </div>
+                </div>
+                <div id="lorebookEntries">
                     Loading entries...
                 </div>
-                <button class="btn btn-secondary" onclick="refreshLorebook()" style="margin-right:10px;">
-                    Refresh
-                </button>
-                <button class="btn btn-secondary" onclick="clearLorebook()" style="background:var(--accent-dim);">
-                    Clear All
-                </button>
             </div>
         </div>
 
@@ -1333,31 +1684,31 @@
         <!-- Memory Panel (Character Memory v2) -->
         <div id="memory" class="panel">
             <h3>Character Memory</h3>
-            <p style="color:var(--paper-faint);font-size:13px;">Inspect and edit the structured memory database for each character. Each row is a typed memory: desires, events, traits, relationships, secrets. Updates here are immediate — no bridge restart needed.</p>
+            <p>Inspect and edit the structured memory database for each character. Each row is a typed memory: desires, events, traits, relationships, secrets. Updates here are immediate — no bridge restart needed.</p>
 
-            <div class="setting-card" style="margin-top:16px;">
-                <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
-                    <label style="font-family:var(--font-mono);font-size:11px;letter-spacing:0.12em;text-transform:uppercase;color:var(--paper-faint);">Character:</label>
-                    <select id="memCharSelect" style="flex:1;min-width:240px;padding:10px 12px;background:var(--ink-sunk);border:1px solid var(--rule);color:var(--paper);font-family:var(--font-mono);font-size:13px;">
+            <div class="setting-card">
+                <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+                    <label for="memCharSelect" style="font-size:12.5px;color:var(--paper-faint);">Character</label>
+                    <select id="memCharSelect" style="flex:1;min-width:240px;">
                         <option value="">— select a character —</option>
                     </select>
                     <button class="toggle-btn" id="memPinBtn">Pin</button>
                     <button class="toggle-btn" id="memLabelBtn">Label</button>
                     <button class="toggle-btn" id="memRefreshBtn">Refresh</button>
-                    <button class="toggle-btn" id="memResetBtn" style="border-color:var(--warn,#c44);color:var(--warn,#c44);">Reset</button>
+                    <button class="toggle-btn danger" id="memResetBtn">Reset</button>
                 </div>
-                <div id="memPinBanner" style="margin-top:10px;display:none;padding:8px 12px;background:var(--ink-sunk);border-left:3px solid var(--accent,#7aa);font-family:var(--font-mono);font-size:12px;">
-                    <span style="color:var(--paper-faint);text-transform:uppercase;letter-spacing:0.12em;font-size:10px;">Pinned:</span>
-                    <span id="memPinKey" style="color:var(--paper);"></span>
-                    <button class="toggle-btn" id="memUnpinBtn" style="margin-left:10px;padding:3px 10px;font-size:10px;">Unpin</button>
-                    <span style="color:var(--paper-faint);margin-left:8px;font-size:11px;">— bridge will use this key for every request, ignoring auto-detection.</span>
+                <div id="memPinBanner" class="notice" style="margin-top:12px;display:none;border-left:3px solid var(--accent);">
+                    <span style="color:var(--paper-faint);">Pinned:</span>
+                    <span id="memPinKey" style="color:var(--paper);font-family:var(--font-mono);font-size:12px;"></span>
+                    <button class="toggle-btn sm" id="memUnpinBtn" style="margin-left:8px;">Unpin</button>
+                    <span style="color:var(--paper-faint);margin-left:8px;">— bridge will use this key for every request, ignoring auto-detection.</span>
                 </div>
-                <div id="memCharSummary" style="margin-top:12px;color:var(--paper-faint);font-size:12px;font-family:var(--font-mono);"></div>
+                <div id="memCharSummary" style="margin-top:10px;color:var(--paper-faint);font-size:12.5px;"></div>
             </div>
 
             <div id="memBody" style="margin-top:16px;display:none;">
                 <!-- Sub-tab buttons -->
-                <div class="toggle-group" style="margin-bottom:12px;">
+                <div class="toggle-group" style="margin-bottom:14px;">
                     <button class="toggle-btn active" data-memtab="memories">Memories</button>
                     <button class="toggle-btn" data-memtab="needs">Needs</button>
                     <button class="toggle-btn" data-memtab="npcs">NPCs</button>
@@ -1369,17 +1720,17 @@
                 <!-- Memories sub-panel -->
                 <div id="memSub_memories" class="memSubPanel">
                     <!-- Entity scope selector: which DB are we looking at? -->
-                    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;align-items:center;">
-                        <label style="font-size:11px;color:var(--paper-faint);text-transform:uppercase;letter-spacing:0.12em;">Entity:</label>
+                    <div class="filter-row">
+                        <label>Entity</label>
                         <div id="memEntityPills" style="display:flex;gap:6px;flex-wrap:wrap;flex:1;"></div>
-                        <button class="toggle-btn" id="memAddRowBtn" style="font-size:11px;">+ New entry</button>
+                        <button class="toggle-btn primary" id="memAddRowBtn">+ New entry</button>
                     </div>
-                    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;align-items:center;">
-                        <label style="font-size:11px;color:var(--paper-faint);text-transform:uppercase;letter-spacing:0.12em;">Filter:</label>
-                        <select id="memFilterType" style="padding:6px 10px;background:var(--ink-sunk);border:1px solid var(--rule);color:var(--paper);font-family:var(--font-mono);font-size:12px;">
+                    <div class="filter-row">
+                        <label>Filter</label>
+                        <select id="memFilterType">
                             <option value="">all types</option>
                         </select>
-                        <select id="memFilterStatus" style="padding:6px 10px;background:var(--ink-sunk);border:1px solid var(--rule);color:var(--paper);font-family:var(--font-mono);font-size:12px;">
+                        <select id="memFilterStatus">
                             <option value="active">active only</option>
                             <option value="">all statuses</option>
                             <option value="dormant">dormant</option>
@@ -1387,22 +1738,22 @@
                             <option value="mutated">mutated</option>
                             <option value="contradicted">contradicted</option>
                         </select>
-                        <input id="memFilterText" type="text" placeholder="search content..." style="flex:1;min-width:160px;padding:6px 10px;background:var(--ink-sunk);border:1px solid var(--rule);color:var(--paper);font-family:var(--font-mono);font-size:12px;">
-                        <span id="memRowCount" style="color:var(--paper-faint);font-size:11px;font-family:var(--font-mono);"></span>
+                        <input id="memFilterText" type="text" placeholder="search content..." style="flex:1;min-width:160px;">
+                        <span id="memRowCount" style="color:var(--paper-faint);font-size:12px;"></span>
                     </div>
-                    <div style="overflow-x:auto;border:1px solid var(--rule);">
-                        <table id="memTable" style="width:100%;border-collapse:collapse;font-family:var(--font-mono);font-size:12px;">
-                            <thead style="background:var(--ink-sunk);">
-                                <tr style="text-align:left;">
-                                    <th style="padding:8px;border-bottom:1px solid var(--rule);">id</th>
-                                    <th style="padding:8px;border-bottom:1px solid var(--rule);">type</th>
-                                    <th style="padding:8px;border-bottom:1px solid var(--rule);">subj</th>
-                                    <th style="padding:8px;border-bottom:1px solid var(--rule);">int</th>
-                                    <th style="padding:8px;border-bottom:1px solid var(--rule);">imp</th>
-                                    <th style="padding:8px;border-bottom:1px solid var(--rule);">status</th>
-                                    <th style="padding:8px;border-bottom:1px solid var(--rule);">content</th>
-                                    <th style="padding:8px;border-bottom:1px solid var(--rule);">turn</th>
-                                    <th style="padding:8px;border-bottom:1px solid var(--rule);">actions</th>
+                    <div class="table-wrap">
+                        <table id="memTable" class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>id</th>
+                                    <th>type</th>
+                                    <th>subj</th>
+                                    <th>int</th>
+                                    <th>imp</th>
+                                    <th>status</th>
+                                    <th>content</th>
+                                    <th>turn</th>
+                                    <th>actions</th>
                                 </tr>
                             </thead>
                             <tbody id="memTableBody"></tbody>
@@ -1411,46 +1762,46 @@
                 </div>
 
                 <!-- Needs sub-panel -->
-                <div id="memSub_needs" class="memSubPanel" style="display:none;">
-                    <p style="color:var(--paper-faint);font-size:12px;">Higher = more satisfied. Lower = more pressure to act. Decay applies each turn.</p>
+                <div id="memSub_needs" class="memSubPanel setting-card" style="display:none;">
+                    <p class="card-desc">Higher = more satisfied. Lower = more pressure to act. Decay applies each turn.</p>
                     <div id="memNeedsBody"></div>
-                    <button class="toggle-btn" id="memNeedsSaveBtn" style="margin-top:12px;">Save needs</button>
+                    <button class="btn btn-secondary" id="memNeedsSaveBtn" style="margin-top:14px;">Save needs</button>
                 </div>
 
                 <!-- NPCs sub-panel: edit cards (name/bio/aliases/status). For
                      the NPC's memory rows, click "View memories" → switches to
                      the Memories sub-tab pre-scoped to that NPC. -->
                 <div id="memSub_npcs" class="memSubPanel" style="display:none;">
-                    <p style="color:var(--paper-faint);font-size:12px;">Edit NPC card metadata here. To inspect or edit an NPC's memory rows, hit "View memories" on their card — that scopes the Memories sub-tab to their DB.</p>
+                    <p class="card-desc">Edit NPC card metadata here. To inspect or edit an NPC's memory rows, hit "View memories" on their card — that scopes the Memories sub-tab to their DB.</p>
                     <div id="memNpcsBody"></div>
                 </div>
 
                 <!-- Card Seed sub-panel -->
                 <div id="memSub_seed" class="memSubPanel" style="display:none;">
-                    <p style="color:var(--paper-faint);font-size:12px;">The raw bootstrap extraction from the character card, preserved for audit. Edits here are NOT applied to the DB; this is reference only.</p>
-                    <pre id="memSeedBody" style="background:var(--ink-sunk);padding:12px;border:1px solid var(--rule);color:var(--paper);font-family:var(--font-mono);font-size:12px;white-space:pre-wrap;max-height:60vh;overflow:auto;"></pre>
+                    <p class="card-desc">The raw bootstrap extraction from the character card, preserved for audit. Edits here are NOT applied to the DB; this is reference only.</p>
+                    <pre id="memSeedBody" class="code-block" style="max-height:60vh;"></pre>
                 </div>
 
                 <!-- Errors sub-panel -->
                 <div id="memSub_errors" class="memSubPanel" style="display:none;">
-                    <p style="color:var(--paper-faint);font-size:12px;">Tail of <code>sonnet_errors.log</code> for this character. Empty means no recent maintenance failures.</p>
-                    <pre id="memErrorsBody" style="background:var(--ink-sunk);padding:12px;border:1px solid var(--rule);color:var(--paper);font-family:var(--font-mono);font-size:12px;white-space:pre-wrap;max-height:60vh;overflow:auto;"></pre>
+                    <p class="card-desc">Tail of <code>sonnet_errors.log</code> for this character. Empty means no recent maintenance failures.</p>
+                    <pre id="memErrorsBody" class="code-block" style="max-height:60vh;"></pre>
                 </div>
 
                 <!-- Import sub-panel: bulk-import memories from external dumps.
                      Vectors from external embedders (OpenAI / Cohere / etc.)
                      don't transfer across embedding spaces, so we re-embed
                      locally on ingest. Text is what's portable. -->
-                <div id="memSub_import" class="memSubPanel" style="display:none;">
-                    <p style="color:var(--paper-faint);font-size:12px;">
+                <div id="memSub_import" class="memSubPanel setting-card" style="display:none;">
+                    <p class="card-desc">
                         Bulk-import memories from external dumps. Auto-detects JSONL / JSON / plain text / CSV / markdown.
                         External embedding vectors are dropped (different embedding spaces aren't compatible);
                         memory v2 re-embeds locally on insert.
                     </p>
 
-                    <div style="display:grid;grid-template-columns:140px 1fr;gap:10px 14px;align-items:center;font-size:12px;margin-bottom:12px;">
-                        <label>Format</label>
-                        <select id="memImportFormat" style="padding:6px 10px;background:var(--ink-sunk);border:1px solid var(--rule);color:var(--paper);font-family:var(--font-mono);font-size:12px;width:200px;">
+                    <div class="form-grid" style="margin-bottom:14px;">
+                        <label for="memImportFormat">Format</label>
+                        <select id="memImportFormat" style="width:240px;max-width:100%;">
                             <option value="auto" selected>auto-detect</option>
                             <option value="jsonl">JSONL (one JSON object per line)</option>
                             <option value="json">JSON (array or object)</option>
@@ -1459,8 +1810,8 @@
                             <option value="markdown">markdown (## sections)</option>
                         </select>
 
-                        <label>Default type</label>
-                        <select id="memImportDefaultType" style="padding:6px 10px;background:var(--ink-sunk);border:1px solid var(--rule);color:var(--paper);font-family:var(--font-mono);font-size:12px;width:200px;">
+                        <label for="memImportDefaultType">Default type</label>
+                        <select id="memImportDefaultType" style="width:240px;max-width:100%;">
                             <option value="fact" selected>fact</option>
                             <option value="event">event</option>
                             <option value="trait">trait</option>
@@ -1473,23 +1824,23 @@
                             <option value="secret">secret</option>
                         </select>
 
-                        <label>Default importance</label>
-                        <input id="memImportDefaultImportance" type="number" min="1" max="5" value="3" style="width:120px;padding:6px 10px;background:var(--ink-sunk);border:1px solid var(--rule);color:var(--paper);font-family:var(--font-mono);font-size:12px;">
+                        <label for="memImportDefaultImportance">Default importance</label>
+                        <input id="memImportDefaultImportance" type="number" min="1" max="5" value="3" style="width:110px;">
 
-                        <label>Scope</label>
-                        <select id="memImportNpcScope" style="padding:6px 10px;background:var(--ink-sunk);border:1px solid var(--rule);color:var(--paper);font-family:var(--font-mono);font-size:12px;width:240px;">
+                        <label for="memImportNpcScope">Scope</label>
+                        <select id="memImportNpcScope" style="width:240px;max-width:100%;">
                             <option value="">main character DB</option>
                         </select>
 
-                        <label>Upload file</label>
+                        <label for="memImportFile">Upload file</label>
                         <div>
-                            <input type="file" id="memImportFile" accept=".jsonl,.json,.txt,.csv,.md,.markdown" style="font-size:12px;">
-                            <span style="color:var(--paper-faint);font-size:11px;margin-left:8px;">— loads contents into the textarea below</span>
+                            <input type="file" id="memImportFile" accept=".jsonl,.json,.txt,.csv,.md,.markdown">
+                            <span style="color:var(--paper-faint);font-size:12px;margin-left:8px;">— loads contents into the textarea below</span>
                         </div>
                     </div>
 
-                    <label style="display:block;font-size:11px;color:var(--paper-faint);text-transform:uppercase;letter-spacing:0.12em;margin-bottom:6px;">Memory dump</label>
-                    <textarea id="memImportText" rows="14" placeholder='Paste memory dump here, or upload a file above.
+                    <label class="field-label" for="memImportText">Memory dump</label>
+                    <textarea id="memImportText" class="w-full" rows="14" placeholder='Paste memory dump here, or upload a file above.
 
 Examples of accepted shapes:
   JSONL:    {"text": "She prefers tea over coffee.", "subject": "user"}
@@ -1504,68 +1855,68 @@ Examples of accepted shapes:
             Section body becomes one memory.
 
 Common content fields auto-detected: content, text, memory, observation, page_content, message, body, summary.
-Common subject fields: subject, character, npc, entity, name.' style="width:100%;padding:10px;background:var(--ink-sunk);border:1px solid var(--rule);color:var(--paper);font-family:var(--font-mono);font-size:12px;resize:vertical;"></textarea>
+Common subject fields: subject, character, npc, entity, name.'></textarea>
 
-                    <div style="margin-top:12px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+                    <div class="btn-row" style="margin-top:12px;">
                         <button class="toggle-btn" id="memImportPreviewBtn">Preview</button>
-                        <button class="toggle-btn" id="memImportRunBtn" style="border-color:var(--accent,#7aa);color:var(--accent,#7aa);">Import</button>
-                        <span id="memImportStatus" style="color:var(--paper-faint);font-size:12px;font-family:var(--font-mono);"></span>
+                        <button class="toggle-btn primary" id="memImportRunBtn">Import</button>
+                        <span id="memImportStatus" style="color:var(--paper-faint);font-size:12.5px;"></span>
                     </div>
 
-                    <pre id="memImportOutput" style="margin-top:12px;background:var(--ink-sunk);padding:12px;border:1px solid var(--rule);color:var(--paper);font-family:var(--font-mono);font-size:12px;white-space:pre-wrap;max-height:40vh;overflow:auto;display:none;"></pre>
+                    <pre id="memImportOutput" class="code-block" style="margin-top:12px;max-height:40vh;display:none;"></pre>
                 </div>
             </div>
 
             <!-- Edit/Insert modal for memory rows. Hidden by default. Opened
                  by row Edit (with rowData populated) or "+ New entry" (blank).
                  Submits PATCH for existing rows, POST for new. -->
-            <div id="memRowModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.65);z-index:1000;align-items:center;justify-content:center;">
-                <div style="background:var(--ink);border:1px solid var(--rule);max-width:760px;width:92vw;max-height:90vh;overflow:auto;padding:22px;font-family:var(--font-mono);">
-                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
-                        <h3 id="memModalTitle" style="margin:0;font-family:var(--font-mono);">Edit memory row</h3>
-                        <button class="toggle-btn" id="memModalCloseBtn" style="font-size:11px;">Close</button>
+            <div id="memRowModal" class="modal-overlay">
+                <div class="modal">
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+                        <h3 id="memModalTitle" style="margin:0;font-size:15px;font-weight:600;">Edit memory row</h3>
+                        <button class="toggle-btn sm" id="memModalCloseBtn">Close</button>
                     </div>
-                    <div id="memModalScope" style="color:var(--paper-faint);font-size:11px;margin-bottom:14px;"></div>
+                    <div id="memModalScope" style="color:var(--paper-faint);font-size:12px;margin-bottom:16px;"></div>
 
-                    <div style="display:grid;grid-template-columns:140px 1fr;gap:10px 14px;align-items:center;font-size:12px;">
-                        <label>type</label>
-                        <select id="memEditType" style="padding:6px 10px;background:var(--ink-sunk);border:1px solid var(--rule);color:var(--paper);font-family:var(--font-mono);font-size:12px;">
+                    <div class="form-grid">
+                        <label for="memEditType">type</label>
+                        <select id="memEditType">
                             <option>desire</option><option>event</option><option>fact</option>
                             <option>rule</option><option>relationship</option><option>trait</option>
                             <option>place</option><option>possession</option><option>body</option>
                             <option>secret</option>
                         </select>
 
-                        <label>subject</label>
-                        <input id="memEditSubject" type="text" placeholder="user / self / npc_key / null" style="padding:6px 10px;background:var(--ink-sunk);border:1px solid var(--rule);color:var(--paper);font-family:var(--font-mono);font-size:12px;">
+                        <label for="memEditSubject">subject</label>
+                        <input id="memEditSubject" type="text" placeholder="user / self / npc_key / null">
 
-                        <label>intensity (1-6)</label>
-                        <input id="memEditIntensity" type="number" min="1" max="6" placeholder="(blank = none)" style="width:120px;padding:6px 10px;background:var(--ink-sunk);border:1px solid var(--rule);color:var(--paper);font-family:var(--font-mono);font-size:12px;">
+                        <label for="memEditIntensity">intensity (1-6)</label>
+                        <input id="memEditIntensity" type="number" min="1" max="6" placeholder="(blank = none)" style="width:140px;">
 
-                        <label>importance (1-5)</label>
-                        <input id="memEditImportance" type="number" min="1" max="5" value="3" style="width:120px;padding:6px 10px;background:var(--ink-sunk);border:1px solid var(--rule);color:var(--paper);font-family:var(--font-mono);font-size:12px;">
+                        <label for="memEditImportance">importance (1-5)</label>
+                        <input id="memEditImportance" type="number" min="1" max="5" value="3" style="width:140px;">
 
-                        <label>status</label>
-                        <select id="memEditStatus" style="padding:6px 10px;background:var(--ink-sunk);border:1px solid var(--rule);color:var(--paper);font-family:var(--font-mono);font-size:12px;">
+                        <label for="memEditStatus">status</label>
+                        <select id="memEditStatus">
                             <option>active</option><option>dormant</option><option>resolved</option>
                             <option>mutated</option><option>contradicted</option>
                         </select>
 
-                        <label style="align-self:start;padding-top:6px;">content</label>
-                        <textarea id="memEditContent" rows="6" style="padding:8px 10px;background:var(--ink-sunk);border:1px solid var(--rule);color:var(--paper);font-family:var(--font-mono);font-size:12px;resize:vertical;"></textarea>
+                        <label for="memEditContent" style="align-self:start;padding-top:8px;">content</label>
+                        <textarea id="memEditContent" rows="6"></textarea>
 
-                        <label>tags</label>
-                        <input id="memEditTags" type="text" placeholder="comma,separated" style="padding:6px 10px;background:var(--ink-sunk);border:1px solid var(--rule);color:var(--paper);font-family:var(--font-mono);font-size:12px;">
+                        <label for="memEditTags">tags</label>
+                        <input id="memEditTags" type="text" placeholder="comma,separated">
 
-                        <label style="align-self:start;padding-top:6px;">metadata (JSON)</label>
-                        <textarea id="memEditMetadata" rows="4" placeholder='{}' style="padding:8px 10px;background:var(--ink-sunk);border:1px solid var(--rule);color:var(--paper);font-family:var(--font-mono);font-size:11px;resize:vertical;"></textarea>
+                        <label for="memEditMetadata" style="align-self:start;padding-top:8px;">metadata (JSON)</label>
+                        <textarea id="memEditMetadata" rows="4" placeholder='{}'></textarea>
                     </div>
 
-                    <div id="memModalError" style="margin-top:10px;color:var(--warn,#c44);font-size:12px;display:none;"></div>
+                    <div id="memModalError" style="margin-top:10px;color:var(--error);font-size:12.5px;display:none;"></div>
 
-                    <div style="margin-top:18px;display:flex;justify-content:flex-end;gap:8px;">
-                        <button class="toggle-btn" id="memModalCancelBtn">Cancel</button>
-                        <button class="toggle-btn" id="memModalSaveBtn" style="border-color:var(--accent,#7aa);color:var(--accent,#7aa);">Save</button>
+                    <div class="btn-row" style="margin-top:18px;justify-content:flex-end;">
+                        <button class="btn btn-secondary" id="memModalCancelBtn">Cancel</button>
+                        <button class="btn" id="memModalSaveBtn">Save</button>
                     </div>
                 </div>
             </div>
@@ -1577,14 +1928,14 @@ Common subject fields: subject, character, npc, entity, name.' style="width:100%
             <h3>Test Message</h3>
             <p>Send a test message to verify the bridge is working.</p>
 
-            <div class="setting-card" style="max-width:720px;">
+            <div class="setting-card">
                 <div class="form-group">
-                    <label>System Prompt (optional)</label>
+                    <label for="testSystem">System prompt (optional)</label>
                     <textarea id="testSystem" style="min-height:80px;" placeholder="You are a helpful assistant..."></textarea>
                 </div>
 
                 <div class="form-group">
-                    <label>User Message</label>
+                    <label for="testMessage">User message</label>
                     <textarea id="testMessage" style="min-height:80px;" placeholder="Hello, how are you?"></textarea>
                 </div>
 
@@ -1609,6 +1960,8 @@ Common subject fields: subject, character, npc, entity, name.' style="width:100%
             // Auto-refresh when switching tabs
             if (tabName === 'tools') {
                 refreshCache();
+            } else if (tabName === 'system') {
+                loadPromptPreview();
             } else if (tabName === 'lorebook') {
                 refreshLorebook();
             } else if (tabName === 'memory') {
@@ -1801,13 +2154,9 @@ Common subject fields: subject, character, npc, entity, name.' style="width:100%
             );
             entities.forEach(e => {
                 const btn = document.createElement('button');
-                btn.className = 'toggle-btn';
-                // Override the toggle-btn defaults: those use flex:1 1 0 +
-                // ellipsis truncation, which is right for tab rows but
-                // squeezes the entity pills into "MA…  HE…  IS…" when
-                // there are many NPCs. Pills should size to their own
-                // content and wrap.
-                btn.style.cssText = 'flex:0 0 auto;font-size:11px;padding:4px 10px;text-overflow:clip;overflow:visible;border-right:1px solid var(--rule);';
+                // Standalone (not in a .toggle-group), so pills size to
+                // their own content and wrap.
+                btn.className = 'toggle-btn sm';
                 btn.textContent = e.label;
                 if ((memCurrentEntity || null) === (e.key || null)) {
                     btn.classList.add('active');
@@ -1883,22 +2232,21 @@ Common subject fields: subject, character, npc, entity, name.' style="width:100%
             tbody.innerHTML = '';
             rows.forEach(r => {
                 const tr = document.createElement('tr');
-                tr.style.borderBottom = '1px solid var(--rule)';
                 if (r.status !== 'active') tr.style.opacity = '0.55';
                 tr.innerHTML = `
-                    <td style="padding:6px 8px;color:var(--paper-faint);">${r.id}</td>
-                    <td style="padding:6px 8px;">${r.type}</td>
-                    <td style="padding:6px 8px;color:var(--paper-faint);">${escapeHtml(r.subject || '-')}</td>
-                    <td style="padding:6px 8px;">${r.intensity ?? ''}</td>
-                    <td style="padding:6px 8px;">${r.importance}</td>
-                    <td style="padding:6px 8px;color:var(--paper-faint);">${r.status}</td>
-                    <td style="padding:6px 8px;">${escapeHtml(r.content || '')}</td>
-                    <td style="padding:6px 8px;color:var(--paper-faint);">${r.created_turn}</td>
-                    <td style="padding:6px 8px;white-space:nowrap;">
-                        <button class="toggle-btn memEditBtn" style="padding:3px 8px;font-size:10px;" data-id="${r.id}">edit</button>
-                        <button class="toggle-btn memMoveBtn" style="padding:3px 8px;font-size:10px;" data-id="${r.id}">move ▾</button>
-                        <button class="toggle-btn memDeleteBtn" style="padding:3px 8px;font-size:10px;border-color:var(--warn,#c44);color:var(--warn,#c44);" data-id="${r.id}">×</button>
-                    </td>
+                    <td class="muted">${r.id}</td>
+                    <td>${r.type}</td>
+                    <td class="muted">${escapeHtml(r.subject || '-')}</td>
+                    <td>${r.intensity ?? ''}</td>
+                    <td>${r.importance}</td>
+                    <td class="muted">${r.status}</td>
+                    <td>${escapeHtml(r.content || '')}</td>
+                    <td class="muted">${r.created_turn}</td>
+                    <td><div class="actions">
+                        <button class="toggle-btn sm memEditBtn" data-id="${r.id}">edit</button>
+                        <button class="toggle-btn sm memMoveBtn" data-id="${r.id}">move ▾</button>
+                        <button class="toggle-btn sm danger memDeleteBtn" data-id="${r.id}">×</button>
+                    </div></td>
                 `;
                 tbody.appendChild(tr);
             });
@@ -2088,23 +2436,22 @@ Common subject fields: subject, character, npc, entity, name.' style="width:100%
 
             const menu = document.createElement('div');
             menu.id = 'memMoveMenu';
-            menu.style.cssText = 'position:absolute;background:var(--ink);border:1px solid var(--rule);padding:4px;z-index:500;font-family:var(--font-mono);font-size:11px;min-width:180px;';
+            menu.className = 'menu';
             const rect = anchor.getBoundingClientRect();
             menu.style.top = (rect.bottom + window.scrollY + 2) + 'px';
             menu.style.left = (rect.left + window.scrollX) + 'px';
 
             if (targets.length === 0) {
                 const empty = document.createElement('div');
-                empty.style.cssText = 'padding:6px 10px;color:var(--paper-faint);';
+                empty.className = 'menu-item';
+                empty.style.cssText = 'color:var(--paper-faint);cursor:default;';
                 empty.textContent = '(no other entities to move to)';
                 menu.appendChild(empty);
             } else {
                 targets.forEach(t => {
                     const item = document.createElement('div');
-                    item.style.cssText = 'padding:6px 10px;cursor:pointer;color:var(--paper);';
+                    item.className = 'menu-item';
                     item.textContent = t.label;
-                    item.onmouseover = () => item.style.background = 'var(--ink-sunk)';
-                    item.onmouseout = () => item.style.background = '';
                     item.onclick = () => { menu.remove(); memMoveRow(rowId, t.key); };
                     menu.appendChild(item);
                 });
@@ -2156,16 +2503,17 @@ Common subject fields: subject, character, npc, entity, name.' style="width:100%
                 const slots = needs[cat] || {};
                 if (Object.keys(slots).length === 0 && cat === 'custom') return;
                 const h = document.createElement('div');
-                h.style.cssText = 'margin-top:14px;font-family:var(--font-mono);font-size:11px;letter-spacing:0.12em;text-transform:uppercase;color:var(--paper-faint);';
+                h.className = 'group-label';
+                h.style.margin = '16px 0 6px';
                 h.textContent = cat;
                 body.appendChild(h);
                 Object.entries(slots).forEach(([k, v]) => {
                     const wrap = document.createElement('div');
-                    wrap.style.cssText = 'display:flex;align-items:center;gap:10px;margin:6px 0;';
+                    wrap.style.cssText = 'display:flex;align-items:center;gap:12px;margin:4px 0;font-size:12.5px;';
                     wrap.innerHTML = `
-                        <label style="min-width:140px;font-family:var(--font-mono);font-size:12px;">${k}</label>
+                        <label style="min-width:140px;color:var(--paper-dim);">${k}</label>
                         <input type="range" min="0" max="1" step="0.01" value="${v}" data-cat="${cat}" data-key="${k}" style="flex:1;">
-                        <span class="memNeedVal" data-cat="${cat}" data-key="${k}" style="min-width:40px;font-family:var(--font-mono);font-size:12px;">${Number(v).toFixed(2)}</span>
+                        <span class="memNeedVal" data-cat="${cat}" data-key="${k}" style="min-width:40px;font-family:var(--font-mono);font-size:12px;color:var(--paper-dim);">${Number(v).toFixed(2)}</span>
                     `;
                     body.appendChild(wrap);
                 });
@@ -2212,35 +2560,35 @@ Common subject fields: subject, character, npc, entity, name.' style="width:100%
                         <div style="flex:1;min-width:240px;">
                             <div style="display:flex;gap:8px;align-items:baseline;flex-wrap:wrap;">
                                 <strong>${escapeHtml(n.name || n.npc_key)}</strong>
-                                <span style="color:var(--paper-faint);font-size:11px;font-family:var(--font-mono);">[${n.npc_key}]</span>
-                                <span style="color:var(--paper-faint);font-size:11px;">introduced turn ${n.introduced_at_turn ?? '?'}</span>
+                                <span style="color:var(--paper-faint);font-size:11.5px;font-family:var(--font-mono);">${n.npc_key}</span>
+                                <span style="color:var(--paper-faint);font-size:12px;">introduced turn ${n.introduced_at_turn ?? '?'}</span>
                             </div>
                         </div>
-                        <div style="display:flex;gap:6px;">
-                            <button class="toggle-btn npcViewMemBtn" style="font-size:11px;" data-key="${n.npc_key}">View memories</button>
-                            <button class="toggle-btn npcDeleteBtn" style="font-size:11px;border-color:var(--warn,#c44);color:var(--warn,#c44);" data-key="${n.npc_key}" data-name="${escapeHtml(n.name || n.npc_key)}">Delete</button>
+                        <div class="btn-row" style="gap:6px;">
+                            <button class="toggle-btn sm npcViewMemBtn" data-key="${n.npc_key}">View memories</button>
+                            <button class="toggle-btn sm danger npcDeleteBtn" data-key="${n.npc_key}" data-name="${escapeHtml(n.name || n.npc_key)}">Delete</button>
                         </div>
                     </div>
-                    <div style="display:grid;grid-template-columns:90px 1fr;gap:6px 12px;margin-top:10px;font-family:var(--font-mono);font-size:12px;align-items:center;">
+                    <div class="form-grid" style="grid-template-columns:90px 1fr;gap:8px 12px;margin-top:12px;">
                         <label>name</label>
-                        <input type="text" class="npcCardName" data-key="${n.npc_key}" value="${escapeHtml(n.name || '')}" style="padding:5px 8px;background:var(--ink-sunk);border:1px solid var(--rule);color:var(--paper);font-family:var(--font-mono);font-size:12px;">
+                        <input type="text" class="npcCardName" data-key="${n.npc_key}" value="${escapeHtml(n.name || '')}">
 
                         <label>status</label>
-                        <select class="npcCardStatus" data-key="${n.npc_key}" style="padding:5px 8px;background:var(--ink-sunk);border:1px solid var(--rule);color:var(--paper);font-family:var(--font-mono);font-size:12px;width:160px;">
+                        <select class="npcCardStatus" data-key="${n.npc_key}" style="width:160px;">
                             <option value="active"${(n.status || 'active') === 'active' ? ' selected' : ''}>active</option>
                             <option value="dismissed"${n.status === 'dismissed' ? ' selected' : ''}>dismissed</option>
                             <option value="pending"${n.status === 'pending' ? ' selected' : ''}>pending</option>
                         </select>
 
                         <label>aliases</label>
-                        <input type="text" class="npcCardAliases" data-key="${n.npc_key}" value="${escapeHtml(aliasesStr)}" placeholder="comma-separated" style="padding:5px 8px;background:var(--ink-sunk);border:1px solid var(--rule);color:var(--paper);font-family:var(--font-mono);font-size:12px;">
+                        <input type="text" class="npcCardAliases" data-key="${n.npc_key}" value="${escapeHtml(aliasesStr)}" placeholder="comma-separated">
 
-                        <label style="align-self:start;padding-top:4px;">bio</label>
-                        <textarea class="npcCardBio" data-key="${n.npc_key}" rows="3" style="padding:6px 8px;background:var(--ink-sunk);border:1px solid var(--rule);color:var(--paper);font-family:var(--font-mono);font-size:12px;resize:vertical;">${escapeHtml(n.bio || '')}</textarea>
+                        <label style="align-self:start;padding-top:8px;">bio</label>
+                        <textarea class="npcCardBio" data-key="${n.npc_key}" rows="3">${escapeHtml(n.bio || '')}</textarea>
                     </div>
-                    <div style="margin-top:10px;display:flex;gap:6px;align-items:center;">
-                        <button class="toggle-btn npcCardSaveBtn" style="font-size:11px;" data-key="${n.npc_key}">Save card</button>
-                        <span class="npcCardStatusMsg" data-key="${n.npc_key}" style="font-size:11px;color:var(--paper-faint);"></span>
+                    <div class="btn-row" style="margin-top:12px;gap:6px;">
+                        <button class="toggle-btn sm npcCardSaveBtn" data-key="${n.npc_key}">Save card</button>
+                        <span class="npcCardStatusMsg" data-key="${n.npc_key}" style="font-size:12px;color:var(--paper-faint);"></span>
                     </div>
                 `;
                 body.appendChild(card);
@@ -2323,7 +2671,7 @@ Common subject fields: subject, character, npc, entity, name.' style="width:100%
                 try { const d = await resp.json(); if (d.error) msg = d.error; } catch (_) {}
                 if (statusEl) {
                     statusEl.textContent = msg;
-                    statusEl.style.color = 'var(--warn,#c44)';
+                    statusEl.style.color = 'var(--error)';
                 }
                 return;
             }
@@ -2607,8 +2955,10 @@ Common subject fields: subject, character, npc, entity, name.' style="width:100%
             }
         }
 
-        // Toggle buttons (auto-save on click)
-        document.querySelectorAll('.toggle-btn').forEach(btn => {
+        // Effort / creativity toggle buttons (auto-save on click). Other
+        // .toggle-btn elements (Memory tab actions, model pickers for
+        // summaries and deep analysis) have their own handlers.
+        document.querySelectorAll('.toggle-btn[data-setting="effort"], .toggle-btn[data-setting="creativity"]').forEach(btn => {
             btn.addEventListener('click', () => {
                 // Disabled buttons shouldn't do anything. pointer-events:none
                 // handles the common case but this guards against synthetic
@@ -2903,6 +3253,10 @@ Common subject fields: subject, character, npc, entity, name.' style="width:100%
                     body: JSON.stringify({ system_prompt_override: prompt })
                 });
                 if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                if (PREVIEW) {
+                    PREVIEW.settings.system_prompt_override = prompt;
+                    renderPromptPreview();
+                }
                 status.textContent = 'Saved!';
                 status.style.color = 'var(--success)';
                 status.style.display = 'inline';
@@ -2927,6 +3281,356 @@ Common subject fields: subject, character, npc, entity, name.' style="width:100%
             document.getElementById('systemPromptEditor').value = '';
             await saveSystemPrompt();
         }
+
+        // ===== Prompt preview (Prompts tab) =====
+        // Rebuilds the layout call_claude_code() gives a roleplay turn from
+        // SillyTavern's prompt order (read from its settings.json by
+        // /api/prompt_preview) and the bridge's settings. System messages
+        // before the first chat message go into <sillytavern_prompt>, ones
+        // inside the chat become <sillytavern_note>, and ones after the last
+        // chat message go into <sillytavern_after_history>. Markers (card,
+        // lore, chat history) are placeholders: SillyTavern fills them per
+        // chat and the bridge doesn't keep them.
+        const MODEL_FROM_REQUEST = {{ model_from_request|tojson }};
+        let PREVIEW = null;
+        let previewMode = 'new';
+        let previewExpanded = false;
+
+        const ST_MARKER_HINTS = {
+            worldInfoBefore: 'World Info entries placed before the character definitions, when any trigger.',
+            worldInfoAfter: 'World Info entries placed after the character definitions, when any trigger.',
+            charDescription: "The character card's description.",
+            charPersonality: "The character card's personality summary.",
+            scenario: "The character card's scenario.",
+            personaDescription: "Your persona's description, when it's set to go in the prompt.",
+            dialogueExamples: "The card's example dialogues, each introduced by the example separator.",
+        };
+
+        async function loadPromptPreview() {
+            const box = document.getElementById('promptPreview');
+            try {
+                const [pvResp, settingsResp] = await Promise.all([fetch('/api/prompt_preview'), fetch('/api/settings')]);
+                if (!pvResp.ok) throw new Error(`HTTP ${pvResp.status}`);
+                if (!settingsResp.ok) throw new Error(`HTTP ${settingsResp.status}`);
+                PREVIEW = await pvResp.json();
+                PREVIEW.settings = await settingsResp.json();
+            } catch (e) {
+                box.innerHTML = `<div class="pv-empty">Couldn't load the preview: ${escapeHtml(e.message)}</div>`;
+                return;
+            }
+            renderPromptPreview();
+        }
+
+        function setPreviewMode(mode) {
+            previewMode = mode;
+            renderPromptPreview();
+        }
+
+        function togglePreviewExpanded() {
+            previewExpanded = !previewExpanded;
+            renderPromptPreview();
+        }
+
+        function pvBlock({kind, name, prefix = '', pills = [], when = '', text = '', desc = '', note = '', meta = ''}) {
+            const clamp = text.length > 360 || text.split('\n').length > 5;
+            const cls = `pv-block ${kind}${clamp ? ' clampable' : ''}${clamp && previewExpanded ? ' open' : ''}`;
+            const metaText = meta || (text ? `${text.length.toLocaleString()} chars` : '');
+            return `<div class="${cls}">
+                <div class="pv-head">
+                    ${clamp ? '<span class="pv-caret">▶</span>' : ''}
+                    ${prefix ? `<span class="pv-prefix">${escapeHtml(prefix)}</span>` : ''}
+                    <span class="pv-name">${escapeHtml(name)}</span>
+                    ${pills.map(p => `<span class="pv-pill">${escapeHtml(p)}</span>`).join('')}
+                    ${when ? `<span class="pv-pill when">${escapeHtml(when)}</span>` : ''}
+                    ${desc ? `<span class="pv-desc">${escapeHtml(desc)}</span>` : ''}
+                    ${metaText ? `<span class="pv-meta">${escapeHtml(metaText)}</span>` : ''}
+                </div>
+                ${text ? `<pre class="pv-body">${escapeHtml(text)}</pre>` : ''}
+                ${note ? `<div class="pv-note">${escapeHtml(note)}</div>` : ''}
+            </div>`;
+        }
+
+        // A bridge insertion point that isn't used with the current settings.
+        function pvOff(name, why) {
+            return pvBlock({kind: 'off', name, meta: why});
+        }
+
+        function pvWrap(tag, inner, when = '') {
+            return `<div class="pv-wrap">
+                <div class="pv-tagline">&lt;${tag}&gt;${when ? `<span class="pv-pill when">${escapeHtml(when)}</span>` : ''}</div>
+                <div class="pv-children">${inner}</div>
+                <div class="pv-tagline">&lt;/${tag}&gt;</div>
+            </div>`;
+        }
+
+        // One SillyTavern message as a block. prefix is what the bridge puts
+        // in front of it in the transcript ("Human:", a note wrapper, ...).
+        function pvStItem(item, prefix = '') {
+            const pills = [];
+            if (item.depth !== undefined) pills.push(`depth ${item.depth}`);
+            if (item.role !== 'system' && item.kind === 'text') pills.push(item.role);
+            if (item.kind === 'bridge-ph') {
+                return pvBlock({kind: 'bridge ph', name: item.name, prefix, desc: item.text, when: item.when});
+            }
+            if (item.kind === 'ph') {
+                return pvBlock({kind: 'st ph', name: item.name, prefix, pills, desc: item.text, when: item.when});
+            }
+            return pvBlock({kind: 'st', name: item.name, prefix, pills, text: item.text, note: item.note, when: item.when});
+        }
+
+        // SillyTavern's request as one ordered list of messages, with the
+        // chat history expanded into placeholders.
+        function pvSillyTavernMessages(st, s) {
+            const before = [], after = [], absolute = [], skipped = [];
+            let target = before;
+            let sawChat = false;
+            for (const p of (st.found ? st.prompts : [])) {
+                if (!p.enabled) continue;
+                if (p.identifier === 'chatHistory') {
+                    sawChat = true;
+                    target = after;
+                    continue;
+                }
+                const content = (p.content || '').trim();
+                if (!p.marker && p.injection_position === 1) {
+                    if (content) absolute.push(p);
+                    else skipped.push(p.name);
+                    continue;
+                }
+                if (p.marker) {
+                    target.push({role: 'system', kind: 'ph', name: p.name, text: ST_MARKER_HINTS[p.identifier] || 'Filled in by SillyTavern for each chat.'});
+                    continue;
+                }
+                if (!content) {
+                    skipped.push(p.name);
+                    continue;
+                }
+                let note = '';
+                if (p.role !== 'system') {
+                    note = target === before
+                        ? "Not a system message, so the bridge's transcript starts here and the system prompts after it become in-chat notes."
+                        : 'Not a system message, so the bridge sends it as part of the chat.';
+                } else if (!p.forbid_overrides && p.identifier === 'main') {
+                    note = "A character card with its own main prompt replaces this one.";
+                } else if (!p.forbid_overrides && p.identifier === 'jailbreak') {
+                    note = 'A character card with its own post-history instructions replaces this one.';
+                }
+                target.push({role: p.role || 'system', kind: 'text', name: p.name, text: p.content, note});
+            }
+
+            // Absolute-position prompts sit in the chat at their depth
+            // (counted in messages from the end; 0 = after the last one).
+            const atDepth = (test) => absolute
+                .filter(p => test(p.injection_depth ?? 4))
+                .sort((a, b) => (b.injection_depth ?? 4) - (a.injection_depth ?? 4))
+                .map(p => ({role: p.role || 'system', kind: 'text', name: p.name, text: p.content, depth: p.injection_depth ?? 4}));
+
+            const chat = [];
+            if (st.found && (st.new_chat_prompt || '').trim()) {
+                chat.push({role: 'system', kind: 'text', name: 'New chat separator', text: st.new_chat_prompt});
+            }
+            if (s.auto_summary_enabled) {
+                // The bridge puts the summary right before the recent
+                // messages as a system message, so it joins SillyTavern's
+                // prompt.
+                chat.push({role: 'system', kind: 'bridge-ph', name: 'Story summary', when: 'once a summary exists',
+                    text: 'Auto-Summary: the bridge\'s summary of the older messages, wrapped in <story_summary>.'});
+                chat.push({role: 'mixed', kind: 'ph', name: 'Recent messages', text: 'The latest messages; older ones are covered by the summary.'});
+            } else {
+                chat.push({role: 'assistant', kind: 'ph', name: "Character's greeting", text: "The card's first message."});
+                chat.push({role: 'mixed', kind: 'ph', name: 'Earlier turns', text: "The rest of the chat: your turns and Claude's replies."});
+            }
+            chat.push({role: 'system', kind: 'ph', name: 'In-chat injections', when: 'when used',
+                text: "Author's Note, World Info set to a depth, and extension prompts (Summarize, Vector Storage) at the depth each is set to."});
+            chat.push(...atDepth(d => d >= 2));
+            chat.push({role: 'assistant', kind: 'ph', name: "Claude's last reply", lastReply: true, text: 'Its previous turn.'});
+            chat.push(...atDepth(d => d === 1));
+            chat.push({role: 'user', kind: 'ph', name: 'Your message', text: 'The message you just sent.'});
+            chat.push(...atDepth(d => d <= 0));
+
+            return {messages: sawChat ? [...before, ...chat, ...after] : [...before, ...chat], skipped};
+        }
+
+        function pvTranscriptPrefix(item) {
+            if (item.role === 'system') return '<sillytavern_note>';
+            if (item.role === 'assistant') return 'Assistant:';
+            if (item.role === 'user') return 'Human:';
+            return 'Human: / Assistant:';
+        }
+
+        function renderPromptPreview() {
+            const box = document.getElementById('promptPreview');
+            if (!PREVIEW) return;
+            const b = PREVIEW.bridge;
+            const st = PREVIEW.sillytavern || {found: false};
+            const s = PREVIEW.settings || {};
+            const resumed = previewMode === 'resumed';
+
+            // Same split as call_claude_code(): by the first and last
+            // non-system message.
+            const {messages, skipped} = pvSillyTavernMessages(st, s);
+            const isChat = m => m.role !== 'system';
+            const first = messages.findIndex(isChat);
+            let last = -1;
+            messages.forEach((m, i) => { if (isChat(m)) last = i; });
+            const leading = messages.slice(0, first);
+            const inChat = messages.slice(first, last + 1);
+            const trailing = messages.slice(last + 1);
+
+            // --- Source line ---
+            let source = '';
+            if (st.found) {
+                source += `<span>SillyTavern prompt order from <code title="${escapeHtml(st.source).replace(/"/g, '&quot;')}">settings.json</code></span>`;
+                if (st.preset) source += `<span>· preset “${escapeHtml(st.preset)}”</span>`;
+                if (skipped.length) source += `<span>· not sent, empty: ${escapeHtml(skipped.join(', '))}</span>`;
+                if (st.chat_completion_source === 'custom' && st.post_processing) {
+                    source += `<div class="notice warn">SillyTavern's Prompt Post-Processing is set to “${escapeHtml(st.post_processing)}”, which merges or re-roles system messages before they reach the bridge, so the real layout differs from this preview.</div>`;
+                }
+            } else {
+                source += `<div class="notice warn">${escapeHtml(st.error || "SillyTavern's settings couldn't be read.")} Only the bridge's own parts are shown.</div>`;
+            }
+
+            // --- System prompt ---
+            const savedStyle = (s.system_prompt_override || '').trim();
+            const editor = document.getElementById('systemPromptEditor');
+            const style = (editor ? editor.value : savedStyle).trim();
+            const sys = [];
+            sys.push(pvBlock({kind: 'bridge', name: 'Bridge frame', text: b.frame + (style ? '\n\n' + b.style_notes_line : '')}));
+            sys.push(style
+                ? pvWrap('bridge_style_notes', pvBlock({kind: 'bridge', name: 'Style notes', text: style,
+                    meta: style !== savedStyle ? `unsaved · ${style.length.toLocaleString()} chars` : ''}))
+                : pvOff('Style notes', 'empty'));
+            if (!st.found) {
+                sys.push(pvWrap('sillytavern_prompt', pvBlock({kind: 'st ph', name: "SillyTavern's prompt",
+                    desc: 'The system messages SillyTavern sends before the chat.'})));
+            } else if (leading.length) {
+                sys.push(pvWrap('sillytavern_prompt', leading.map(m => pvStItem(m)).join('')));
+            } else {
+                sys.push(pvOff('<sillytavern_prompt>', 'no system prompts before the chat'));
+            }
+            const creativity = s.creativity || 'balanced';
+            const creativityText = (b.creativity || {})[creativity] || '';
+            const creativityName = `Creativity: ${creativity.charAt(0).toUpperCase()}${creativity.slice(1)}`;
+            sys.push(creativityText ? pvBlock({kind: 'bridge', name: creativityName, text: creativityText}) : pvOff(creativityName, 'adds nothing'));
+            if (s.tool_calling_enabled === false) {
+                sys.push(pvOff('Tool protocol', 'Tool Calling is off'));
+            } else if (st.found && !st.function_calling) {
+                sys.push(pvOff('Tool protocol', "SillyTavern's function calling is off"));
+            } else {
+                sys.push(pvBlock({kind: 'bridge', name: 'Tool protocol', when: 'when SillyTavern sends tools',
+                    text: b.tool_instructions + '\n<one line per tool SillyTavern sent>'}));
+            }
+
+            // --- Message (stdin) ---
+            const msg = [];
+            const images = pvBlock({kind: 'bridge ph', name: 'Scene images', when: 'on turns with images',
+                desc: 'Descriptions of the images attached to this turn, written beforehand by a separate Claude call.'});
+            const memory = s.character_memory_v2_enabled
+                ? pvBlock({kind: 'bridge ph', name: 'Character memory', when: 'when memories are relevant',
+                    desc: "Memories Sonnet picked for this turn from the character's memory database."})
+                : pvOff('Character memory', 'Character Memory is off');
+            const afterHistory = (when) => {
+                if (!st.found) {
+                    return pvWrap('sillytavern_after_history', pvBlock({kind: 'st ph', name: 'Post-History Instructions',
+                        desc: 'The system messages SillyTavern sends after the chat.'}), when || 'when SillyTavern sends any');
+                }
+                return trailing.length
+                    ? pvWrap('sillytavern_after_history', trailing.map(m => pvStItem(m)).join(''), when)
+                    : pvOff('<sillytavern_after_history>', 'nothing after Chat History');
+            };
+            if (!resumed) {
+                msg.push('<div class="pv-sublabel">The chat so far, as a transcript</div>');
+                msg.push(...inChat.map(m => pvStItem(m, pvTranscriptPrefix(m))));
+                msg.push(afterHistory(''));
+            } else {
+                msg.push(pvWrap('sillytavern_update', pvBlock({kind: 'st ph', name: 'New or changed SillyTavern blocks',
+                    desc: "Lore that triggered, or a note or summary that changed, since the session started. Blocks the session already has aren't repeated."}),
+                    'when something changed'));
+                const lastReply = inChat.findIndex(m => m.lastReply);
+                msg.push('<div class="pv-sublabel">Everything after Claude\'s last reply</div>');
+                msg.push(...inChat.slice(lastReply + 1).map(m => pvStItem(m, m.role === 'system' ? '<sillytavern_note>' : '')));
+                msg.push(afterHistory('when it changed'));
+            }
+            msg.push(images, memory);
+
+            // --- Command ---
+            const model = s.model === MODEL_FROM_REQUEST ? "<SillyTavern's model>" : (s.model || 'opus');
+            let effort = s.effort_level || 'high';
+            if (SONNET_CLAMPED_MODELS.has(s.model) && SONNET_DISABLED_EFFORTS.has(effort)) effort = 'medium';
+            const flags = [
+                ['-p', ''],
+                ['--output-format', 'stream-json'],
+                ['--verbose', ''],
+                ['--effort', effort],
+                ['--model', model],
+                ['--tools', '""'],
+                ['--setting-sources', 'user'],
+            ];
+            if (s.include_thinking || s.show_thinking_console) flags.push(['--thinking-display', 'summarized']);
+            if (resumed) flags.push(['--resume', '<session id>']);
+            flags.push(['--system-prompt-file', '<system prompt above>']);
+            const cmd = '<b>claude</b> ' + flags.map(([f, v]) =>
+                `<b>${escapeHtml(f)}</b>${v ? ' <i>' + escapeHtml(v) + '</i>' : ''}`).join(' \\\n  ') +
+                '\n  <span>&lt; message above on stdin</span>';
+
+            const reuseOff = s.cli_session_reuse === false;
+            box.innerHTML = `
+                <div class="pv-toolbar">
+                    <div class="toggle-group">
+                        <button class="toggle-btn${resumed ? '' : ' active'}" onclick="setPreviewMode('new')">New session</button>
+                        <button class="toggle-btn${resumed ? ' active' : ''}" onclick="setPreviewMode('resumed')">Resumed turn</button>
+                    </div>
+                    <div class="pv-legend">
+                        <span><i class="pv-swatch bridge"></i>Bridge</span>
+                        <span><i class="pv-swatch st"></i>SillyTavern preset</span>
+                        <span><i class="pv-swatch ph"></i>Filled in per chat</span>
+                        <span><i class="pv-swatch off"></i>Not used now</span>
+                    </div>
+                    <div class="btn-row">
+                        <button class="btn btn-secondary btn-sm" onclick="togglePreviewExpanded()">${previewExpanded ? 'Collapse all' : 'Expand all'}</button>
+                        <button class="btn btn-secondary btn-sm" onclick="loadPromptPreview()">Refresh</button>
+                    </div>
+                </div>
+                <div class="pv-source">${source}</div>
+                <div class="pv-section${resumed ? ' dim' : ''}">
+                    <div class="pv-section-head">
+                        <h4>System prompt</h4>
+                        <span class="pv-section-meta">--system-prompt-file</span>
+                        <span class="pv-section-note">${resumed
+                            ? "Re-sent byte-identical from the session's first turn. If the bridge's part (frame, style notes, creativity, tools) has changed since, the bridge starts a new session instead."
+                            : "Built on a session's first turn, then kept unchanged for the rest of the session."}</span>
+                    </div>
+                    <div class="pv-list">${sys.join('')}</div>
+                </div>
+                <div class="pv-section">
+                    <div class="pv-section-head">
+                        <h4>Message</h4>
+                        <span class="pv-section-meta">stdin</span>
+                        <span class="pv-section-note">${resumed
+                            ? (reuseOff
+                                ? '<span style="color:var(--warn);">CLI Session Reuse is off in Settings, so every turn starts a new session.</span>'
+                                : 'A later turn of the same chat. The CLI already holds the earlier turns, so only what is new is sent. Swipes and edits start a new session.')
+                            : "The first turn of a CLI session: a new chat, or after a swipe, an edit, or a change to the bridge's part of the system prompt."}</span>
+                    </div>
+                    <div class="pv-list">${msg.join('')}</div>
+                </div>
+                <div class="pv-section">
+                    <div class="pv-section-head">
+                        <h4>Command</h4>
+                        <span class="pv-section-note">Thinking is always on; Effort sets how much, and no prompt asks for it.</span>
+                    </div>
+                    <pre class="pv-cmd">${cmd}</pre>
+                </div>`;
+        }
+
+        document.getElementById('promptPreview').addEventListener('click', e => {
+            const head = e.target.closest('.pv-block.clampable > .pv-head');
+            if (head) head.parentElement.classList.toggle('open');
+        });
+
+        document.getElementById('systemPromptEditor').addEventListener('input', () => {
+            if (PREVIEW && document.getElementById('system').classList.contains('active')) renderPromptPreview();
+        });
 
         // Update auto-summary status info
         async function updateAutoSummaryInfo() {
@@ -3008,14 +3712,16 @@ Common subject fields: subject, character, npc, entity, name.' style="width:100%
             const cancelBtn = document.getElementById('chunkingCancelBtn');
             const status = document.getElementById('chunkingStatus');
             if (enabled) {
-                btn.textContent = '✓ ARMED';
+                btn.textContent = '✓ Armed';
                 btn.style.background = 'var(--success)';
-                cancelBtn.style.display = 'inline-block';
+                btn.style.borderColor = 'var(--success)';
+                cancelBtn.style.display = 'inline-flex';
                 status.textContent = 'READY - Send any message in SillyTavern now!';
                 status.style.color = 'var(--success)';
             } else {
                 btn.textContent = 'Enable Chunking';
-                btn.style.background = 'var(--accent)';
+                btn.style.background = '';
+                btn.style.borderColor = '';
                 cancelBtn.style.display = 'none';
                 status.textContent = 'Status: Disabled';
                 status.style.color = 'var(--paper-faint)';
@@ -3114,29 +3820,27 @@ Common subject fields: subject, character, npc, entity, name.' style="width:100%
                     const coveredUpTo = entry.summarized_up_to || 0;
 
                     html += `
-                    <div style="background:var(--ink-sunk);margin-bottom:10px;overflow:hidden;border-left:3px solid ${label.color};">
-                        <div style="padding:12px;display:flex;justify-content:space-between;align-items:center;cursor:pointer;gap:10px;" onclick="toggleSummary(${index})">
+                    <div class="list-item" style="--item-color:${label.color};">
+                        <div class="list-item-head" onclick="toggleSummary(${index})">
                             <div style="min-width:0;flex:1;">
-                                <div style="color:${label.color};font-weight:bold;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(label.kind)}</div>
-                                <div style="color:var(--paper-ghost);font-size:11px;margin-top:2px;">
+                                <div class="list-item-title">${escapeHtml(label.kind)}</div>
+                                <div class="list-item-meta" style="margin-top:2px;">
                                     ${label.hint ? escapeHtml(label.hint) + ' · ' : ''}${date}
                                 </div>
                             </div>
-                            <div style="color:var(--paper-faint);font-size:12px;text-align:right;white-space:nowrap;">
+                            <div class="list-item-meta" style="text-align:right;white-space:nowrap;">
                                 ${chars} chars<br>
                                 <span style="color:var(--paper-ghost);">~${tokens} tokens · msg ${coveredUpTo}/${msgCount}</span>
                             </div>
-                            <span id="arrow${index}" style="margin-left:6px;">▼</span>
+                            <span id="arrow${index}" class="caret">▼</span>
                         </div>
-                        <div id="summary${index}" style="display:none;padding:0 12px 12px 12px;">
-                            <div style="background:var(--ink-raised);padding:12px;max-height:400px;overflow-y:auto;">
-                                <pre style="margin:0;white-space:pre-wrap;font-size:12px;color:var(--paper);font-family:var(--font-mono);line-height:1.65;">${escapeHtml(entry.preview)}</pre>
-                            </div>
-                            <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;">
-                                <button class="btn btn-secondary" style="padding:6px 12px;font-size:12px;" onclick="copySummary(${index})">
+                        <div id="summary${index}" class="list-item-body" style="display:none;">
+                            <pre class="code-block" style="max-height:400px;color:var(--paper);">${escapeHtml(entry.preview)}</pre>
+                            <div class="btn-row" style="margin-top:10px;">
+                                <button class="btn btn-secondary btn-sm" onclick="copySummary(${index})">
                                     Copy Full Summary
                                 </button>
-                                <button class="btn btn-secondary" style="padding:6px 12px;font-size:12px;background:var(--accent-dim);" onclick="deleteCacheEntry('${encodeURIComponent(entry.key)}', event)">
+                                <button class="btn btn-danger btn-sm" onclick="deleteCacheEntry('${encodeURIComponent(entry.key)}', event)">
                                     Delete This Entry
                                 </button>
                             </div>
@@ -3270,7 +3974,7 @@ Common subject fields: subject, character, npc, entity, name.' style="width:100%
                 // Display entries
                 const entriesDiv = document.getElementById('lorebookEntries');
                 if (data.entries.length === 0) {
-                    entriesDiv.innerHTML = '<p style="color:var(--paper-ghost);font-style:italic;">No entries yet</p>';
+                    entriesDiv.innerHTML = '<p style="color:var(--paper-faint);margin:0;">No entries yet</p>';
                 } else {
                     let html = '';
                     data.entries.forEach((entry, index) => {
@@ -3280,24 +3984,24 @@ Common subject fields: subject, character, npc, entity, name.' style="width:100%
                         const posNames = ['Before Char', 'After Char', 'Before AN', 'After AN', 'At Depth'];
 
                         html += `
-                        <div style="background:var(--ink-sunk);margin-bottom:8px;${enabledClass}">
-                            <div style="padding:12px;display:flex;justify-content:space-between;align-items:center;cursor:pointer;" onclick="toggleLoreEntry(${index})">
-                                <div>
-                                    <span style="color:var(--accent);font-weight:bold;">${escapeHtml(entry.name || 'Unnamed')}</span>
-                                    <span style="color:var(--paper-ghost);margin-left:10px;font-size:12px;">${escapeHtml(keywords)}</span>
+                        <div class="list-item" style="--item-color:var(--accent);${enabledClass}">
+                            <div class="list-item-head" onclick="toggleLoreEntry(${index})">
+                                <div style="min-width:0;">
+                                    <span style="font-weight:600;color:var(--paper);">${escapeHtml(entry.name || 'Unnamed')}</span>
+                                    <span class="list-item-meta" style="margin-left:10px;">${escapeHtml(keywords)}</span>
                                 </div>
-                                <div style="display:flex;gap:10px;align-items:center;">
-                                    <span style="color:var(--paper-ghost);font-size:11px;">${posNames[entry.position] || 'Unknown'}</span>
-                                    <span id="loreArrow${index}">▼</span>
+                                <div style="display:flex;gap:10px;align-items:center;flex-shrink:0;">
+                                    <span class="list-item-meta">${posNames[entry.position] || 'Unknown'}</span>
+                                    <span id="loreArrow${index}" class="caret">▼</span>
                                 </div>
                             </div>
-                            <div id="loreContent${index}" style="display:none;padding:0 12px 12px 12px;">
-                                <pre style="margin:0 0 10px 0;white-space:pre-wrap;font-size:12px;color:var(--paper-dim);background:var(--ink-raised);padding:10px;max-height:200px;overflow-y:auto;">${escapeHtml(entry.content)}</pre>
-                                <div style="display:flex;gap:8px;">
-                                    <button class="btn btn-secondary" style="font-size:11px;padding:4px 10px;" onclick="toggleEntryEnabled('${entry.uid}', event)">
+                            <div id="loreContent${index}" class="list-item-body" style="display:none;">
+                                <pre class="code-block" style="max-height:200px;margin-bottom:10px;">${escapeHtml(entry.content)}</pre>
+                                <div class="btn-row">
+                                    <button class="btn btn-secondary btn-sm" onclick="toggleEntryEnabled('${entry.uid}', event)">
                                         ${entry.enabled ? 'Disable' : 'Enable'}
                                     </button>
-                                    <button class="btn btn-secondary" style="font-size:11px;padding:4px 10px;background:var(--accent-dim);" onclick="deleteLoreEntry('${entry.uid}', event)">
+                                    <button class="btn btn-danger btn-sm" onclick="deleteLoreEntry('${entry.uid}', event)">
                                         Delete
                                     </button>
                                 </div>

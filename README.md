@@ -10,9 +10,10 @@ This fork of [MissSinful/claude-code-sillytavern-bridge](https://github.com/Miss
 - **Split requirements**: `requirements.txt` is core only (flask, flask-cors); `requirements-memory.txt` adds sentence-transformers and numpy for Character Memory. `run_bridge.bat` still installs both.
 - **Linux run support**: `run_bridge.sh`, a hardened systemd unit in `deploy/`, and an env file template. See [Linux / VPS deployment](#linux--vps-deployment).
 - **`claude` calls load user settings only** (`--setting-sources user`), so a `CLAUDE.md` in the bridge directory or a parent directory is never sent to the model. Background Sonnet calls (memory, lorebook) also run with no tools (`--tools ""`) instead of Claude Code's full toolset.
-- **SillyTavern's prompt is the system prompt.** SillyTavern's system messages before the chat (preset, card, persona, lore) go into Claude's real system prompt, after a short bridge frame that explains the message layout. Post-History Instructions stay after the chat and in-chat notes stay in place, instead of everything being moved to the top of the first message. The upstream roleplay prompt is no longer sent by default; the System Prompt tab can load it as optional style notes.
+- **SillyTavern's prompt is the system prompt.** SillyTavern's system messages before the chat (preset, card, persona, lore) go into Claude's real system prompt, after a short bridge frame that explains the message layout. Post-History Instructions stay after the chat and in-chat notes stay in place, instead of everything being moved to the top of the first message. The upstream roleplay prompt is no longer sent by default; the Prompts tab can load it as optional style notes.
 - **CLI sessions keep their system prompt.** A resumed session re-sends the exact system prompt it started with, so Claude's earlier thinking stays valid (rebuilding it mid-session is a history edit, rejected for newer accounts on current Opus models) and the prompt cache stays warm. Lore or notes SillyTavern adds or changes mid-session are sent with that turn in a `<sillytavern_update>` block, and changed Post-History Instructions are re-sent. A change to the bridge's own part (style notes, Creativity, tools) starts a new session.
 - **Thinking goes to SillyTavern's reasoning block.** No prompt asks Claude to write `<think>` reasoning into the reply. With Include Thinking on, the bridge requests the CLI's summarized thinking (`--thinking-display summarized`) and returns it as `reasoning_content`, which SillyTavern shows when "Request model reasoning" is on. Effort controls how much Claude thinks.
+- **Restyled dashboard with a prompt preview.** The dashboard uses a plain sans-serif layout instead of the serif/italic editorial styling. The Prompts tab previews what a roleplay turn sends to the CLI, for a new session and for a resumed turn: the bridge's own text placed around SillyTavern's prompt order, which `GET /api/prompt_preview` reads from SillyTavern's `settings.json` (found next to the bridge's folder, or via the Lorebook tab's worlds path). Card, lore and chat-history entries show as placeholders.
 
 With no environment variables set, the only behaviour change is the default listen address.
 
@@ -217,7 +218,7 @@ Most features work automatically once the bridge is running and configured. High
 
 Edit any of these, save, and the next request picks up the change. No server restart. Placeholders use Python `{variable}` syntax — escape a literal brace as `{{` / `}}`.
 
-**The roleplay system prompt** is your SillyTavern prompt, behind a short frame (`BRIDGE_FRAME` in `claude_bridge.py`) that explains how SillyTavern's messages are laid out. Optional style notes from the System Prompt tab (persisted to `bridge_settings.json`) are added before SillyTavern's prompt; "Load upstream prompt" fills in the upstream project's roleplay prompt (`UPSTREAM_STYLE_PROMPT`) as a starting point.
+**The roleplay system prompt** is your SillyTavern prompt, behind a short frame (`BRIDGE_FRAME` in `claude_bridge.py`) that explains how SillyTavern's messages are laid out. Optional style notes from the Prompts tab (persisted to `bridge_settings.json`) are added before SillyTavern's prompt; "Load upstream prompt" fills in the upstream project's roleplay prompt (`UPSTREAM_STYLE_PROMPT`) as a starting point.
 
 ## Known limitations
 
@@ -260,7 +261,7 @@ claude-code-sillytavern-bridge/
 
 ## Content note
 
-In this fork, how Claude writes comes from your SillyTavern prompt. The upstream project's roleplay prompt (`UPSTREAM_STYLE_PROMPT` in `claude_bridge.py`) is framed for **adult collaborative fiction**, with explicit instructions for intimate scenes, character integrity, and narrative risk-taking. It is only sent if you load it into the System Prompt tab's style notes and save.
+In this fork, how Claude writes comes from your SillyTavern prompt. The upstream project's roleplay prompt (`UPSTREAM_STYLE_PROMPT` in `claude_bridge.py`) is framed for **adult collaborative fiction**, with explicit instructions for intimate scenes, character integrity, and narrative risk-taking. It is only sent if you load it into the Prompts tab's style notes and save.
 
 ## Policy & responsibility
 
