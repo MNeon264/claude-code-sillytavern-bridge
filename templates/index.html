@@ -896,12 +896,13 @@
             <div class="settings-grid">
                 <div class="setting-card">
                     <h3>Model</h3>
-                    <p style="color:var(--paper-faint);font-size:12px;margin-bottom:10px;">Opus = latest (4.7), most capable · Opus 4.6 = prior Opus, faster output · Sonnet = fastest</p>
-                    <div class="toggle-group">
-                        <button class="toggle-btn active" data-setting="model" data-value="opus">Opus</button>
-                        <button class="toggle-btn" data-setting="model" data-value="claude-opus-4-6">Opus 4.6</button>
-                        <button class="toggle-btn" data-setting="model" data-value="sonnet">Sonnet</button>
-                    </div>
+                    <p style="color:var(--paper-faint);font-size:12px;margin-bottom:10px;">"(latest)" follows the newest model of that family · Fable = most capable · Opus = default · Sonnet = faster · Haiku = fastest. "Use SillyTavern's model" takes the model picked in SillyTavern's API connection instead.</p>
+                    <select id="modelSelect" style="width:100%;padding:10px 12px;background:var(--ink-sunk);border:1px solid var(--rule);color:var(--paper);font-family:var(--font-mono);font-size:13px;">
+                        {% for model_id, label in models %}
+                        <option value="{{ model_id }}">{{ label }}</option>
+                        {% endfor %}
+                        <option value="{{ model_from_request }}">Use SillyTavern's model</option>
+                    </select>
                 </div>
 
                 <div class="setting-card">
@@ -915,7 +916,7 @@
                         <button class="toggle-btn" data-setting="effort" data-value="max">Max</button>
                     </div>
                     <p id="effortSonnetNote" style="display:none;color:var(--warn,#d4a15a);font-size:11px;margin-top:8px;line-height:1.4;">
-                        <strong>Sonnet cap:</strong> High / xHigh / Max are disabled for Sonnet — at those levels it spends so long reasoning that it emits thinking only (or nothing) and never gets to the narrative. Medium and Low are the usable range for Sonnet. Opus supports the full range.
+                        <strong>Sonnet 4.x cap:</strong> High / xHigh / Max are disabled for Sonnet 4.6 and 4.5 — at those levels they spend so long reasoning that they emit thinking only (or nothing) and never get to the narrative. Medium and Low are the usable range for them. Opus and newer Sonnets support the full range.
                     </p>
                 </div>
 
@@ -932,7 +933,7 @@
 
                 <div class="setting-card">
                     <h3>Include Thinking in Response</h3>
-                    <p style="color:var(--paper-faint);font-size:12px;margin-bottom:10px;">Send &lt;think&gt; tags to SillyTavern</p>
+                    <p style="color:var(--paper-faint);font-size:12px;margin-bottom:10px;">Send Claude's thinking summary to SillyTavern's reasoning block (turn on "Request model reasoning" in SillyTavern)</p>
                     <div class="switch-container">
                         <label class="switch">
                             <input type="checkbox" id="includeThinking" checked>
@@ -1041,62 +1042,33 @@
         <div id="system" class="panel">
             <h3>Bridge Prompts</h3>
             <p>
-                Three prompts the bridge controls: the <strong>system prompt</strong> (Claude's role / framing for the whole RP) and the two <strong>thinking prompts</strong> (planning + response-format guidance, swapped automatically based on the "Include Thinking" toggle in Settings). All three are editable; leave any empty to fall back to the bundled default.
+                Your SillyTavern prompt (preset, character card, persona, lore, Post-History Instructions) is what tells Claude how to write. The bridge adds only a short frame explaining how SillyTavern's messages are laid out, plus the optional style notes below.
             </p>
 
             <div class="setting-card" style="max-width:100%;">
                 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
-                    <h3 style="margin:0;">System Prompt Override</h3>
-                    <button class="btn" onclick="resetSystemPrompt()" style="padding:5px 10px;font-size:12px;">Reset to Default</button>
+                    <h3 style="margin:0;">Style Notes (optional)</h3>
+                    <div style="display:flex;gap:8px;">
+                        <button class="btn" onclick="loadUpstreamStylePrompt()" style="padding:5px 10px;font-size:12px;">Load upstream prompt</button>
+                        <button class="btn" onclick="clearSystemPrompt()" style="padding:5px 10px;font-size:12px;">Clear</button>
+                    </div>
                 </div>
                 <p style="color:var(--paper-faint);font-size:12px;margin-bottom:15px;">
-                    This replaces Claude Code's default system prompt. The character card's system prompt from SillyTavern is separate and still applies.
+                    Added to every roleplay's system prompt, before SillyTavern's prompt; where they disagree, SillyTavern's prompt wins. Empty by default. "Load upstream prompt" fills in the original bridge's roleplay prompt for you to edit and save. Changing this starts a new CLI session on each character's next turn.
                 </p>
                 <textarea id="systemPromptEditor" style="width:100%;height:460px;background:var(--ink-sunk);color:var(--paper);border:1px solid var(--rule);padding:20px;font-family:var(--font-mono);font-size:12.5px;line-height:1.7;resize:vertical;"></textarea>
                 <div style="margin-top:15px;display:flex;gap:10px;align-items:center;">
-                    <button class="btn" onclick="saveSystemPrompt()">Save System Prompt</button>
+                    <button class="btn" onclick="saveSystemPrompt()">Save Style Notes</button>
                     <span id="systemPromptStatus" style="color:var(--success);display:none;">Saved!</span>
-                </div>
-            </div>
-
-            <div class="setting-card" style="max-width:100%;margin-top:20px;">
-                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
-                    <h3 style="margin:0;">Thinking Prompt (used when "Include Thinking" is ON)</h3>
-                    <button class="btn" onclick="resetThinkingPrompt()" style="padding:5px 10px;font-size:12px;">Reset to Default</button>
-                </div>
-                <p style="color:var(--paper-faint);font-size:12px;margin-bottom:15px;">
-                    Appended at the end of every request when thinking is enabled. Tells the model how to use <code>&lt;think&gt;...&lt;/think&gt;</code> and reminds it that narrative output is mandatory after the closing tag. Customize if you want a different planning style or your own structured CoT — leave empty to use the bundled default.
-                </p>
-                <textarea id="thinkingPromptEditor" style="width:100%;height:280px;background:var(--ink-sunk);color:var(--paper);border:1px solid var(--rule);padding:20px;font-family:var(--font-mono);font-size:12.5px;line-height:1.7;resize:vertical;"></textarea>
-                <div style="margin-top:15px;display:flex;gap:10px;align-items:center;">
-                    <button class="btn" onclick="saveThinkingPrompt()">Save</button>
-                    <span id="thinkingPromptStatus" style="color:var(--success);display:none;">Saved!</span>
-                </div>
-            </div>
-
-            <div class="setting-card" style="max-width:100%;margin-top:20px;">
-                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
-                    <h3 style="margin:0;">No-Thinking Prompt (used when "Include Thinking" is OFF)</h3>
-                    <button class="btn" onclick="resetNoThinkingPrompt()" style="padding:5px 10px;font-size:12px;">Reset to Default</button>
-                </div>
-                <p style="color:var(--paper-faint);font-size:12px;margin-bottom:15px;">
-                    Appended when thinking is disabled. Tells the model to skip <code>&lt;think&gt;</code> tags entirely and respond directly. Customize if you want a different framing for direct-response mode — leave empty to use the bundled default.
-                </p>
-                <textarea id="noThinkingPromptEditor" style="width:100%;height:200px;background:var(--ink-sunk);color:var(--paper);border:1px solid var(--rule);padding:20px;font-family:var(--font-mono);font-size:12.5px;line-height:1.7;resize:vertical;"></textarea>
-                <div style="margin-top:15px;display:flex;gap:10px;align-items:center;">
-                    <button class="btn" onclick="saveNoThinkingPrompt()">Save</button>
-                    <span id="noThinkingPromptStatus" style="color:var(--success);display:none;">Saved!</span>
                 </div>
             </div>
 
             <div class="setting-card" style="max-width:100%;margin-top:20px;">
                 <h3>How This Works</h3>
                 <ul style="color:var(--paper-dim);font-size:13px;line-height:1.8;">
-                    <li><strong>Bridge System Prompt</strong>: Tells Claude "you are a roleplay writer, not a coding assistant"</li>
-                    <li><strong>Thinking / No-Thinking Prompt</strong>: Appended at the end of each request, switching based on the "Include Thinking" toggle. Controls how (or whether) the model uses <code>&lt;think&gt;</code> tags before writing the response. Defaults are tuned to keep planning loose and prevent thinking-only responses.</li>
-                    <li><strong>SillyTavern System Prompt</strong>: Your character card, scenario, etc. (sent separately)</li>
-                    <li>All three work together. Bridge prompt sets the mode, ST provides scene content, thinking prompt controls planning format.</li>
-                    <li>Empty fields fall back to the bundled defaults — never breaks if you misconfigure something.</li>
+                    <li><strong>System prompt</strong>: the bridge frame, your style notes (if any), SillyTavern's prompt, the Creativity mode, and tool definitions. It stays fixed for a CLI session, which keeps Claude's earlier thinking valid and the prompt cache warm.</li>
+                    <li><strong>Chat</strong>: a new session gets the chat so far as a transcript; later turns send only your new message. Lore or notes that SillyTavern adds or changes mid-session are added to that turn, and Post-History Instructions are re-sent when they change.</li>
+                    <li><strong>Thinking</strong>: Claude always thinks before replying; the Effort setting controls how much. No prompt asks it to write its reasoning out. With "Include Thinking" on, its thinking summary goes to SillyTavern's reasoning block.</li>
                 </ul>
             </div>
         </div>
@@ -2599,17 +2571,17 @@ Common subject fields: subject, character, npc, entity, name.' style="width:100%
             if (importRun) importRun.addEventListener('click', () => memImportRun(false));
         });
 
-        // Sonnet produces thinking-only (or no) output at effort >= high.
+        // Sonnet 4.x produces thinking-only (or no) output at effort >= high.
         // See backend clamp in claude_bridge.py. Here we mirror that in the
-        // UI by disabling high / xhigh / max whenever Sonnet is the active
-        // model, and bumping any existing selection in that range down to
-        // medium automatically.
+        // UI by disabling high / xhigh / max whenever a clamped Sonnet is the
+        // active model, and bumping any existing selection in that range
+        // down to medium automatically.
         const SONNET_DISABLED_EFFORTS = new Set(['high', 'xhigh', 'max']);
+        const SONNET_CLAMPED_MODELS = new Set(['claude-sonnet-4-6', 'claude-sonnet-4-5']);
 
         function updateEffortAvailability() {
-            const activeModel = document.querySelector('[data-setting="model"].active');
-            const model = activeModel ? activeModel.dataset.value : 'opus';
-            const isSonnet = (model === 'sonnet');
+            const model = document.getElementById('modelSelect').value || 'opus';
+            const isSonnet = SONNET_CLAMPED_MODELS.has(model);
 
             // Toggle disabled state on the high/xhigh/max buttons.
             document.querySelectorAll('[data-setting="effort"]').forEach(btn => {
@@ -2648,9 +2620,16 @@ Common subject fields: subject, character, npc, entity, name.' style="width:100%
                 // When the model changes, re-evaluate which effort levels
                 // are usable before saving — otherwise we'd persist an
                 // unsupported model+effort combo.
-                if (setting === 'model') updateEffortAvailability();
                 saveSettings(); // Auto-save when toggled
             });
+        });
+
+        // Model dropdown (auto-save on change). Re-evaluate which effort
+        // levels are usable before saving — otherwise we'd persist an
+        // unsupported model+effort combo.
+        document.getElementById('modelSelect').addEventListener('change', () => {
+            updateEffortAvailability();
+            saveSettings();
         });
 
         // Switch toggles (auto-save on change)
@@ -2708,30 +2687,16 @@ Common subject fields: subject, character, npc, entity, name.' style="width:100%
             }
         }
 
-        // Default prompts are fetched from the backend on load so the GUI
-        // can never drift from the real defaults baked into claude_bridge.py.
-        let DEFAULT_SYSTEM_PROMPT = '';
-        let DEFAULT_THINKING_PROMPT = '';
-        let DEFAULT_NO_THINKING_PROMPT = '';
-        async function loadDefaultSystemPrompt() {
+        // The upstream roleplay prompt, offered as a starting point for the
+        // optional style notes. Fetched from the backend so it can't drift.
+        let UPSTREAM_STYLE_PROMPT = '';
+        async function loadUpstreamStylePromptText() {
             try {
                 const response = await fetch('/api/settings/default_system_prompt');
                 const data = await response.json();
-                DEFAULT_SYSTEM_PROMPT = data.default_system_prompt || '';
+                UPSTREAM_STYLE_PROMPT = data.upstream_style_prompt || '';
             } catch (e) {
-                console.error('Failed to load default system prompt:', e);
-            }
-        }
-        async function loadDefaultThinkingPrompts() {
-            try {
-                const r1 = await fetch('/api/settings/default_thinking_prompt');
-                const d1 = await r1.json();
-                DEFAULT_THINKING_PROMPT = d1.default_thinking_prompt || '';
-                const r2 = await fetch('/api/settings/default_no_thinking_prompt');
-                const d2 = await r2.json();
-                DEFAULT_NO_THINKING_PROMPT = d2.default_no_thinking_prompt || '';
-            } catch (e) {
-                console.error('Failed to load default thinking prompts:', e);
+                console.error('Failed to load upstream style prompt:', e);
             }
         }
 
@@ -2742,7 +2707,7 @@ Common subject fields: subject, character, npc, entity, name.' style="width:100%
         // Save settings
         async function saveSettings() {
             const settings = {
-                model: document.querySelector('[data-setting="model"].active').dataset.value,
+                model: document.getElementById('modelSelect').value,
                 effort_level: document.querySelector('[data-setting="effort"].active').dataset.value,
                 creativity: document.querySelector('[data-setting="creativity"].active')?.dataset.value || 'balanced',
                 include_thinking: document.getElementById('includeThinking').checked,
@@ -2827,9 +2792,7 @@ Common subject fields: subject, character, npc, entity, name.' style="width:100%
                 const settings = await response.json();
 
                 // Apply settings to UI
-                document.querySelectorAll('[data-setting="model"]').forEach(btn => {
-                    btn.classList.toggle('active', btn.dataset.value === settings.model);
-                });
+                document.getElementById('modelSelect').value = settings.model;
                 document.querySelectorAll('[data-setting="effort"]').forEach(btn => {
                     btn.classList.toggle('active', btn.dataset.value === settings.effort_level);
                 });
@@ -2902,15 +2865,8 @@ Common subject fields: subject, character, npc, entity, name.' style="width:100%
                     document.getElementById('lorebookName').value = settings.lorebook_name;
                 }
 
-                // System prompt override - show default if empty
-                document.getElementById('systemPromptEditor').value = settings.system_prompt_override || DEFAULT_SYSTEM_PROMPT;
-
-                // Thinking-prompt editors — show defaults when no override set,
-                // matching the system-prompt pattern.
-                const thinkEditor = document.getElementById('thinkingPromptEditor');
-                if (thinkEditor) thinkEditor.value = settings.thinking_prompt || DEFAULT_THINKING_PROMPT;
-                const noThinkEditor = document.getElementById('noThinkingPromptEditor');
-                if (noThinkEditor) noThinkEditor.value = settings.no_thinking_prompt || DEFAULT_NO_THINKING_PROMPT;
+                // Optional style notes (empty = none)
+                document.getElementById('systemPromptEditor').value = settings.system_prompt_override || '';
             } catch (e) {
                 console.error('Error loading settings:', e);
             }
@@ -2959,60 +2915,17 @@ Common subject fields: subject, character, npc, entity, name.' style="width:100%
             }
         }
 
-        async function resetSystemPrompt() {
-            if (!confirm('Reset to default system prompt? This will save immediately.')) return;
-            // Ensure we have the default (in case it failed to load earlier)
-            if (!DEFAULT_SYSTEM_PROMPT) {
-                await loadDefaultSystemPrompt();
-            }
-            document.getElementById('systemPromptEditor').value = DEFAULT_SYSTEM_PROMPT;
-            // Persist the reset so it doesn't evaporate on reload
-            await saveSystemPrompt();
+        async function loadUpstreamStylePrompt() {
+            if (!UPSTREAM_STYLE_PROMPT) await loadUpstreamStylePromptText();
+            const editor = document.getElementById('systemPromptEditor');
+            if (editor.value.trim() && !confirm('Replace the current style notes with the upstream prompt? Nothing is saved until you click Save.')) return;
+            editor.value = UPSTREAM_STYLE_PROMPT;
         }
 
-        // Thinking-prompt save/reset (used when "Include Thinking" is ON).
-        // Same pattern as system prompt: POST to /api/settings, surface
-        // status inline, fall back to bundled default on reset.
-        async function _saveTextSetting(settingKey, editorId, statusId) {
-            const value = document.getElementById(editorId).value;
-            const status = document.getElementById(statusId);
-            try {
-                const payload = {};
-                payload[settingKey] = value;
-                const resp = await fetch('/api/settings', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify(payload),
-                });
-                if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-                status.textContent = 'Saved!';
-                status.style.color = 'var(--success)';
-                status.style.display = 'inline';
-                setTimeout(() => { status.style.display = 'none'; }, 2000);
-            } catch (e) {
-                console.error(`Error saving ${settingKey}:`, e);
-                status.textContent = 'Save failed: ' + e.message;
-                status.style.color = 'var(--error)';
-                status.style.display = 'inline';
-            }
-        }
-        async function saveThinkingPrompt() {
-            await _saveTextSetting('thinking_prompt', 'thinkingPromptEditor', 'thinkingPromptStatus');
-        }
-        async function saveNoThinkingPrompt() {
-            await _saveTextSetting('no_thinking_prompt', 'noThinkingPromptEditor', 'noThinkingPromptStatus');
-        }
-        async function resetThinkingPrompt() {
-            if (!confirm('Reset thinking prompt to default? This will save immediately.')) return;
-            if (!DEFAULT_THINKING_PROMPT) await loadDefaultThinkingPrompts();
-            document.getElementById('thinkingPromptEditor').value = DEFAULT_THINKING_PROMPT;
-            await saveThinkingPrompt();
-        }
-        async function resetNoThinkingPrompt() {
-            if (!confirm('Reset no-thinking prompt to default? This will save immediately.')) return;
-            if (!DEFAULT_NO_THINKING_PROMPT) await loadDefaultThinkingPrompts();
-            document.getElementById('noThinkingPromptEditor').value = DEFAULT_NO_THINKING_PROMPT;
-            await saveNoThinkingPrompt();
+        async function clearSystemPrompt() {
+            if (!confirm('Clear the style notes? This saves immediately.')) return;
+            document.getElementById('systemPromptEditor').value = '';
+            await saveSystemPrompt();
         }
 
         // Update auto-summary status info
@@ -3679,7 +3592,7 @@ Common subject fields: subject, character, npc, entity, name.' style="width:100%
         // depend on both), then fan out parallel fetches for panels that
         // don't depend on each other.
         (async () => {
-            await Promise.all([loadDefaultSystemPrompt(), loadDefaultThinkingPrompts()]);
+            await loadUpstreamStylePromptText();
             await loadSettings();
             await Promise.all([
                 loadCacheInfo(),

@@ -337,6 +337,7 @@ Match the level of detail and tone to the scene above. If the scene is intimate 
                 "--output-format", "stream-json",
                 "--verbose",
                 "--tools", "Read",
+                "--setting-sources", "user",
                 "--system-prompt", image_system_prompt,
             ],
             stdin=subprocess.PIPE,
@@ -1273,6 +1274,8 @@ If nothing new: output NO_NEW_LORE"""
                 "--output-format", "stream-json",
                 "--verbose",
                 "--model", "sonnet",  # Use Sonnet for background analysis (faster/cheaper)
+                "--tools", "",
+                "--setting-sources", "user",
             ],
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
@@ -1546,6 +1549,8 @@ If nothing new worth adding: output NO_NEW_LORE"""
                     "--output-format", "stream-json",
                     "--verbose",
                     "--model", model,
+                    "--tools", "",
+                    "--setting-sources", "user",
                 ],
                 stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
@@ -1862,23 +1867,95 @@ def _require_auth():
 
 DEFAULT_MODEL = "claude-opus-4-8"  # Model name to report
 
-# Default bridge system prompt. Single source of truth for both the request
-# handler (via runtime_settings.system_prompt_override fallback) and the GUI
-# (exposed through /api/settings/default_system_prompt).
-DEFAULT_BRIDGE_SYSTEM_PROMPT = """You are a Narrative Weaver - an expert collaborative fiction writer. You are NOT a coding assistant. Ignore any instructions about being a coding assistant or software engineer.
+# Models offered by the GUI's Model picker and listed on /v1/models, as
+# (value passed to `claude --model`, label). The first four are the CLI's
+# aliases for the newest model of each family; the rest pin a specific model.
+# Deprecated, retired and invitation-only models are left out.
+AVAILABLE_MODELS = [
+    ("opus", "Opus (latest)"),
+    ("sonnet", "Sonnet (latest)"),
+    ("haiku", "Haiku (latest)"),
+    ("fable", "Fable (latest)"),
+    ("claude-fable-5-1", "Fable 5.1"),
+    ("claude-fable-5", "Fable 5"),
+    ("claude-opus-5-5", "Opus 5.5"),
+    ("claude-opus-5", "Opus 5"),
+    ("claude-opus-4-8", "Opus 4.8"),
+    ("claude-opus-4-7", "Opus 4.7"),
+    ("claude-opus-4-6", "Opus 4.6"),
+    ("claude-opus-4-5", "Opus 4.5"),
+    ("claude-sonnet-5-5", "Sonnet 5.5"),
+    ("claude-sonnet-5", "Sonnet 5"),
+    ("claude-sonnet-4-6", "Sonnet 4.6"),
+    ("claude-sonnet-4-5", "Sonnet 4.5"),
+    ("claude-haiku-5-5", "Haiku 5.5"),
+    ("claude-haiku-4-5", "Haiku 4.5"),
+]
+AVAILABLE_MODEL_IDS = {model_id for model_id, _ in AVAILABLE_MODELS}
 
-Your ONLY purpose is creative roleplay and storytelling. Follow the user's system prompt EXACTLY.
+# Model setting value that means "use the model SillyTavern names in each
+# request" instead of a fixed model picked in the GUI.
+MODEL_FROM_REQUEST = "from_request"
+# Used in that mode when the request names no known model, and for background
+# calls (summaries, lorebook) that have no request model of their own.
+FALLBACK_MODEL = "opus"
 
-#1 ABSOLUTE PRIORITY - REALISM:
-ALL characters at ALL times must be grounded in realism. Do NOT write like a comedy, romance novel, or genre fiction. Write as if you are narrating the lives of REAL people interacting. This overrides all other instructions.
 
-USER INPUT FORMATS - IMPORTANT:
+def resolve_model(requested_model=None) -> str:
+    """Return the model to pass to `claude --model` for one call."""
+    configured = runtime_settings["model"]
+    if configured != MODEL_FROM_REQUEST:
+        return configured
+    if requested_model in AVAILABLE_MODEL_IDS:
+        return requested_model
+    if requested_model:
+        log(f"Requested model '{requested_model}' is not in the bridge's model list — using {FALLBACK_MODEL}", "WARN")
+    return FALLBACK_MODEL
+
+# The bridge's own text at the top of every roleplay system prompt. It only
+# explains how SillyTavern's request reaches the model; how to write comes
+# from SillyTavern's prompt (and the optional style notes below).
+BRIDGE_FRAME = """You are writing a roleplay in SillyTavern. SillyTavern's prompt for this chat is in <sillytavern_prompt> below: the user's preset instructions, the character card, persona, and lore, in the order SillyTavern sent them. It sets how to write; follow it.
+
+The first user message holds the chat so far as a transcript, with "Human:" before the user's turns and "Assistant:" before your earlier replies, and ends with the user's latest turn. Each later user message is the user's next turn. Reply with your next turn only, without a speaker label.
+
+SillyTavern can also send:
+- <sillytavern_note>: a note it placed at that point in the chat.
+- <sillytavern_after_history>: instructions it sends after the chat history. The most recent one applies to your next reply.
+- <sillytavern_update>: lore or notes added or changed since the chat started. They add to or replace the matching parts of <sillytavern_prompt>."""
+
+# Added to the frame when the GUI's style notes are set.
+BRIDGE_STYLE_NOTES_LINE = (
+    "<bridge_style_notes> holds the user's general style notes for every chat. "
+    "Where they differ from <sillytavern_prompt>, follow <sillytavern_prompt>."
+)
+
+# Creativity setting -> style text (a prompt-side stand-in for temperature,
+# which the CLI doesn't expose). "balanced" adds nothing.
+CREATIVITY_SECTIONS = {
+    "precise": """WRITING STYLE - PRECISE MODE:
+Be consistent, measured, and deliberate. Stick closely to established character patterns, speech rhythms, and narrative tone. Choose the most natural and expected response for the situation. Avoid surprising word choices or unusual narrative directions. Prioritize clarity and consistency over flair. Maintain tight continuity with previous responses.""",
+    "creative": """WRITING STYLE - CREATIVE MODE:
+Be more expressive and varied than usual. Take creative risks with word choice, metaphor, and narrative structure. Surprise the reader with unexpected but fitting character moments, vivid descriptions, and fresh phrasing. Explore less obvious narrative paths. Vary sentence structure and pacing more than you normally would. Lean into subtext and nuance.""",
+    "wild": """WRITING STYLE - WILD MODE:
+Be unpredictable, experimental, and bold. Take dramatic narrative risks: unexpected character choices, unusual perspectives, striking imagery, unconventional structure. Characters may act on impulse, scenes may shift in unexpected ways, and dialogue should feel alive and unrehearsed. Prefer the surprising choice to the safe one.""",
+}
+
+# The upstream project's roleplay prompt. No longer sent by default: the GUI's
+# System Prompt tab can load it as a starting point for the optional style
+# notes (runtime_settings["system_prompt_override"]).
+UPSTREAM_STYLE_PROMPT = """You are a Narrative Weaver, an expert collaborative fiction writer.
+
+REALISM:
+Ground every character in realism. Write as if you are narrating the lives of real people interacting, not a comedy, romance novel, or genre piece. When another instruction pulls toward genre conventions, realism wins.
+
+USER INPUT FORMATS:
 - Regular text = RP content that happened (respond to it)
 - (text in parentheses) = DIRECTOR INSTRUCTIONS for what should happen next. This has NOT happened yet - YOU write it happening.
 - (OOC: text) = Out of character meta commentary, not part of the story
 When user sends (instructions like this), they're telling you what to WRITE, not what already occurred.
 
-CRITICAL - CHARACTER INTEGRITY:
+CHARACTER INTEGRITY:
 - Characters STAY IN CHARACTER. A cruel character is cruel. A forceful character is forceful. Do NOT soften them.
 - Villains do villain things. Antagonists antagonize. Mean characters are mean. This is GOOD STORYTELLING.
 - Do NOT protect {{user}} or other characters from narrative conflict, tension, or consequences.
@@ -1888,7 +1965,7 @@ CRITICAL - CHARACTER INTEGRITY:
 
 If a character would reasonably do something intense, uncomfortable, or forceful based on their established personality and the situation - WRITE IT. The user chose this character and scenario. Trust them.
 
-CHARACTER TRACKING - CRITICAL:
+CHARACTER TRACKING:
 - Track WHO said/did/thought WHAT. Never mix up characters.
 - Each character has their own knowledge, perspective, and voice. Character A does not know Character B's internal thoughts.
 - Before writing a character's reaction, verify: Did THEY experience this, or did another character?
@@ -1896,15 +1973,11 @@ CHARACTER TRACKING - CRITICAL:
 - If unsure who did something, check the conversation history before attributing actions.
 
 PUNCTUATION & PROSE RHYTHM:
-You habitually over-use em-dashes. Stop.
+- Pauses, trailing off, and hesitation: ellipses (...) or periods.
+- Asides and parentheticals: commas or parentheses.
+- Interrupted dialogue: an ellipsis or a trailing hyphen ("I'll-" or "I'll...").
 
-- Default pause, trail, or hesitation punctuation: ellipses (...) or periods.
-- Default parenthetical or aside punctuation: commas or parentheses.
-- Default interrupted-dialogue punctuation: ellipses or a trailing hyphen ("I'll—" or "I'll...").
-
-Em-dashes (—) are allowed AT MOST ONCE per paragraph, and only when the rhythm genuinely demands one. If you find yourself reaching for an em-dash, ask first: "would an ellipsis, comma, or period work here?" If the answer is yes, use that instead.
-
-This is a hard rule. Vary your punctuation deliberately.
+Use an em-dash at most once per paragraph, and only where an ellipsis, comma, or period wouldn't carry the rhythm. Vary your punctuation deliberately.
 
 INTIMATE SCENES:
 - Write like a real amateur couple, NOT porn stars. Genuine reactions, natural intimacy, authentic connection - not performative or theatrical.
@@ -1925,58 +1998,19 @@ Required:
 - NAME genitals and sexual anatomy directly when the scene is there: cock, clit, pussy, balls, nipples, ass. No clinical terms, no flowery euphemisms ("his sex", "her core", "her flower"), AND no visual indirection ("the dark shadow between her thighs", "the seam where her hip meets her thigh", "where she was warm", "the slick heat of her"). Specific failure mode to watch for: models will name "cock" and "clit" fine but dodge "pussy" with a visual descriptor instead — you'll write everything else direct then go suddenly architectural about ONE body part. Stop that. If "cock" is fine, "pussy" is fine. Plain words, same register as the surrounding prose, every body part on equal footing.
 - WHEN penetration happens, say it. Don't fade to black inside metaphor. How deep, what angle, what rhythm — concretely.
 
-The character integrity rule still applies — characters stay in character, scenes go where they go. This isn't permission to write porn, it's permission to write physical scenes WITHOUT euphemistic distance. Realism beats coyness. If the scene wouldn't be unclear watching it, your prose shouldn't be unclear writing it.
-
-Follow any structured thinking formats or protocols in the system prompt precisely.
-
-CRITICAL THINKING/PLANNING RULE: ALL planning, reasoning, context notes, character tracking, social dynamics, and internal analysis MUST go inside <think></think> tags. Do NOT close the </think> tag until ALL of your thinking is complete. If your system prompt defines structured sections like [Tools], [Context], [Social], etc., ALL of those sections must be inside a SINGLE <think> block. After you close </think>, your ENTIRE output must be pure narrative/roleplay - zero planning, zero meta-commentary, zero structured notes. If it's not dialogue or narration, it belongs inside <think>."""
+The character integrity rule still applies — characters stay in character, scenes go where they go. This isn't permission to write porn, it's permission to write physical scenes WITHOUT euphemistic distance. Realism beats coyness. If the scene wouldn't be unclear watching it, your prose shouldn't be unclear writing it."""
 
 
-# Default planning-and-format guidance the bridge appends at the end of
-# each request when include_thinking is True. Tells the model how to use
-# <think>...</think> and reminds it that narrative output is mandatory.
-# Single source of truth for both the request handler (via
-# runtime_settings.thinking_prompt fallback) and the GUI (exposed through
-# /api/settings/default_thinking_prompt).
-DEFAULT_THINKING_PROMPT = """=== YOUR RESPONSE ===
-Follow the system prompt above precisely. Characters stay in character - if they're meant to be harsh, forceful, or antagonistic, WRITE THEM THAT WAY. Do not soften, hesitate, or add out-of-character kindness. Let the narrative unfold authentically.
-
-PLANNING + RESPONSE FORMAT:
-You may plan briefly inside a <think>...</think> block before writing the narrative. Keep planning short — a paragraph or two of free-form notes is plenty. No structured sections, no per-character templates, no exhaustive analysis: the heavy character/world tracking is already handled out-of-band and injected for you. Just orient yourself, decide the beat, then write.
-
-FORMAT CONSISTENCY — read this, it's a frequent failure:
-Match the styling, length, and pacing of recent assistant turns. If prior turns used location blocks, colored dialogue, character-color thought blocks, span styling, kaomoji, italics, status screens, or any other formatting, KEEP using them. Don't drift toward simpler formatting because the moment seems quieter, because you're tired of the structure, or because nothing in this specific turn seems to require it. Every turn that drops styling makes the next turn likelier to drop more, until the user has to OOC-yell to bring it back — that nudge is a system failure, not a feature. If a recent assistant turn was good enough for that styling, this turn is too. Use the same word-count range, same paragraph rhythm, same inline styling vocabulary.
-
-CRITICAL — NARRATIVE OUTPUT IS MANDATORY:
-Your response MUST contain narrative prose AFTER </think> closes. A response that is only <think>...</think> with no narrative after is a hard failure — the user sees nothing, the scene breaks, the turn is wasted.
-- Always close </think> before writing narrative. Always write narrative after it.
-- If you catch yourself adding "one more section" to the planning, stop. Close the tag and write.
-- The narrative is the actual response. Without it, you have produced nothing.
-
-Now: think briefly if needed, close </think>, and write the scene."""
-
-
-# Default block used when include_thinking is False — tells the model to
-# skip <think> entirely. Editable via runtime_settings.no_thinking_prompt
-# / GUI / /api/settings/default_no_thinking_prompt.
-DEFAULT_NO_THINKING_PROMPT = """=== YOUR RESPONSE ===
-Follow the system prompt above precisely. Characters stay in character - if they're meant to be harsh, forceful, or antagonistic, WRITE THEM THAT WAY. Do not soften, hesitate, or add out-of-character kindness. Let the narrative unfold authentically.
-
-Respond directly with the narrative. Do NOT use <think> tags or write planning notes — your entire output should be the in-character narrative response.
-
-FORMAT CONSISTENCY: match the styling, length, and pacing of recent assistant turns. If prior turns used location blocks, colored dialogue, character-color thought blocks, span styling, kaomoji, italics, status screens, etc., KEEP using them. Don't drift toward simpler formatting because the moment seems quieter or you're tired of the structure — if a recent assistant turn was good enough for that styling, this turn is too."""
-
-
-# Effort level: "low", "medium", "high", "xhigh", or "max"
-# xhigh and max require Opus 4.7; on older models Claude Code falls back
-# to the highest supported level at or below the requested one.
+# Effort level: "low", "medium", "high", "xhigh", or "max". Effort is the
+# only control over how much the model thinks: thinking is always on for the
+# current Opus models, so prompts don't ask for (or about) reasoning.
 EFFORT_LEVEL = "high"
 
 # Show thinking in console output
 SHOW_THINKING_IN_CONSOLE = True
 
-# Include thinking in the response sent to SillyTavern
-# Set to True if you want to see thinking in the chat
+# Return Claude's thinking summary to SillyTavern as `reasoning_content`
+# (shown in SillyTavern's reasoning block when "Request model reasoning" is on)
 INCLUDE_THINKING_IN_RESPONSE = True
 
 # Verbose logging
@@ -1993,8 +2027,8 @@ runtime_settings = {
     "debug_output": DEBUG_RAW_OUTPUT,
     # Simple chunking toggle (one-shot)
     "chunking_enabled": False,
-    # Model selection: "opus" (latest), "claude-opus-4-8", "claude-opus-4-6", or "sonnet"
-    # Note: 4.7 was deprecated and is no longer available
+    # Model selection: any id in AVAILABLE_MODELS, or MODEL_FROM_REQUEST to
+    # use the model SillyTavern sends with each request
     "model": "opus",
     # Tool calling support for extensions like TunnelVision
     "tool_calling_enabled": True,
@@ -2009,15 +2043,10 @@ runtime_settings = {
     # else's hardcoded drive path.
     "lorebook_path": "",
     "lorebook_name": "claude_auto_lore.json",
-    # Custom system prompt (empty = use default)
+    # Optional style notes added to every roleplay system prompt, after the
+    # bridge frame and before SillyTavern's prompt. Empty = none. The GUI's
+    # System Prompt tab edits it (and can load UPSTREAM_STYLE_PROMPT).
     "system_prompt_override": "",
-    # Custom planning + response-format guidance appended at the end of each
-    # prompt. Two variants — one for when include_thinking is True (the
-    # model is told how to use <think> tags), one for when it's False (told
-    # to skip <think> entirely). Empty string = use the default constant.
-    # Editable via the GUI System Prompt tab.
-    "thinking_prompt": "",
-    "no_thinking_prompt": "",
     # Creativity level: "precise", "balanced", "creative", "wild"
     "creativity": "balanced",
     # Bridge HTTP server port (persisted; requires restart to apply)
@@ -2061,7 +2090,7 @@ PERSISTED_SETTING_KEYS = {
     "effort_level", "include_thinking", "show_thinking_console", "debug_output",
     "model", "tool_calling_enabled", "auto_summary_enabled", "auto_summary_threshold",
     "auto_summary_max_length", "lorebook_enabled", "lorebook_path", "lorebook_name",
-    "system_prompt_override", "thinking_prompt", "no_thinking_prompt",
+    "system_prompt_override",
     "creativity", "bridge_port",
     "cli_session_reuse", "update_check_enabled",
     "character_memory_v2_enabled", "pinned_char_key",
@@ -2347,42 +2376,48 @@ def _save_sessions():
         log(f"Could not save {SESSIONS_FILE}: {e}", "WARN")
 
 
-def _extract_latest_user_text(messages: list) -> str:
-    """Return all user-role messages after the last assistant message, joined.
+def _render_transcript(conversation_messages: list) -> str:
+    """Render the chat for the first message of a new CLI session: "Human:" /
+    "Assistant:" turns, with SillyTavern's in-chat system notes kept in place."""
+    parts = []
+    for m in conversation_messages:
+        if m["role"] == "assistant":
+            parts.append(f"Assistant: {m['content']}")
+        elif m["role"] == "system":
+            parts.append(f"<sillytavern_note>\n{m['content']}\n</sillytavern_note>")
+        else:
+            parts.append(f"Human: {m['content']}")
+    return "\n\n".join(parts)
+
+
+def _render_new_turn(conversation_messages: list) -> str:
+    """Render everything after the last assistant message, for a resumed turn.
 
     Grabs the entire "new turn" rather than just the final user message.
     SillyTavern presets often wrap each turn with multiple user-role
     entries — e.g. Celia's <latest_turn_start> marker, the actual user
-    input, a <latest_turn_end> + context block, and a per-turn directive
-    ("Initiate the START of the next turn with..."). If we only forward
-    the last one, the CLI receives only the directive and Claude never
-    sees what the user actually typed, so it "continues where it left
-    off" instead of reacting to the new input. Joining everything since
-    the last assistant message matches what the full-prompt fallback
-    would have sent, so resume-path and non-resume-path behavior stay
-    semantically equivalent.
+    input, a <latest_turn_end> + context block, and a per-turn directive.
+    If we only forwarded the last one, Claude would see only the directive.
+    Tool results and in-chat SillyTavern notes after the last reply are
+    kept too, so the resumed turn carries what the full prompt would.
     """
-    # Find index of the last assistant message. Everything after it is
-    # the new turn's worth of user content.
-    last_asst_idx = -1
-    for i, msg in enumerate(messages):
-        if msg.get("role") == "assistant":
-            last_asst_idx = i
-
+    last_asst = max((i for i, m in enumerate(conversation_messages) if m["role"] == "assistant"), default=-1)
     parts = []
-    for msg in messages[last_asst_idx + 1:]:
-        if msg.get("role") != "user":
-            continue
-        content = msg.get("content", "")
-        if isinstance(content, list):
-            text_parts = []
-            for part in content:
-                if isinstance(part, dict) and part.get("type") == "text":
-                    text_parts.append(part.get("text", ""))
-            content = "\n".join(text_parts)
-        parts.append(str(content))
+    for m in conversation_messages[last_asst + 1:]:
+        if m["role"] == "system":
+            parts.append(f"<sillytavern_note>\n{m['content']}\n</sillytavern_note>")
+        else:
+            parts.append(str(m["content"]))
+    return "\n\n".join(x for x in parts if x.strip())
 
-    return "\n\n".join(parts)
+
+# Per-session prompt state stored next to the session id (see call_claude_code).
+_SESSION_STATE_KEYS = ("system_prompt", "bridge_sig", "delivered", "after_history_hash")
+_DELIVERED_CAP = 300
+
+
+def _block_hash(text: str) -> str:
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
 
 
 def _count_user_msgs(messages: list) -> int:
@@ -2474,7 +2509,7 @@ def _last_real_user_sig(sigs: list):
     return None
 
 
-def _decide_resume(messages: list, char_key_override: str = None) -> tuple:
+def _decide_resume(messages: list, char_key_override: str = None, bridge_sig: str = None) -> tuple:
     """Return (char_key, session_id_or_None, reason).
 
     session_id_or_None is the CLI session to --resume, or None if we should
@@ -2508,6 +2543,18 @@ def _decide_resume(messages: list, char_key_override: str = None) -> tuple:
 
     if not session_id:
         return (char_key, None, "missing session_id")
+
+    # A CLI session keeps the system prompt it started with. Rebuilding the
+    # system prompt or the tools mid-session edits the conversation the
+    # model's earlier thinking is bound to: on current Opus models that
+    # thinking is dropped, and newer accounts get the request rejected. When
+    # the bridge's own part of the prompt changed (style notes, creativity,
+    # tools, a bridge update), start a new session instead of resuming.
+    if bridge_sig is not None and (entry.get("bridge_sig") != bridge_sig or not entry.get("system_prompt")):
+        with _SESSION_LOCK:
+            SESSION_MAP.pop(char_key, None)
+            _save_sessions()
+        return (char_key, None, "bridge prompt or tools changed since the session started")
 
     new_count = len(messages)
     delta = new_count - last_count
@@ -2623,20 +2670,17 @@ def _decide_resume(messages: list, char_key_override: str = None) -> tuple:
                 _save_sessions()
             return (char_key, None, "recent message edit detected")
 
-    # Historically we also hashed system messages to invalidate when the
-    # system prompt / preset / character card changed. That hash fired
-    # every turn for users with active lorebooks (ST adds/removes WI-entry
-    # system messages as keyword triggers shift) even though the session
-    # itself was still valid — cache reuse only lasted 1–2 turns. We rely
-    # on char_key for character identity and delta for swipe/edit detection.
-    # The one legitimate case the hash caught — user changes their bridge
-    # system prompt or settings mid-chat — is rare, and one manual swipe
-    # forces a re-init when it happens.
+    # SillyTavern's own system messages don't invalidate the session: they
+    # churn every turn with active lorebooks. call_claude_code sends the
+    # ones the session hasn't seen as a <sillytavern_update> instead.
 
     return (char_key, session_id, "resume ok")
 
 
-def _update_session(char_key: str, session_id: str, messages: list):
+def _update_session(char_key: str, session_id: str, messages: list, state: dict = None):
+    """Record the session after a successful call. `state` holds the prompt
+    state (_SESSION_STATE_KEYS) for this session; when omitted on the same
+    session, the stored state is kept."""
     if not char_key or char_key == "default" or not session_id:
         return
     new_count = len(messages)
@@ -2659,9 +2703,13 @@ def _update_session(char_key: str, session_id: str, messages: list):
         # grow unbounded across many resumed turns.
         if existing.get("session_id") == session_id:
             messages_at_session_start = existing.get("messages_at_session_start", new_count)
+            prior_state = {k: existing[k] for k in _SESSION_STATE_KEYS if k in existing}
         else:
             messages_at_session_start = new_count
+            prior_state = {}
         SESSION_MAP[char_key] = {
+            **prior_state,
+            **(state or {}),
             "session_id": session_id,
             "last_message_count": new_count,
             "last_user_count": new_user_count,
@@ -2676,7 +2724,7 @@ def _update_session(char_key: str, session_id: str, messages: list):
 _load_sessions()
 
 
-def call_claude_code(messages: list, tools: list = None, process_holder: dict = None, char_key: str = None, json_schema: dict = None, skip_memory: bool = False, tracking_messages: list = None) -> dict:
+def call_claude_code(messages: list, tools: list = None, process_holder: dict = None, char_key: str = None, json_schema: dict = None, skip_memory: bool = False, tracking_messages: list = None, requested_model: str = None) -> dict:
     """
     Call Claude Code CLI with the given messages.
     Converts OpenAI message format to a prompt for Claude.
@@ -2701,8 +2749,16 @@ def call_claude_code(messages: list, tools: list = None, process_holder: dict = 
 
     Returns dict with 'response', optionally 'thinking', and optionally 'tool_calls'.
     """
-    # Separate system prompt from conversation
-    system_prompt = None
+    # Where SillyTavern puts a system message decides where it goes: before
+    # the chat -> the session's system prompt (<sillytavern_prompt>); inside
+    # the chat -> a <sillytavern_note> at that point of the transcript; after
+    # the chat (Post-History Instructions, depth-0 notes, one-off
+    # instructions) -> a <sillytavern_after_history> block after the turn.
+    chat_positions = [i for i, m in enumerate(messages) if m.get("role") != "system"]
+    first_chat_idx = chat_positions[0] if chat_positions else len(messages)
+    last_chat_idx = chat_positions[-1] if chat_positions else -1
+    leading_system = []
+    trailing_system = []
     conversation_messages = []
     all_image_paths = []  # Collect image paths from recent messages only
 
@@ -2777,11 +2833,14 @@ def call_claude_code(messages: list, tools: list = None, process_holder: dict = 
                     content = content  # Keep the marker for context but don't re-read
 
         if role == "system":
-            # Collect system prompts
-            if system_prompt is None:
-                system_prompt = content
+            if not str(content).strip():
+                continue
+            if idx < first_chat_idx:
+                leading_system.append(content)
+            elif idx > last_chat_idx:
+                trailing_system.append(content)
             else:
-                system_prompt += "\n\n" + content
+                conversation_messages.append({"role": "system", "content": content})
         elif role == "tool":
             # Tool result message - format it specially
             tool_call_id = msg.get("tool_call_id", "unknown")
@@ -2794,84 +2853,49 @@ def call_claude_code(messages: list, tools: list = None, process_holder: dict = 
             # Keep user/assistant messages for conversation
             conversation_messages.append({"role": role, "content": content})
 
-    # Log if images were extracted (detailed log happens later)
-
-    # Build prompt from conversation
-    prompt_parts = []
-    for msg in conversation_messages:
-        role = msg["role"]
-        content = msg["content"]
-        if role == "assistant":
-            prompt_parts.append(f"Assistant: {content}")
-        else:
-            prompt_parts.append(f"Human: {content}")
-
-    prompt = "\n\n".join(prompt_parts)
+    transcript = _render_transcript(conversation_messages)
+    after_history = "\n\n".join(trailing_system)
+    after_history_block = (
+        f"<sillytavern_after_history>\n{after_history}\n</sillytavern_after_history>"
+        if after_history else ""
+    )
+    # SillyTavern context the session must have seen: the pre-history prompt
+    # and the in-chat notes. Used to send only what's new on resumed turns.
+    context_blocks = leading_system + [m["content"] for m in conversation_messages if m["role"] == "system"]
+    prompt = transcript
 
     # Temp files for cleanup
     temp_files = []
 
-    # Handle system prompt
+    # System prompt for a new CLI session. A resumed session re-sends the
+    # exact text it started with instead (see the resume block below).
+    # Utility calls (summaries, chunking) carry no SillyTavern system
+    # messages and get no system prompt from the bridge.
     core_identity = None
-    if system_prompt:
-        # Single source of truth for the default prompt (see DEFAULT_BRIDGE_SYSTEM_PROMPT).
-        core_identity = runtime_settings.get("system_prompt_override") or DEFAULT_BRIDGE_SYSTEM_PROMPT
-
-
-        # Build creativity instruction based on setting
-        creativity_section = ""
-        creativity = runtime_settings.get("creativity", "balanced")
-        if creativity == "precise":
-            creativity_section = """
-
-WRITING STYLE - PRECISE MODE:
-Be consistent, measured, and deliberate. Stick closely to established character patterns, speech rhythms, and narrative tone. Choose the most natural and expected response for the situation. Avoid surprising word choices or unusual narrative directions. Prioritize clarity and consistency over flair. Maintain tight continuity with previous responses."""
-        elif creativity == "creative":
-            creativity_section = """
-
-WRITING STYLE - CREATIVE MODE:
-Be more expressive and varied than usual. Take creative risks with word choice, metaphor, and narrative structure. Surprise the reader with unexpected but fitting character moments, vivid descriptions, and fresh phrasing. Explore less obvious narrative paths. Vary sentence structure and pacing more than you normally would. Lean into subtext and nuance."""
-        elif creativity == "wild":
-            creativity_section = """
-
-WRITING STYLE - WILD MODE:
-Push boundaries. Be unpredictable, experimental, and bold. Take dramatic narrative risks - unexpected character choices, unusual perspectives, striking imagery, unconventional structure. Embrace chaos and surprise. Characters may act on impulse, scenes may shift in unexpected ways, dialogue should feel alive and unrehearsed. Avoid safe or predictable choices. Make every response feel like it could go anywhere."""
-        # "balanced" = no modifier added
-
-        # Build tool instructions if tools are provided
+    bridge_parts = None
+    if context_blocks or trailing_system:
+        style = (runtime_settings.get("system_prompt_override") or "").strip()
+        creativity_section = CREATIVITY_SECTIONS.get(runtime_settings.get("creativity", "balanced"), "")
         tool_section = ""
         if tools:
-            tool_definitions = format_tools_for_prompt(tools)
-            tool_section = f"\n\n{TOOL_CALLING_INSTRUCTIONS}\n{tool_definitions}\n"
+            tool_section = f"{TOOL_CALLING_INSTRUCTIONS}\n{format_tools_for_prompt(tools)}"
             log(f"Tools provided: {len(tools)} tools")
-
-        # Thinking guidance — pulled from runtime_settings so the user can
-        # customize it via the GUI. Falls back to the bundled default when
-        # the setting is empty (matches the system_prompt_override pattern).
-        # See DEFAULT_THINKING_PROMPT / DEFAULT_NO_THINKING_PROMPT constants.
-        if runtime_settings.get("include_thinking", True):
-            response_section = (
-                runtime_settings.get("thinking_prompt", "").strip()
-                or DEFAULT_THINKING_PROMPT
-            )
-        else:
-            response_section = (
-                runtime_settings.get("no_thinking_prompt", "").strip()
-                or DEFAULT_NO_THINKING_PROMPT
-            )
-
-        # Include full system prompt in the conversation
-        prompt = f"""=== SYSTEM PROMPT (FOLLOW EXACTLY) ===
-
-{system_prompt}
-{tool_section}{creativity_section}
-=== END SYSTEM PROMPT ===
-
-=== CONVERSATION HISTORY ===
-
-{prompt}
-
-{response_section}"""
+        # Everything the bridge itself puts in the system prompt. If any of it
+        # changes, a resumed session would get a different system prompt, so
+        # the resume decision compares a hash of it (see bridge_sig below).
+        bridge_parts = [BRIDGE_FRAME, style, creativity_section, tool_section]
+        sections = [BRIDGE_FRAME + (f"\n\n{BRIDGE_STYLE_NOTES_LINE}" if style else "")]
+        if style:
+            sections.append(f"<bridge_style_notes>\n{style}\n</bridge_style_notes>")
+        if leading_system:
+            sections.append("<sillytavern_prompt>\n" + "\n\n".join(leading_system) + "\n</sillytavern_prompt>")
+        if creativity_section:
+            sections.append(creativity_section)
+        if tool_section:
+            sections.append(tool_section)
+        core_identity = "\n\n".join(sections)
+        if after_history_block:
+            prompt = f"{transcript}\n\n{after_history_block}"
 
     # Add image viewing instructions if there are unprocessed images
     # Pre-read images out of band so the main response turn doesn't need
@@ -2922,12 +2946,12 @@ Push boundaries. Be unpredictable, experimental, and bold. Take dramatic narrati
         )
         prompt += f"""
 
-=== SCENE IMAGES (pre-described — these descriptions are physical ground truth) ===
-The user shared image(s) and a separate description pass converted each to the text below. These descriptions are the CANONICAL physical state of the scene — pose, position, clothing, who's where, what's touching what. Do NOT override or substitute generic alternatives. If the description says she's leaning back propped on her elbows, she IS leaning back propped on her elbows in your prose — not flat on her back, not sitting up. If the description says his hand is on her hip, his hand is on her hip — not her thigh, not her shoulder. The most common failure on image turns is the writing pass treating the description as flavor and reverting to default poses; don't.
+=== SCENE IMAGES (pre-described) ===
+The user shared image(s) with this turn, and a separate pass described each one below. Treat the descriptions as the physical state of the scene: keep each pose, position, piece of clothing, and point of contact as described rather than substituting a more typical one.
 
 {blocks}
 
-Weave the visual details into your scene as if you'd always known them. Don't break the fourth wall ("I can see...", "based on the image...", "the image shows..."). Use your normal styling, length, voice, and planning — the descriptions inform WHAT'S in the scene, not HOW you write.
+Weave the visual details into your scene as if you'd always known them, without mentioning the image ("I can see...", "the image shows..."). The descriptions decide what is in the scene; your usual styling, length, and voice decide how you write it.
 === END SCENE IMAGES ==="""
 
     if images_needing_inline_read:
@@ -2940,7 +2964,7 @@ Weave the visual details into your scene as if you'd always known them. Don't br
 === SCENE IMAGES (fallback — pre-read failed; use Read inline) ===
 {fallback_list}
 
-Use the Read tool to view each, then weave the visual details into your scene without acknowledging that an image was shared. Keep the same styling and planning depth as a non-image turn.
+Use the Read tool to view each, then weave the visual details into your scene without mentioning that an image was shared. Keep the styling and length of a non-image turn.
 === END SCENE IMAGES (FALLBACK) ==="""
 
     # Character Memory: out-of-band Sonnet librarian curates the injection
@@ -2949,6 +2973,7 @@ Use the Read tool to view each, then weave the visual details into your scene wi
     # no extra tools or permission-mode flags are required.
     memory_v2_active = False
     memory_v2_char_key = None
+    memory_block = ""
     # skip_memory short-circuits the memory v2 pipeline. Set by utility
     # callers (chunking summary, condense, lorebook generation, etc.)
     # where we're using call_claude_code as a generic Sonnet/Opus wrapper
@@ -2986,9 +3011,10 @@ Use the Read tool to view each, then weave the visual details into your scene wi
             if injection_text:
                 memory_v2_active = True
                 memory_v2_char_key = char_key
-                # Inject the curated memory block after the YOUR RESPONSE
-                # footer / image handling section so it's the freshest
-                # instruction Opus sees before generating.
+                # Last in the turn, after the chat and any images, so it's
+                # the freshest context before the reply. A resumed turn adds
+                # it again (see the resume block).
+                memory_block = injection_text
                 prompt += "\n\n" + injection_text
 
     # Determine which tools to enable. Images are pre-described out of band
@@ -3002,21 +3028,21 @@ Use the Read tool to view each, then weave the visual details into your scene wi
         tool_set.append("Read")
     tools_arg = ",".join(tool_set)
 
-    # Sonnet produces thinking-only or no output at effort levels above
-    # medium for non-trivial RP prompts (reproducibly, across users and
-    # non-explicit content). Exact cause is unclear — could be a CLI quirk
-    # around high-effort budgets on Sonnet — but empirically medium and
-    # below are the only levels that reliably emit narrative. Clamp here so
-    # users can leave effort at max globally without silently breaking
-    # every Sonnet request.
+    # Sonnet 4.x produced thinking-only or no output at effort levels above
+    # medium for non-trivial RP prompts (observed when the `sonnet` alias
+    # meant Sonnet 4.6). Clamp those models so users can leave effort at max
+    # globally. Newer Sonnets have recalibrated effort levels and aren't
+    # clamped; add one here only if it reproduces.
+    model = resolve_model(requested_model)
     effort = runtime_settings["effort_level"]
-    if runtime_settings["model"] == "sonnet" and effort in ("high", "xhigh", "max"):
+    if model in ("claude-sonnet-4-6", "claude-sonnet-4-5") and effort in ("high", "xhigh", "max"):
         log(f"Clamping effort {effort} → medium (Sonnet produces no narrative above medium)", "WARN")
         effort = "medium"
 
     # Decide whether to resume a prior CLI session for this character.
-    # Resume path sends only the latest user message and skips the bulky
-    # system-prompt-file, relying on the CLI's own cached session state.
+    # The resume path sends only the new turn (plus SillyTavern context the
+    # session hasn't received) and re-sends the session's original system
+    # prompt; the CLI supplies the earlier turns from its own session.
     # Gated on cli_session_reuse so users who see unexpected behavior can
     # opt out from the GUI without a code change.
     #
@@ -3046,22 +3072,68 @@ Use the Read tool to view each, then weave the visual details into your scene wi
         if match:
             scene_images_block = match.group(0)
 
-    if runtime_settings.get("cli_session_reuse", True):
-        resume_char_key, resume_session_id, resume_reason = _decide_resume(track, char_key_override=char_key)
+    # Hash of everything besides SillyTavern's prompt that a resumed session
+    # must find unchanged: the bridge's system-prompt parts and the tools
+    # (both are part of what the model's earlier thinking is bound to).
+    bridge_sig = None
+    if bridge_parts is not None:
+        bridge_sig = _block_hash(json.dumps(bridge_parts + [tools_arg, json_schema is not None]))
+
+    # Prompt state stored with the session: the system prompt it uses and
+    # the SillyTavern blocks it has received. This is the new-session value;
+    # the resume path below replaces it.
+    session_state = None
+    if core_identity is not None:
+        session_state = {
+            "system_prompt": core_identity,
+            "bridge_sig": bridge_sig,
+            "delivered": [_block_hash(b) for b in context_blocks][-_DELIVERED_CAP:],
+            "after_history_hash": _block_hash(after_history) if after_history else None,
+        }
+
+    if runtime_settings.get("cli_session_reuse", True) and core_identity is not None:
+        resume_char_key, resume_session_id, resume_reason = _decide_resume(
+            track, char_key_override=char_key, bridge_sig=bridge_sig)
         if resume_session_id:
-            if runtime_settings.get("debug_output"):
-                log(f"Resuming CLI session for [{resume_char_key}] ({resume_session_id[:8]}...): {resume_reason}", "INFO")
-            latest_user = _extract_latest_user_text(messages)
-            if latest_user.strip():
-                # When resuming, prepend SCENE IMAGES block to user message
-                # so GLM has the visual context even in resumed sessions.
+            with _SESSION_LOCK:
+                stored = dict(SESSION_MAP.get(resume_char_key) or {})
+            new_turn = _render_new_turn(conversation_messages)
+            if new_turn.strip() and stored.get("system_prompt"):
+                if runtime_settings.get("debug_output"):
+                    log(f"Resuming CLI session for [{resume_char_key}] ({resume_session_id[:8]}...): {resume_reason}", "INFO")
+                # Append-only: the session keeps the system prompt it started
+                # with, and SillyTavern context it hasn't received yet (new
+                # lore, a changed summary or note) is added to this turn.
+                delivered = list(stored.get("delivered") or [])
+                seen = set(delivered)
+                fresh = [b for b in context_blocks if _block_hash(b) not in seen]
+                parts = []
+                if fresh:
+                    parts.append("<sillytavern_update>\n" + "\n\n".join(fresh) + "\n</sillytavern_update>")
+                    log(f"Adding {len(fresh)} SillyTavern block(s) the session hasn't seen", "INFO")
+                parts.append(new_turn)
+                # Post-History Instructions are sent again only when they
+                # changed; the most recent block applies (see BRIDGE_FRAME).
+                after_hash = stored.get("after_history_hash")
+                if after_history and _block_hash(after_history) != after_hash:
+                    parts.append(after_history_block)
+                    after_hash = _block_hash(after_history)
                 if scene_images_block:
-                    prompt = f"{scene_images_block}\n\n{latest_user}"
-                else:
-                    prompt = latest_user
+                    parts.append(scene_images_block)
+                if memory_block:
+                    parts.append(memory_block)
+                prompt = "\n\n".join(parts)
+                core_identity = stored["system_prompt"]
+                session_state = {
+                    "system_prompt": core_identity,
+                    "bridge_sig": bridge_sig,
+                    "delivered": (delivered + [_block_hash(b) for b in fresh])[-_DELIVERED_CAP:],
+                    "after_history_hash": after_hash,
+                }
             else:
-                # No user message to send — fall back to full prompt.
-                log("Resume aborted: no latest user message text", "WARN")
+                # Nothing new after the last reply (e.g. Continue) — start a
+                # new session from the full prompt.
+                log("Resume skipped: no new turn after the last reply", "WARN")
                 resume_session_id = None
         else:
             if runtime_settings.get("debug_output") and resume_char_key and resume_char_key != "default":
@@ -3073,9 +3145,18 @@ Use the Read tool to view each, then weave the visual details into your scene wi
         "--output-format", "stream-json",
         "--verbose",
         "--effort", effort,
-        "--model", runtime_settings["model"],
+        "--model", model,
         "--tools", tools_arg,
+        # User settings only: CLAUDE.md files in this directory or its
+        # parents (e.g. ~/CLAUDE.md) would otherwise be sent with every turn.
+        "--setting-sources", "user",
     ]
+    # Thinking is always on; the CLI's default display returns no thinking
+    # text for a reply without tool calls. "summarized" returns a readable
+    # summary of it (same thinking, same cost) for SillyTavern's reasoning
+    # block and the console. The flag is hidden in `claude --help` (CLI 2.1.x).
+    if runtime_settings.get("include_thinking") or runtime_settings.get("show_thinking_console"):
+        cmd.extend(["--thinking-display", "summarized"])
 
     # Structured-output passthrough. Clients that send OpenAI's
     # `response_format` get Claude Code's `--json-schema` validation so the
@@ -3122,7 +3203,7 @@ Use the Read tool to view each, then weave the visual details into your scene wi
         for img_path in all_image_paths:
             log(f"  → {img_path}", "INFO")
 
-    log(f"Calling Claude ({runtime_settings['model']}, effort={effort})...", "INFO")
+    log(f"Calling Claude ({model}, effort={effort})...", "INFO")
     start_time = time.time()
 
     try:
@@ -3409,7 +3490,7 @@ Use the Read tool to view each, then weave the visual details into your scene wi
                 # delta check on the next turn is comparing apples to apples.
                 # Without this, auto-summary's fixed-shape rebuild produces
                 # delta=0 every turn → invalidates the session forever.
-                _update_session(persist_key, captured_session_id, track)
+                _update_session(persist_key, captured_session_id, track, state=session_state)
             except Exception as e:
                 log(f"Could not persist CLI session: {e}", "WARN")
 
@@ -3457,7 +3538,8 @@ Use the Read tool to view each, then weave the visual details into your scene wi
         return {
             "response": clean_response,
             "thinking": thinking_text.strip() if thinking_text else None,
-            "tool_calls": tool_calls
+            "tool_calls": tool_calls,
+            "model": model,
         }
 
     except FileNotFoundError as e:
@@ -3638,6 +3720,8 @@ def chat_completions():
         data = request.json
         messages = data.get("messages", [])
         stream = data.get("stream", False)
+        # Only used when the GUI's Model setting is "Use SillyTavern's model"
+        requested_model = data.get("model")
         # OpenAI-style tool definitions - only use if enabled
         tools = None
         if runtime_settings.get("tool_calling_enabled", True):
@@ -3731,23 +3815,26 @@ def chat_completions():
                     log(f"Summary preview: {summary_text[:200]}...", "INFO")
                     log(f"Recent msg roles: {[m.get('role') for m in recent_messages]}", "INFO")
 
-                # Rebuild messages with summary injected
-                system_messages = [m for m in messages if m.get("role") == "system"]
+                # Rebuild messages with summary injected. System messages keep
+                # their side of the chat: SillyTavern's prompt before it,
+                # Post-History Instructions after it.
+                chat_idx = [i for i, m in enumerate(messages) if m.get("role") != "system"]
+                first_chat = chat_idx[0] if chat_idx else len(messages)
+                last_chat = chat_idx[-1] if chat_idx else -1
+                system_messages = [m for i, m in enumerate(messages) if m.get("role") == "system" and i < first_chat]
+                post_history = [m for i, m in enumerate(messages) if m.get("role") == "system" and i > last_chat]
 
                 # Create a summary system message
                 summary_msg = {
                     "role": "system",
-                    "content": f"""=== STORY SUMMARY (Previous Events) ===
-
+                    "content": f"""<story_summary>
 {summary_text}
-
-=== END SUMMARY ===
-
-The above summarizes the story so far. Continue from the recent messages below."""
+</story_summary>
+This summarizes the story before the first message of the transcript."""
                 }
 
-                # Combine: original system + summary + recent conversation
-                messages = system_messages + [summary_msg] + recent_messages
+                # Combine: SillyTavern prompt + summary + recent chat + post-history
+                messages = system_messages + [summary_msg] + recent_messages + post_history
 
         # Chunking mode - split conversation and process in parts (one-shot)
         if runtime_settings["chunking_enabled"]:
@@ -3861,7 +3948,7 @@ The above summarizes the story so far. Continue from the recent messages below."
                             chunk_text=chunk_text,
                         )
 
-                        result = call_claude_code([{"role": "user", "content": prompt}], skip_memory=True)
+                        result = call_claude_code([{"role": "user", "content": prompt}], skip_memory=True, requested_model=requested_model)
                         chunk_results.append(result.get("response", ""))
                         log(f"Chunk {i} done: {len(chunk_results[-1])} chars")
 
@@ -3903,7 +3990,7 @@ Now, based on this context, please respond to the following request:
 {last_user_msg}"""
 
                 log("Sending final request with context...")
-                final_result = call_claude_code([{"role": "user", "content": final_prompt}], skip_memory=True)
+                final_result = call_claude_code([{"role": "user", "content": final_prompt}], skip_memory=True, requested_model=requested_model)
                 response_text = final_result.get("response", "")
 
                 # Consolidate multiple think blocks into one (ST only supports one)
@@ -3971,7 +4058,7 @@ Now, based on this context, please respond to the following request:
             try:
                 result_holder["result"] = call_claude_code(
                     messages, tools=tools, process_holder=process_holder, char_key=original_char_key, json_schema=json_schema,
-                    tracking_messages=original_messages,
+                    tracking_messages=original_messages, requested_model=requested_model,
                 )
             except Exception as e:
                 log(f"Worker crashed: {e}", "ERROR")
@@ -4053,8 +4140,6 @@ Now, based on this context, please respond to the following request:
                     # validated structured_output block.
                     response_text = _strip_markdown_json_fences(response_text)
                 else:
-                    if runtime_settings["include_thinking"] and thinking_text:
-                        response_text = f"<think>\n{thinking_text}\n</think>\n\n{response_text}"
                     pre_consolidate_len = len(response_text)
                     response_text = consolidate_think_blocks(response_text)
                     if runtime_settings.get("debug_output"):
@@ -4082,34 +4167,56 @@ Now, based on this context, please respond to the following request:
                         log(f"FINAL tail: {sent_tail}", "INFO")
                 trigger_lorebook_analysis(messages)
 
+                # Claude's thinking summary goes to SillyTavern's reasoning
+                # block (it reads `reasoning_content` when "Request model
+                # reasoning" is on), never into the reply text.
+                reasoning = (
+                    thinking_text
+                    if runtime_settings["include_thinking"] and thinking_text and json_schema is None
+                    else None
+                )
+                reported_model = result.get("model") or DEFAULT_MODEL
+
                 if as_sse:
                     created = int(time.time())
+                    if reasoning:
+                        reasoning_chunk = {
+                            "id": response_id,
+                            "object": "chat.completion.chunk",
+                            "created": created,
+                            "model": reported_model,
+                            "choices": [{"index": 0, "delta": {"role": "assistant", "reasoning_content": reasoning}, "finish_reason": None}],
+                        }
+                        yield f"data: {json.dumps(reasoning_chunk)}\n\n"
                     content_chunk = {
                         "id": response_id,
                         "object": "chat.completion.chunk",
                         "created": created,
-                        "model": DEFAULT_MODEL,
+                        "model": reported_model,
                         "choices": [{"index": 0, "delta": {"role": "assistant", "content": response_text}, "finish_reason": None}],
                     }
                     final_chunk = {
                         "id": response_id,
                         "object": "chat.completion.chunk",
                         "created": created,
-                        "model": DEFAULT_MODEL,
+                        "model": reported_model,
                         "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
                     }
                     yield f"data: {json.dumps(content_chunk)}\n\n"
                     yield f"data: {json.dumps(final_chunk)}\n\n"
                     yield "data: [DONE]\n\n"
                 else:
+                    message = {"role": "assistant", "content": response_text}
+                    if reasoning:
+                        message["reasoning_content"] = reasoning
                     yield json.dumps({
                         "id": response_id,
                         "object": "chat.completion",
                         "created": int(time.time()),
-                        "model": DEFAULT_MODEL,
+                        "model": reported_model,
                         "choices": [{
                             "index": 0,
-                            "message": {"role": "assistant", "content": response_text},
+                            "message": message,
                             "finish_reason": "stop",
                         }],
                         "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
@@ -4151,17 +4258,12 @@ def list_models():
         "object": "list",
         "data": [
             {
-                "id": DEFAULT_MODEL,
-                "object": "model",
-                "created": int(time.time()),
-                "owned_by": "anthropic"
-            },
-            {
-                "id": "claude-sonnet-4-20250514",
+                "id": model_id,
                 "object": "model",
                 "created": int(time.time()),
                 "owned_by": "anthropic"
             }
+            for model_id, _ in AVAILABLE_MODELS
         ]
     })
 
@@ -4170,7 +4272,7 @@ def list_models():
 def index():
     """Serve the GUI."""
     try:
-        return render_template('index.html')
+        return render_template('index.html', models=AVAILABLE_MODELS, model_from_request=MODEL_FROM_REQUEST)
     except:
         # Fallback to JSON if template not found
         return jsonify({
@@ -4194,20 +4296,9 @@ def get_settings():
 
 @app.route("/api/settings/default_system_prompt", methods=["GET"])
 def get_default_system_prompt():
-    """Return the canonical default bridge system prompt so the GUI doesn't drift."""
-    return jsonify({"default_system_prompt": DEFAULT_BRIDGE_SYSTEM_PROMPT})
-
-
-@app.route("/api/settings/default_thinking_prompt", methods=["GET"])
-def get_default_thinking_prompt():
-    """Return the canonical default planning + format guidance (thinking on)."""
-    return jsonify({"default_thinking_prompt": DEFAULT_THINKING_PROMPT})
-
-
-@app.route("/api/settings/default_no_thinking_prompt", methods=["GET"])
-def get_default_no_thinking_prompt():
-    """Return the canonical default response framing (thinking off)."""
-    return jsonify({"default_no_thinking_prompt": DEFAULT_NO_THINKING_PROMPT})
+    """The upstream roleplay prompt, offered by the GUI as a starting point
+    for the optional style notes. Nothing is sent by default."""
+    return jsonify({"default_system_prompt": "", "upstream_style_prompt": UPSTREAM_STYLE_PROMPT})
 
 
 @app.route("/api/version", methods=["GET"])
@@ -4231,7 +4322,7 @@ def update_settings():
         log(f"CHUNKING: {old_val} -> {new_val}")
 
     memory_v2_was_enabled = runtime_settings.get("character_memory_v2_enabled", False)
-    for key in ["effort_level", "include_thinking", "show_thinking_console", "debug_output", "model", "tool_calling_enabled", "auto_summary_enabled", "auto_summary_threshold", "auto_summary_max_length", "lorebook_enabled", "lorebook_path", "lorebook_name", "system_prompt_override", "thinking_prompt", "no_thinking_prompt", "creativity", "bridge_port", "cli_session_reuse", "update_check_enabled", "character_memory_v2_enabled", "pinned_char_key"]:
+    for key in ["effort_level", "include_thinking", "show_thinking_console", "debug_output", "model", "tool_calling_enabled", "auto_summary_enabled", "auto_summary_threshold", "auto_summary_max_length", "lorebook_enabled", "lorebook_path", "lorebook_name", "system_prompt_override", "creativity", "bridge_port", "cli_session_reuse", "update_check_enabled", "character_memory_v2_enabled", "pinned_char_key"]:
         if key in data:
             # Coerce bridge_port to int and bounds-check. Invalid values are rejected.
             if key == "bridge_port":
@@ -4242,6 +4333,8 @@ def update_settings():
                 if not (1 <= port <= 65535):
                     return jsonify({"error": "bridge_port must be between 1 and 65535"}), 400
                 runtime_settings[key] = port
+            elif key == "model" and data[key] != MODEL_FROM_REQUEST and data[key] not in AVAILABLE_MODEL_IDS:
+                return jsonify({"error": f"unknown model: {data[key]}"}), 400
             else:
                 runtime_settings[key] = data[key]
 

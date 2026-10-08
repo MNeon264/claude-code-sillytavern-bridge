@@ -964,7 +964,8 @@ def set_claude_exe(path: str):
     _CLAUDE_EXE = path
 
 
-def _call_sonnet(prompt: str, timeout: int = 60, effort: Optional[str] = None) -> Optional[str]:
+def _call_sonnet(prompt: str, timeout: int = 60, effort: Optional[str] = None,
+                 json_schema: Optional[dict] = None) -> Optional[str]:
     """Run a one-shot Sonnet call and return the assistant text, or None.
 
     Mirrors claude_bridge's auto-lorebook subprocess pattern: stream-json
@@ -976,6 +977,9 @@ def _call_sonnet(prompt: str, timeout: int = 60, effort: Optional[str] = None) -
     on work that doesn't need it. Note: Sonnet's narrative output collapses
     above "medium" effort, so we never pass anything above medium here even
     for the maintenance call.
+
+    `json_schema` is forwarded to `--json-schema`; the CLI validates the
+    output and the returned text is the JSON-serialized `structured_output`.
     """
     cmd = [
         _CLAUDE_EXE,
@@ -983,9 +987,15 @@ def _call_sonnet(prompt: str, timeout: int = 60, effort: Optional[str] = None) -
         "--output-format", "stream-json",
         "--verbose",
         "--model", "sonnet",
+        # No tools, and no CLAUDE.md files from the bridge directory or its
+        # parents: these calls only turn text into JSON.
+        "--tools", "",
+        "--setting-sources", "user",
     ]
     if effort:
         cmd.extend(["--effort", effort])
+    if json_schema is not None:
+        cmd.extend(["--json-schema", json.dumps(json_schema, separators=(",", ":"))])
     try:
         proc = subprocess.Popen(
             cmd,
@@ -1018,7 +1028,10 @@ def _call_sonnet(prompt: str, timeout: int = 60, effort: Optional[str] = None) -
         except json.JSONDecodeError:
             continue
         if event.get("type") == "result":
-            text = event.get("result", "") or text
+            if json_schema is not None and "structured_output" in event:
+                text = json.dumps(event["structured_output"])
+            else:
+                text = event.get("result", "") or text
             # `result` is the canonical final — stop scanning once seen.
             break
         if event.get("type") == "assistant":
@@ -2082,19 +2095,20 @@ def _semantic_augment(
 
 _RANK_PROMPT = """You rank candidate memories by relevance to the current scene of a roleplay.
 
-INPUT: a scene description and a numbered list of candidate memories.
-OUTPUT: a single JSON object: {"keep": [<ids in priority order, most relevant first>], "drop": [<ids to exclude>]}.
+INPUT: a scene description and a numbered list of candidate memories. Strong desires, secrets, and relationships with characters in the scene are already included separately; these candidates compete for the remaining slots.
+OUTPUT: "keep", the ids worth injecting, most relevant first, at most %(budget)d.
 
 RULES:
-- Output ONLY the JSON object. No commentary.
-- "keep" length should be at most %(budget)d. Drop the rest.
-- Always keep all `desire` entries with intensity >= 4 (mandatory).
-- Intensity 6 desires are INEVITABLE and MUST be in keep at the front of the list — they execute this turn regardless of relevance to the surface scene. Never drop them.
-- Always keep all `secret` entries.
-- Always keep all `relationship` entries for subjects in the scene.
 - Prefer specificity over generality (a concrete event > a vague trait).
-- Prefer entries that would change how the character behaves THIS turn.
+- Prefer entries that would change how the character behaves this turn.
 """
+
+_RANK_SCHEMA = {
+    "type": "object",
+    "properties": {"keep": {"type": "array", "items": {"type": "integer"}}},
+    "required": ["keep"],
+    "additionalProperties": False,
+}
 
 
 def _sonnet_rank(
@@ -2129,9 +2143,9 @@ def _sonnet_rank(
         + (scene_text or "(no scene context provided)")
         + "\n\n=== CANDIDATES ===\n"
         + "\n".join(lines)
-        + "\n\nReturn ONLY the JSON."
     )
-    raw = _call_sonnet(prompt, timeout=SONNET_RANK_TIMEOUT_SECONDS, effort=SONNET_RANK_EFFORT)
+    raw = _call_sonnet(prompt, timeout=SONNET_RANK_TIMEOUT_SECONDS, effort=SONNET_RANK_EFFORT,
+                       json_schema=_RANK_SCHEMA)
     if not raw:
         return None
     parsed = _extract_json(raw)
@@ -2147,6 +2161,29 @@ def _sonnet_rank(
         except (TypeError, ValueError):
             continue
     return out
+
+
+def _split_pinned(candidates: list[dict], scene_subjects: Iterable[str]) -> tuple[list[dict], list[dict]]:
+    """Split candidates into (pinned, rankable).
+
+    Pinned rows are injected every turn, ahead of the ranked ones: desires
+    with intensity >= 4 (intensity 6 first, since those execute this turn),
+    all secrets, and relationships with a subject in the scene.
+    """
+    subjects = set(scene_subjects)
+    pinned: list[dict] = []
+    rankable: list[dict] = []
+    for c in candidates:
+        t = c["type"]
+        if ((t == "desire" and (c.get("intensity") or 0) >= 4)
+                or t == "secret"
+                or (t == "relationship" and c.get("subject") in subjects)):
+            pinned.append(c)
+        else:
+            rankable.append(c)
+    # Stable sort: intensity-6 desires move to the front, pull order otherwise.
+    pinned.sort(key=lambda c: 0 if c["type"] == "desire" and (c.get("intensity") or 0) >= 6 else 1)
+    return pinned, rankable
 
 
 def _build_scene_text(messages: list[dict], chars_in_scene: list[str]) -> str:
@@ -2380,16 +2417,23 @@ def prepare_turn(
             log(f"prepare_turn[{char_key}]: +{len(extras)} via semantic search", "INFO")
         candidates.extend(extras)
 
-    # ALWAYS run Sonnet ranking (Q2). Falls back to programmatic order on
-    # failure or timeout.
+    # Pinned rows (strong desires, secrets, in-scene relationships) always go
+    # first; Sonnet ranks the rest into the remaining slots. Falls back to
+    # programmatic order on failure or timeout.
     final_ids: Optional[list[int]] = None
     if candidates:
-        ranked = _sonnet_rank(scene_text, candidates, inject_row_budget)
-        if ranked is not None:
-            final_ids = [i for i in ranked if any(c["id"] == i for c in candidates)][:inject_row_budget]
-        else:
-            log(f"prepare_turn[{char_key}]: Sonnet rank failed, using programmatic order", "WARN")
-            final_ids = [c["id"] for c in candidates[:inject_row_budget]]
+        pinned, rankable = _split_pinned(candidates, pull_subjects)
+        room = max(0, inject_row_budget - len(pinned))
+        ranked_ids: list[int] = []
+        if rankable and room:
+            ranked = _sonnet_rank(scene_text, rankable, room)
+            if ranked is not None:
+                rankable_ids = {c["id"] for c in rankable}
+                ranked_ids = [i for i in ranked if i in rankable_ids]
+            else:
+                log(f"prepare_turn[{char_key}]: Sonnet rank failed, using programmatic order", "WARN")
+                ranked_ids = [c["id"] for c in rankable]
+        final_ids = ([c["id"] for c in pinned] + ranked_ids[:room])[:inject_row_budget]
     else:
         final_ids = []
 

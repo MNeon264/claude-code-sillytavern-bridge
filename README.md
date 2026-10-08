@@ -2,13 +2,17 @@
 
 ## Fork notes
 
-This fork of [MissSinful/claude-code-sillytavern-bridge](https://github.com/MissSinful/claude-code-sillytavern-bridge) adapts the bridge for a headless Linux VPS. Prompts, memory logic and RP behaviour are unchanged. Changes vs upstream:
+This fork of [MissSinful/claude-code-sillytavern-bridge](https://github.com/MissSinful/claude-code-sillytavern-bridge) adapts the bridge for a headless Linux VPS and changes how prompts reach Claude (SillyTavern's prompt is the system prompt; the bridge's own roleplay prompt is optional). Memory logic is unchanged. Changes vs upstream:
 
 - **Listens on `127.0.0.1` by default** instead of `0.0.0.0`. Override with `BRIDGE_HOST`; `BRIDGE_PORT` overrides the GUI port setting.
 - **Optional auth**: `BRIDGE_API_KEY` requires `Authorization: Bearer <key>` on `/v1/*`, and `BRIDGE_DASHBOARD_PASSWORD` puts HTTP Basic auth on the dashboard and `/api/*`. Both are off unless set.
 - **CORS is no longer allow-all.** Only origins listed in `BRIDGE_CORS_ORIGINS` get CORS headers. Allow-all is kept only when bound to `0.0.0.0`, and SillyTavern doesn't need CORS either way.
 - **Split requirements**: `requirements.txt` is core only (flask, flask-cors); `requirements-memory.txt` adds sentence-transformers and numpy for Character Memory. `run_bridge.bat` still installs both.
 - **Linux run support**: `run_bridge.sh`, a hardened systemd unit in `deploy/`, and an env file template. See [Linux / VPS deployment](#linux--vps-deployment).
+- **`claude` calls load user settings only** (`--setting-sources user`), so a `CLAUDE.md` in the bridge directory or a parent directory is never sent to the model. Background Sonnet calls (memory, lorebook) also run with no tools (`--tools ""`) instead of Claude Code's full toolset.
+- **SillyTavern's prompt is the system prompt.** SillyTavern's system messages before the chat (preset, card, persona, lore) go into Claude's real system prompt, after a short bridge frame that explains the message layout. Post-History Instructions stay after the chat and in-chat notes stay in place, instead of everything being moved to the top of the first message. The upstream roleplay prompt is no longer sent by default; the System Prompt tab can load it as optional style notes.
+- **CLI sessions keep their system prompt.** A resumed session re-sends the exact system prompt it started with, so Claude's earlier thinking stays valid (rebuilding it mid-session is a history edit, rejected for newer accounts on current Opus models) and the prompt cache stays warm. Lore or notes SillyTavern adds or changes mid-session are sent with that turn in a `<sillytavern_update>` block, and changed Post-History Instructions are re-sent. A change to the bridge's own part (style notes, Creativity, tools) starts a new session.
+- **Thinking goes to SillyTavern's reasoning block.** No prompt asks Claude to write `<think>` reasoning into the reply. With Include Thinking on, the bridge requests the CLI's summarized thinking (`--thinking-display summarized`) and returns it as `reasoning_content`, which SillyTavern shows when "Request model reasoning" is on. Effort controls how much Claude thinks.
 
 With no environment variables set, the only behaviour change is the default listen address.
 
@@ -30,7 +34,7 @@ SillyTavern is an excellent frontend for creative writing and roleplay, but it s
 
 - **Per-character running summaries** so 200-message conversations don't re-send the whole backlog every turn
 - **Persistent Character Memory** — structured per-character DB so characters actually remember desires, relationships, and recurring NPCs across sessions
-- **Narrative-focused system prompt injection** that overrides Claude Code's built-in "you are a coding assistant" framing
+- **SillyTavern's prompt as the system prompt**, replacing Claude Code's built-in "you are a coding assistant" framing
 - **Image handling** via Claude Code's native `Read` tool — share reference images in SillyTavern and Claude actually sees them
 - **Auto-lorebook** generation that builds World Info entries from your roleplay in the background
 - **Live-editable prompts** in the `prompts/` directory — tune summarization and condensation behavior without touching Python
@@ -39,17 +43,17 @@ SillyTavern is an excellent frontend for creative writing and roleplay, but it s
 
 - OpenAI-compatible `/v1/chat/completions` endpoint (SillyTavern just points at it)
 - GUI dashboard at `http://localhost:5001/` with tabs for Settings, System Prompt, Tools, Lorebook, Memory, and Test
-- **Model picker** — Opus 4.8, Opus 4.6, or Sonnet, selected in the bridge GUI (SillyTavern's model selector is ignored)
-- **Effort levels** — Low / Medium / High / xHigh / Max for the Claude CLI's reasoning budget. xHigh and Max require Opus; Sonnet is clamped to Medium as it produces no meaningful narrative above that level.
+- **Model picker** — every current Claude model (Fable, Opus, Sonnet and Haiku, pinned versions or "latest" aliases), selected in the bridge GUI; or set it to "Use SillyTavern's model" to pick per connection in SillyTavern
+- **Effort levels** — Low / Medium / High / xHigh / Max for the Claude CLI's reasoning budget. xHigh and Max require Opus; Sonnet 4.6 and 4.5 are clamped to Medium as they produce no meaningful narrative above that level.
 - **Character Memory** — structured per-character SQLite + sentence-transformers embeddings + Sonnet librarian. Tracks desires, events, facts, rules, relationships, traits, places, possessions, body state, and secrets across sessions. Sonnet curates relevant memories before each Opus turn (in-band) and updates the DB after (background). Persistent NPCs introduced mid-RP get their own sub-DBs. Inspect/edit everything in the Memory tab. See `MEMORY_DESIGN.md` for the architecture.
 - **Per-character auto-summary** — each character's narrative digest lives in its own cache slot, keyed by a hash of the greeting. Switching characters auto-swaps summaries; no manual cache clearing.
-- **CLI session reuse** — captures the Claude CLI's session and resumes via `--resume` on follow-up turns, sending only the latest user message instead of the full history. Big input-token savings on long RPs. Auto-invalidates on swipes, edits, or prefix changes.
+- **CLI session reuse** — captures the Claude CLI's session and resumes via `--resume` on follow-up turns, sending only the new turn (plus any lore SillyTavern added or changed) with the session's original system prompt. Big input-token savings on long RPs. Starts a new session on swipes, edits, or changes to the bridge's own prompt settings.
 - **Chunking mode** — one-shot reset that rebuilds a character's summary from an imported chat file
 - **Editable prompt templates** at `prompts/*.md` for summarization, condensation, and chunk processing. Hot-reloads on every request — no server restart.
 - **Per-character image pipeline** — SillyTavern base64 images get saved to `temp_images/` and injected as file paths so Claude Code's `Read` tool can view them directly
 - **Auto-lorebook** generation after each response using Sonnet for efficiency, plus a Deep Analysis mode that scans a full chat file, and a manual entry editor
 - **Creativity modes** (Precise / Balanced / Creative / Wild) — prompt-based style control since Claude Code CLI doesn't expose temperature
-- **Conditional thinking guidance** — when `include_thinking` is on, the bridge injects a lightweight planning instruction so the model uses `<think>...</think>` without you needing a heavy CoT template in your preset
+- **Thinking summaries** — when `include_thinking` is on, Claude's summarized thinking is returned as `reasoning_content` for SillyTavern's reasoning block; nothing asks the model to write its reasoning into the reply
 - **`char_key` pinning** — pin a character's key from the Memory tab so small card edits don't change the auto-derived hash and orphan the existing memory DB or CLI session
 - **Test tab** — fire a quick test message at the bridge from the GUI without going through SillyTavern, useful for sanity checks
 - **Settings persistence** — model, effort, creativity, thresholds, and port all survive bridge restarts via `bridge_settings.json`
@@ -112,7 +116,7 @@ The bridge starts on `http://localhost:5001`, listening on `127.0.0.1` only. Ope
 2. Select **Chat Completion** → **OpenAI Compatible** (or "Custom OpenAI" depending on your ST version)
 3. Set the endpoint to `http://localhost:5001/v1`
 4. Enter any API key — the bridge doesn't check it unless `BRIDGE_API_KEY` is set (then enter that value), but SillyTavern requires the field to be non-empty. `sk-placeholder` works.
-5. Model selector in SillyTavern is ignored — pick your model in the Settings tab of the bridge GUI instead
+5. Pick your model in the Settings tab of the bridge GUI. SillyTavern's model selector is ignored unless the bridge's Model is set to "Use SillyTavern's model"
 6. Save and connect
 
 Send a test message. If it works, you're set. If not, check the bridge terminal for logs — debug output is on by default.
@@ -213,7 +217,7 @@ Most features work automatically once the bridge is running and configured. High
 
 Edit any of these, save, and the next request picks up the change. No server restart. Placeholders use Python `{variable}` syntax — escape a literal brace as `{{` / `}}`.
 
-**The main RP system prompt** is *not* in the `prompts/` folder — it's the `DEFAULT_BRIDGE_SYSTEM_PROMPT` constant in `claude_bridge.py`. Edit it via the System Prompt tab in the GUI, which persists to `bridge_settings.json`.
+**The roleplay system prompt** is your SillyTavern prompt, behind a short frame (`BRIDGE_FRAME` in `claude_bridge.py`) that explains how SillyTavern's messages are laid out. Optional style notes from the System Prompt tab (persisted to `bridge_settings.json`) are added before SillyTavern's prompt; "Load upstream prompt" fills in the upstream project's roleplay prompt (`UPSTREAM_STYLE_PROMPT`) as a starting point.
 
 ## Known limitations
 
@@ -232,7 +236,6 @@ If any of these become dealbreakers for you, the right move is an alternative ba
 claude-code-sillytavern-bridge/
 ├── claude_bridge.py           # Main Flask server and subprocess wrapper
 ├── memory_v2.py               # Character Memory: SQLite + embeddings + Sonnet librarian
-├── modify_preset.py           # Standalone utility for SillyTavern preset tweaks
 ├── requirements.txt           # Core Python dependencies
 ├── requirements-memory.txt    # Optional: Character Memory embeddings
 ├── run_bridge.bat             # Windows launcher
@@ -257,9 +260,7 @@ claude-code-sillytavern-bridge/
 
 ## Content note
 
-The default system prompt framing is for **adult collaborative fiction**. It includes explicit instructions for how to handle intimate scenes authentically rather than theatrically, alongside instructions for character integrity, narrative risk-taking, and structured thinking. This is intentional — the bridge is built for adult RP and storytelling, and the prompt is what makes Claude not default to sanitized boilerplate when the story calls for more.
-
-If that doesn't match your use case, replace `DEFAULT_BRIDGE_SYSTEM_PROMPT` in `claude_bridge.py` with your own framing, or override it via the System Prompt tab in the GUI.
+In this fork, how Claude writes comes from your SillyTavern prompt. The upstream project's roleplay prompt (`UPSTREAM_STYLE_PROMPT` in `claude_bridge.py`) is framed for **adult collaborative fiction**, with explicit instructions for intimate scenes, character integrity, and narrative risk-taking. It is only sent if you load it into the System Prompt tab's style notes and save.
 
 ## Policy & responsibility
 
