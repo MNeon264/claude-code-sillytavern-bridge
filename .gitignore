@@ -4,6 +4,7 @@ bridge_sessions.json
 cache/
 temp_images/
 character_memory/
+prompt_history.db*
 
 # Secrets (e.g. a local copy of deploy/claude-bridge.env.example)
 *.env

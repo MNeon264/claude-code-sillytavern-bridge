@@ -964,8 +964,21 @@ def set_claude_exe(path: str):
     _CLAUDE_EXE = path
 
 
+# Records each Sonnet call for the dashboard's History tab. The bridge sets it
+# to prompt_history.start_call: recorder(kind, label, argv=..., prompt=...)
+# returns an object with observe_stdout(stdout, returncode, stderr) and
+# finish(status=, error=).
+_call_recorder = None
+
+
+def set_call_recorder(fn):
+    """Bridge calls this on import."""
+    global _call_recorder
+    _call_recorder = fn
+
+
 def _call_sonnet(prompt: str, timeout: int = 60, effort: Optional[str] = None,
-                 json_schema: Optional[dict] = None) -> Optional[str]:
+                 json_schema: Optional[dict] = None, label: str = "Character Memory") -> Optional[str]:
     """Run a one-shot Sonnet call and return the assistant text, or None.
 
     Mirrors claude_bridge's auto-lorebook subprocess pattern: stream-json
@@ -980,6 +993,8 @@ def _call_sonnet(prompt: str, timeout: int = 60, effort: Optional[str] = None,
 
     `json_schema` is forwarded to `--json-schema`; the CLI validates the
     output and the returned text is the JSON-serialized `structured_output`.
+
+    `label` names the call on the dashboard's History tab.
     """
     cmd = [
         _CLAUDE_EXE,
@@ -996,6 +1011,7 @@ def _call_sonnet(prompt: str, timeout: int = 60, effort: Optional[str] = None,
         cmd.extend(["--effort", effort])
     if json_schema is not None:
         cmd.extend(["--json-schema", json.dumps(json_schema, separators=(",", ":"))])
+    record = _call_recorder("memory", label, argv=cmd, prompt=prompt) if _call_recorder else None
     try:
         proc = subprocess.Popen(
             cmd,
@@ -1007,6 +1023,8 @@ def _call_sonnet(prompt: str, timeout: int = 60, effort: Optional[str] = None,
         )
     except FileNotFoundError:
         log(f"claude CLI not found at {_CLAUDE_EXE!r} — Sonnet calls disabled", "ERROR")
+        if record:
+            record.finish(status="error", error=f"claude CLI not found at {_CLAUDE_EXE!r}")
         return None
 
     try:
@@ -1014,10 +1032,17 @@ def _call_sonnet(prompt: str, timeout: int = 60, effort: Optional[str] = None,
     except subprocess.TimeoutExpired:
         proc.kill()
         log(f"Sonnet call timed out after {timeout}s", "WARN")
+        if record:
+            record.finish(status="error", error=f"timed out after {timeout}s")
         return None
     except Exception as e:
         log(f"Sonnet subprocess error: {e}", "ERROR")
+        if record:
+            record.finish(status="error", error=str(e))
         return None
+    if record:
+        record.observe_stdout(stdout, proc.returncode, stderr)
+        record.finish()
 
     text = ""
     for line in (stdout or "").strip().split("\n"):
@@ -1210,7 +1235,8 @@ def run_bootstrap(char_key: str, messages: list[dict], current_turn: int = 0) ->
 
     log(f"bootstrap: calling Sonnet for {char_key}...", "INFO")
     t0 = time.time()
-    raw = _call_sonnet(_BOOTSTRAP_SYSTEM + "\n\n" + card_text, timeout=120)
+    raw = _call_sonnet(_BOOTSTRAP_SYSTEM + "\n\n" + card_text, timeout=120,
+                       label="Character Memory: bootstrap")
     if not raw:
         log(f"bootstrap: empty Sonnet response for {char_key}", "WARN")
         return None
@@ -1617,6 +1643,7 @@ def _npc_seed_from_bio(char_key: str, npc_key: str, name: str, bio: str, current
         _NPC_BOOTSTRAP_PROMPT
         + f"\n\nNPC NAME: {name}\nNPC BIO:\n{bio[:2000]}\n\nReturn ONLY the JSON.",
         timeout=45,
+        label="Character Memory: NPC seed",
     )
     seed = _extract_json(raw) if raw else None
     try:
@@ -2145,7 +2172,7 @@ def _sonnet_rank(
         + "\n".join(lines)
     )
     raw = _call_sonnet(prompt, timeout=SONNET_RANK_TIMEOUT_SECONDS, effort=SONNET_RANK_EFFORT,
-                       json_schema=_RANK_SCHEMA)
+                       json_schema=_RANK_SCHEMA, label="Character Memory: ranking")
     if not raw:
         return None
     parsed = _extract_json(raw)
@@ -3061,7 +3088,7 @@ def record_turn(
 
     log(f"record_turn[{char_key}]: calling Sonnet for maintenance...", "INFO")
     t0 = time.time()
-    raw = _call_sonnet(prompt, timeout=90)
+    raw = _call_sonnet(prompt, timeout=90, label="Character Memory: maintenance")
     elapsed = time.time() - t0
     if not raw:
         log(f"record_turn[{char_key}]: empty Sonnet response after {elapsed:.1f}s", "WARN")

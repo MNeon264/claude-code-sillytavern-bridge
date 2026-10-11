@@ -93,6 +93,9 @@ CLAUDE_EXE = _find_claude_exe()
 # unconditionally — the toggle in runtime_settings gates the *behavior*.
 # Logger and exe path are injected after both are defined further below.
 import memory_v2
+# Records every claude call and the account's usage for the History and
+# Usage tabs (see prompt_history.py). Set up after log() is defined.
+import prompt_history
 
 if CLAUDE_EXE is None:
     # Loud startup warning so first-run users see the actual problem
@@ -330,25 +333,28 @@ Match the level of detail and tone to the scene above. If the scene is intimate 
             "already has the image and chose to share it; your role is "
             "translation, not gatekeeping. Always provide the description."
         )
-        process = subprocess.Popen(
-            [
-                CLAUDE_EXE,
-                "-p",
-                "--output-format", "stream-json",
-                "--verbose",
-                "--tools", "Read",
-                "--setting-sources", "user",
-                "--system-prompt", image_system_prompt,
-            ],
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            encoding="utf-8",
-        )
+        cmd = [
+            CLAUDE_EXE,
+            "-p",
+            "--output-format", "stream-json",
+            "--verbose",
+            "--tools", "Read",
+            "--setting-sources", "user",
+            "--system-prompt", image_system_prompt,
+        ]
+        with prompt_history.start_call("image", "Image description", argv=cmd, prompt=prompt) as hist:
+            process = subprocess.Popen(
+                cmd,
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                encoding="utf-8",
+            )
 
-        # Send prompt and get output
-        stdout, stderr = process.communicate(input=prompt, timeout=300)
+            # Send prompt and get output
+            stdout, stderr = process.communicate(input=prompt, timeout=300)
+            hist.observe_stdout(stdout, process.returncode, stderr)
 
         if stderr:
             log(f"Image describe stderr: {stderr[:200]}", "WARN")
@@ -767,14 +773,16 @@ def summarize_new_messages(new_messages):
         return ""
 
     prompt = load_prompt("summarize_incremental", msg_text=msg_text)
-    result = call_claude_code([{"role": "user", "content": prompt}], skip_memory=True)
+    result = call_claude_code([{"role": "user", "content": prompt}], skip_memory=True,
+                              history_kind="summary", history_label="Auto-summary update")
     return result.get("response", "").strip()
 
 
 def condense_summary(long_summary):
     """Condense a summary that's gotten too long."""
     prompt = load_prompt("condense", long_summary=long_summary)
-    result = call_claude_code([{"role": "user", "content": prompt}], skip_memory=True)
+    result = call_claude_code([{"role": "user", "content": prompt}], skip_memory=True,
+                              history_kind="summary", history_label="Condense summary")
     return result.get("response", "").strip()
 
 
@@ -1267,24 +1275,27 @@ If nothing new: output NO_NEW_LORE"""
         # Call Claude for analysis (using a lighter model for efficiency)
         log("Calling Claude for lore extraction...", "INFO")
 
-        process = subprocess.Popen(
-            [
-                CLAUDE_EXE,
-                "-p",
-                "--output-format", "stream-json",
-                "--verbose",
-                "--model", "sonnet",  # Use Sonnet for background analysis (faster/cheaper)
-                "--tools", "",
-                "--setting-sources", "user",
-            ],
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            encoding="utf-8",
-        )
+        cmd = [
+            CLAUDE_EXE,
+            "-p",
+            "--output-format", "stream-json",
+            "--verbose",
+            "--model", "sonnet",  # Use Sonnet for background analysis (faster/cheaper)
+            "--tools", "",
+            "--setting-sources", "user",
+        ]
+        with prompt_history.start_call("lorebook", "Auto-lorebook", argv=cmd, prompt=analysis_prompt) as hist:
+            process = subprocess.Popen(
+                cmd,
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                encoding="utf-8",
+            )
 
-        stdout, stderr = process.communicate(input=analysis_prompt, timeout=120)
+            stdout, stderr = process.communicate(input=analysis_prompt, timeout=120)
+            hist.observe_stdout(stdout, process.returncode, stderr)
 
         # Parse the response
         response_text = ""
@@ -1542,24 +1553,29 @@ If nothing new worth adding: output NO_NEW_LORE"""
             # Call Claude for this chunk
             log(f"  Calling Claude ({model.capitalize()}) for chunk {chunk_idx}...", "INFO")
 
-            process = subprocess.Popen(
-                [
-                    CLAUDE_EXE,
-                    "-p",
-                    "--output-format", "stream-json",
-                    "--verbose",
-                    "--model", model,
-                    "--tools", "",
-                    "--setting-sources", "user",
-                ],
-                stdin=subprocess.PIPE,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                encoding="utf-8",
-            )
+            cmd = [
+                CLAUDE_EXE,
+                "-p",
+                "--output-format", "stream-json",
+                "--verbose",
+                "--model", model,
+                "--tools", "",
+                "--setting-sources", "user",
+            ]
+            with prompt_history.start_call(
+                "lorebook", f"Deep lorebook analysis, chunk {chunk_idx}/{len(chunks)}", argv=cmd, prompt=analysis_prompt,
+            ) as hist:
+                process = subprocess.Popen(
+                    cmd,
+                    stdin=subprocess.PIPE,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    encoding="utf-8",
+                )
 
-            stdout, stderr = process.communicate(input=analysis_prompt, timeout=300)
+                stdout, stderr = process.communicate(input=analysis_prompt, timeout=300)
+                hist.observe_stdout(stdout, process.returncode, stderr)
 
             # Parse the response
             response_text = ""
@@ -2191,6 +2207,10 @@ def log(message: str, level: str = "INFO"):
 # be defined first.
 memory_v2.set_logger(log)
 memory_v2.set_claude_exe(CLAUDE_EXE)
+memory_v2.set_call_recorder(prompt_history.start_call)
+
+prompt_history.set_logger(log)
+prompt_history.init(os.path.join(os.path.dirname(os.path.abspath(__file__)), "prompt_history.db"))
 
 
 # Shared width for section headers and stat boxes — keeps them visually
@@ -2724,7 +2744,7 @@ def _update_session(char_key: str, session_id: str, messages: list, state: dict 
 _load_sessions()
 
 
-def call_claude_code(messages: list, tools: list = None, process_holder: dict = None, char_key: str = None, json_schema: dict = None, skip_memory: bool = False, tracking_messages: list = None, requested_model: str = None) -> dict:
+def call_claude_code(messages: list, tools: list = None, process_holder: dict = None, char_key: str = None, json_schema: dict = None, skip_memory: bool = False, tracking_messages: list = None, requested_model: str = None, history_kind: str = None, history_label: str = None) -> dict:
     """
     Call Claude Code CLI with the given messages.
     Converts OpenAI message format to a prompt for Claude.
@@ -2747,8 +2767,19 @@ def call_claude_code(messages: list, tools: list = None, process_holder: dict = 
     field — the chat_completions handler parses it into this shape. Left
     None means no schema (default Claude Code behavior; free-form text).
 
+    history_kind / history_label: how the call is listed on the dashboard's
+    History tab. The kind defaults to "chat" for roleplay turns and
+    "utility" for skip_memory calls.
+
     Returns dict with 'response', optionally 'thinking', and optionally 'tool_calls'.
     """
+    # Started before the image and memory pre-calls, so a roleplay turn's
+    # usage reading covers everything done to answer it.
+    hist = prompt_history.start_call(
+        history_kind or ("utility" if skip_memory else "chat"),
+        history_label,
+        track_usage=not skip_memory,
+    )
     # Where SillyTavern puts a system message decides where it goes: before
     # the chat -> the session's system prompt (<sillytavern_prompt>); inside
     # the chat -> a <sillytavern_note> at that point of the transcript; after
@@ -3135,6 +3166,7 @@ Use the Read tool to view each, then weave the visual details into your scene wi
                 # new session from the full prompt.
                 log("Resume skipped: no new turn after the last reply", "WARN")
                 resume_session_id = None
+                resume_reason = "no new turn after the last reply"
         else:
             if runtime_settings.get("debug_output") and resume_char_key and resume_char_key != "default":
                 log(f"Not resuming [{resume_char_key}]: {resume_reason}", "INFO")
@@ -3206,6 +3238,26 @@ Use the Read tool to view each, then weave the visual details into your scene wi
     log(f"Calling Claude ({model}, effort={effort})...", "INFO")
     start_time = time.time()
 
+    # What the History tab shows for this call: the exact argv, system prompt
+    # and stdin text.
+    hist.argv = cmd
+    hist.system_prompt = core_identity
+    hist.prompt = prompt
+    hist.model = model
+    hist.effort = effort
+    hist.char_key = char_key or resume_char_key
+    if core_identity is not None:
+        hist.resumed = bool(resume_session_id)
+        hist.note = (
+            f"Resumed CLI session {resume_session_id[:8]}" if resume_session_id
+            else f"New CLI session: {resume_reason}"
+        )
+        if not hist.label:
+            hist.label = _extract_character_name("\n\n".join(str(b) for b in leading_system))
+    hist_outcome = {"status": None, "error": None}
+    response_text = ""
+    thinking_text = ""
+
     try:
         # Use Popen for real-time streaming. bufsize=1 forces line-buffered
         # stdout reads on the Python side — without this, the default 8KB
@@ -3260,6 +3312,7 @@ Use the Read tool to view each, then weave the visual details into your scene wi
                 event = json.loads(line)
                 event_type = event.get("type", "unknown")
                 event_count += 1
+                hist.observe(event)
 
                 if captured_session_id is None:
                     sid = event.get("session_id")
@@ -3270,6 +3323,7 @@ Use the Read tool to view each, then weave the visual details into your scene wi
                 if event_type == "error":
                     error_msg = event.get("error", {}).get("message", str(event))
                     log(f"Error event: {error_msg}", "ERROR")
+                    hist_outcome["error"] = error_msg
                     return {"response": f"Error: {error_msg}", "thinking": None}
 
                 # Accumulate content_block_delta into response/thinking buffers.
@@ -3321,6 +3375,7 @@ Use the Read tool to view each, then weave the visual details into your scene wi
                     if event.get("is_error"):
                         error_msg = event.get("result", "Unknown error")
                         log(f"Claude Code returned error: {error_msg}", "ERROR")
+                        hist_outcome["error"] = str(error_msg)
                         return {"response": f"Error: {error_msg}", "thinking": None}
 
                     # When a json_schema was supplied, the CLI validates the
@@ -3378,6 +3433,7 @@ Use the Read tool to view each, then weave the visual details into your scene wi
 
         if cancelled:
             log(f"Claude cancelled after {elapsed:.1f}s (client disconnect)", "WARN")
+            hist_outcome["status"] = "cancelled"
             return {"response": "", "thinking": None, "tool_calls": []}
 
         log(f"Response received in {elapsed:.1f}s", "SUCCESS")
@@ -3385,6 +3441,7 @@ Use the Read tool to view each, then weave the visual details into your scene wi
         if process.returncode != 0:
             error_msg = stderr.strip() if stderr.strip() else "Unknown error (no stderr)"
             log(f"Claude Code error (exit {process.returncode}): {error_msg}", "ERROR")
+            hist_outcome["error"] = f"exit {process.returncode}: {error_msg}"
             return {"response": f"Error from Claude Code: {error_msg}", "thinking": None}
 
         if runtime_settings["debug_output"]:
@@ -3550,6 +3607,7 @@ Use the Read tool to view each, then weave the visual details into your scene wi
         log(f"Looked for: {CLAUDE_EXE}", "ERROR")
         log("Fix: install Claude Code and ensure `claude --version` works in a new terminal.", "ERROR")
         log("     https://docs.anthropic.com/en/docs/claude-code", "ERROR")
+        hist_outcome["error"] = f"Claude CLI not found: {e}"
         return {
             "response": (
                 "**Bridge error — Claude CLI not found.** Install Claude Code "
@@ -3561,6 +3619,7 @@ Use the Read tool to view each, then weave the visual details into your scene wi
         }
     except Exception as e:
         log(f"Exception: {str(e)}", "ERROR")
+        hist_outcome["error"] = f"{type(e).__name__}: {e}"
         # Try to kill the process if it's still running
         try:
             process.kill()
@@ -3568,6 +3627,9 @@ Use the Read tool to view each, then weave the visual details into your scene wi
             pass
         return {"response": f"Error calling Claude Code: {str(e)}", "thinking": None}
     finally:
+        # The raw reply (before tool-call parsing) and thinking, as the CLI
+        # returned them.
+        hist.finish(response=response_text, thinking=thinking_text, **hist_outcome)
         # Clean up temp files
         for temp_file in temp_files:
             if temp_file and os.path.exists(temp_file.name):
@@ -3948,7 +4010,8 @@ This summarizes the story before the first message of the transcript."""
                             chunk_text=chunk_text,
                         )
 
-                        result = call_claude_code([{"role": "user", "content": prompt}], skip_memory=True, requested_model=requested_model)
+                        result = call_claude_code([{"role": "user", "content": prompt}], skip_memory=True, requested_model=requested_model,
+                                                  history_kind="summary", history_label=f"Chunking, chunk {i}/{len(chunks)}")
                         chunk_results.append(result.get("response", ""))
                         log(f"Chunk {i} done: {len(chunk_results[-1])} chars")
 
@@ -3990,7 +4053,8 @@ Now, based on this context, please respond to the following request:
 {last_user_msg}"""
 
                 log("Sending final request with context...")
-                final_result = call_claude_code([{"role": "user", "content": final_prompt}], skip_memory=True, requested_model=requested_model)
+                final_result = call_claude_code([{"role": "user", "content": final_prompt}], skip_memory=True, requested_model=requested_model,
+                                                 history_label="Chunking, reply")
                 response_text = final_result.get("response", "")
 
                 # Consolidate multiple think blocks into one (ST only supports one)
@@ -4386,6 +4450,57 @@ def get_prompt_preview():
 def get_version():
     """Return bridge version + latest-release info for the GUI update banner."""
     return jsonify(UPDATE_STATUS)
+
+
+# =============================================================================
+# Prompt history and usage (History and Usage tabs; see prompt_history.py)
+# =============================================================================
+
+@app.route("/api/history", methods=["GET"])
+def get_history():
+    """Recorded claude calls, newest first, without their text. Query:
+    limit, before_id (paging), kind, q (searches labels, prompts, replies)."""
+    return jsonify(prompt_history.list_calls(
+        limit=request.args.get("limit", 50, type=int),
+        before_id=request.args.get("before_id", type=int),
+        kind=request.args.get("kind") or None,
+        query=(request.args.get("q") or "").strip() or None,
+    ))
+
+
+@app.route("/api/history/<int:call_id>", methods=["GET"])
+def get_history_call(call_id):
+    """One call with its argv, system prompt, prompt, reply and thinking."""
+    call = prompt_history.get_call(call_id)
+    if call is None:
+        return jsonify({"error": "not found"}), 404
+    return jsonify(call)
+
+
+@app.route("/api/history/clear", methods=["POST"])
+def clear_history():
+    deleted = prompt_history.clear()
+    log(f"Prompt history cleared ({deleted} calls)", "INFO")
+    return jsonify({"status": "ok", "deleted": deleted})
+
+
+@app.route("/api/usage", methods=["GET"])
+def get_usage():
+    """The account's usage windows (refresh=1 reads them now), plus the
+    bridge's own token totals for the current 5-hour and weekly windows."""
+    status = prompt_history.usage_status(refresh=request.args.get("refresh") == "1")
+    snap = status.get("snapshot") or {}
+    now = time.time()
+    totals = {}
+    for key, span in (("five_hour", 5 * 3600), ("seven_day", 7 * 86400)):
+        resets = snap.get(key + "_resets")
+        # The window started `span` before it resets; with no current reset
+        # time, count the last `span` seconds.
+        start = resets - span if resets and now < resets <= now + span else now - span
+        totals[key] = prompt_history.totals(start)
+    status["totals"] = totals
+    status["now"] = now
+    return jsonify(status)
 
 
 @app.route("/api/settings", methods=["POST"])
@@ -5357,16 +5472,21 @@ def generate_summary_from_file():
                     chunk_text=msg_text,
                 )
 
-                process = subprocess.Popen(
-                    [CLAUDE_EXE, "-p", "--output-format", "stream-json", "--verbose", "--model", model],
-                    stdin=subprocess.PIPE,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                    text=True,
-                    encoding="utf-8",
-                )
+                cmd = [CLAUDE_EXE, "-p", "--output-format", "stream-json", "--verbose", "--model", model]
+                with prompt_history.start_call(
+                    "summary", f"Summary from chat file, chunk {i}/{len(chunks)}", argv=cmd, prompt=prompt,
+                ) as hist:
+                    process = subprocess.Popen(
+                        cmd,
+                        stdin=subprocess.PIPE,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                        text=True,
+                        encoding="utf-8",
+                    )
 
-                stdout, _ = process.communicate(input=prompt, timeout=300)
+                    stdout, _ = process.communicate(input=prompt, timeout=300)
+                    hist.observe_stdout(stdout, process.returncode)
 
                 summary = ""
                 for line in stdout.strip().split('\n'):
@@ -5398,16 +5518,21 @@ def generate_summary_from_file():
                     log("Condensing combined summary...", "INFO")
                     condense_prompt = load_prompt("condense_chronological", combined=combined)
 
-                    process = subprocess.Popen(
-                        [CLAUDE_EXE, "-p", "--output-format", "stream-json", "--verbose", "--model", model],
-                        stdin=subprocess.PIPE,
-                        stdout=subprocess.PIPE,
-                        stderr=subprocess.PIPE,
-                        text=True,
-                        encoding="utf-8",
-                    )
+                    cmd = [CLAUDE_EXE, "-p", "--output-format", "stream-json", "--verbose", "--model", model]
+                    with prompt_history.start_call(
+                        "summary", "Summary from chat file, condense", argv=cmd, prompt=condense_prompt,
+                    ) as hist:
+                        process = subprocess.Popen(
+                            cmd,
+                            stdin=subprocess.PIPE,
+                            stdout=subprocess.PIPE,
+                            stderr=subprocess.PIPE,
+                            text=True,
+                            encoding="utf-8",
+                        )
 
-                    stdout, _ = process.communicate(input=condense_prompt, timeout=300)
+                        stdout, _ = process.communicate(input=condense_prompt, timeout=300)
+                        hist.observe_stdout(stdout, process.returncode)
 
                     for line in stdout.strip().split('\n'):
                         if not line:
@@ -5589,7 +5714,8 @@ CONVERSATION:
     full_prompt = summary_prompt + conv_text
     log(f"    Chunk {chunk_num} prompt: {len(full_prompt)} chars")
 
-    result = call_claude_code([{"role": "user", "content": full_prompt}], skip_memory=True)
+    result = call_claude_code([{"role": "user", "content": full_prompt}], skip_memory=True,
+                              history_kind="summary", history_label=f"Chunked process, summary {chunk_num}/{total_chunks}")
     response = result.get("response", "")
 
     if not response:
@@ -5631,7 +5757,8 @@ CONVERSATION:
 
     full_prompt = character_prompt + conv_text
 
-    result = call_claude_code([{"role": "user", "content": full_prompt}], skip_memory=True)
+    result = call_claude_code([{"role": "user", "content": full_prompt}], skip_memory=True,
+                              history_label=f"Chunked process, character {chunk_num}/{total_chunks}")
     return result.get("response", "")
 
 
@@ -5724,7 +5851,8 @@ PARTIAL ANALYSES:
 """ + "\n\n---\n\n".join(f"[Part {i+1}]\n{r}" for i, r in enumerate(chunk_results))
 
         # Final combination call
-        final_result = call_claude_code([{"role": "user", "content": combine_prompt}], skip_memory=True)
+        final_result = call_claude_code([{"role": "user", "content": combine_prompt}], skip_memory=True,
+                                         history_label="Chunked process, combine")
 
         log("  Done!")
         log("=" * 50)

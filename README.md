@@ -15,8 +15,9 @@ This fork of [MissSinful/claude-code-sillytavern-bridge](https://github.com/Miss
 - **Thinking goes to SillyTavern's reasoning block.** No prompt asks Claude to write `<think>` reasoning into the reply. With Include Thinking on, the bridge requests the CLI's summarized thinking (`--thinking-display summarized`) and returns it as `reasoning_content`, which SillyTavern shows when "Request model reasoning" is on. Effort controls how much Claude thinks.
 - **Character Memory keeps its must-keep rows itself.** Among a turn's candidate memories, desires with intensity 4 or higher, secrets, and relationships with characters in the scene are injected first, without going through Sonnet's ranking; upstream asked Sonnet to keep them. Sonnet ranks only the other candidates for the remaining slots, and its answer is checked against a JSON schema (`--json-schema`).
 - **Restyled dashboard with a prompt preview.** The dashboard uses a plain sans-serif layout instead of the serif/italic editorial styling. The Prompts tab previews what a roleplay turn sends to the CLI, for a new session and for a resumed turn: the bridge's own text placed around SillyTavern's prompt order, which `GET /api/prompt_preview` reads from SillyTavern's `settings.json` (found next to the bridge's folder, or via the Lorebook tab's worlds path). Card, lore and chat-history entries show as placeholders.
+- **History and Usage tabs.** Every `claude -p` call the bridge makes (roleplay turns, Character Memory, lorebook, image and summary calls) is recorded in `prompt_history.db` with its argv, system prompt, stdin text, reply, thinking summary, and the token counts from the CLI's `result` event. The History tab lists them. For each roleplay turn the bridge also reads the account's 5-hour and weekly usage just before the turn and a few seconds after it, and shows the change. It reads them from the endpoint behind Claude Code's `/usage` (`GET https://api.anthropic.com/api/oauth/usage`) with the CLI's own login token from `~/.claude/.credentials.json`; the bridge never refreshes that token itself, and the reads use no quota. The endpoint reports whole percents and counts everything that used the account meanwhile, so per-turn figures are approximate. The Usage tab shows the current limits and the bridge's token totals for the current windows. Text is kept for the last 500 calls and token counts for 30 days.
 
-With no environment variables set, the only network or auth change is the default listen address.
+With no environment variables set, the network and auth changes are the default listen address and the usage reads above.
 
 ---
 
@@ -238,6 +239,7 @@ If any of these become dealbreakers for you, the right move is an alternative ba
 claude-code-sillytavern-bridge/
 ├── claude_bridge.py           # Main Flask server and subprocess wrapper
 ├── memory_v2.py               # Character Memory: SQLite + embeddings + Sonnet librarian
+├── prompt_history.py          # History and Usage tabs: recorded calls + plan usage reads
 ├── requirements.txt           # Core Python dependencies
 ├── requirements-memory.txt    # Optional: Character Memory embeddings
 ├── run_bridge.bat             # Windows launcher
@@ -257,6 +259,7 @@ claude-code-sillytavern-bridge/
 ├── temp_images/               # SillyTavern base64 image dumps (gitignored)
 ├── bridge_settings.json       # Persisted runtime settings (gitignored)
 ├── bridge_sessions.json       # Captured CLI session IDs for --resume (gitignored)
+├── prompt_history.db          # Recorded calls for the History tab (gitignored)
 └── CLAUDE.md                  # Project notes for Claude Code itself
 ```
 

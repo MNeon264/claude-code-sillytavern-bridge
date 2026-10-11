@@ -1057,6 +1057,195 @@
 
         .pv-empty { padding: 24px 16px; font-size: 13px; color: var(--paper-faint); }
 
+        /* Raw text blocks on the History tab: neutral, with a copy button */
+        .pv-block.plain { --kind: var(--rule-strong); }
+        .pv-head .hist-copy { margin-left: 4px; }
+
+        /* ========== HISTORY ========== */
+        .hist-toolbar {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: wrap;
+            margin-bottom: 12px;
+        }
+
+        .hist-toolbar input { flex: 1 1 200px; min-width: 0; }
+        .hist-toolbar .hist-count { font-size: 12px; color: var(--paper-faint); margin-left: auto; }
+
+        .hist-item {
+            background: var(--ink-raised);
+            border: 1px solid var(--rule);
+            border-left: 3px solid var(--rule-strong);
+            border-radius: var(--radius-sm);
+            margin-bottom: 6px;
+            min-width: 0;
+        }
+
+        /* Roleplay turns are the point; other calls stay neutral */
+        .hist-item.chat { border-left-color: var(--accent); }
+        .hist-item.cancelled { border-left-color: var(--warn); }
+        .hist-item.error { border-left-color: var(--error); }
+
+        .hist-head {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) auto;
+            gap: 5px 16px;
+            padding: 9px 12px;
+            cursor: pointer;
+        }
+
+        .hist-head:hover { background: rgba(255, 255, 255, 0.02); }
+
+        .hist-line {
+            display: flex;
+            align-items: center;
+            gap: 4px 8px;
+            flex-wrap: wrap;
+            min-width: 0;
+            font-size: 12.5px;
+            color: var(--paper-faint);
+        }
+
+        .hist-time { font-family: var(--font-mono); font-size: 11.5px; color: var(--paper-faint); }
+
+        .hist-title {
+            font-weight: 600;
+            color: var(--paper);
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            max-width: 36ch;
+        }
+
+        .hist-right {
+            justify-self: end;
+            text-align: right;
+            font-family: var(--font-mono);
+            font-size: 11.5px;
+            color: var(--paper-faint);
+            white-space: nowrap;
+            font-variant-numeric: tabular-nums;
+        }
+
+        .hist-metrics {
+            font-family: var(--font-mono);
+            font-size: 11.5px;
+            font-variant-numeric: tabular-nums;
+        }
+
+        .hist-metrics b,
+        .hist-right b { font-weight: 500; color: var(--paper); }
+
+        .pv-pill.bad { border-color: rgba(224, 100, 92, 0.45); color: var(--error); }
+
+        .hist-body {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            padding: 12px;
+            border-top: 1px solid var(--rule-faint);
+        }
+
+        .hist-item:not(.open) .hist-body { display: none; }
+
+        .hist-facts {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+            gap: 10px 18px;
+            margin: 0;
+        }
+
+        .hist-facts div { min-width: 0; }
+        .hist-facts dt { font-size: 11.5px; color: var(--paper-faint); margin-bottom: 2px; }
+        .hist-facts dd { margin: 0; font-size: 12.5px; color: var(--paper-dim); overflow-wrap: anywhere; }
+        .hist-facts dd.mono { font-family: var(--font-mono); font-size: 12px; }
+
+        .hist-tables { display: flex; gap: 12px; flex-wrap: wrap; align-items: flex-start; }
+        .hist-tables .table-wrap { flex: 1 1 260px; }
+        .data-table td.num, .data-table th.num { text-align: right; }
+
+        .hist-error {
+            padding: 8px 12px;
+            border: 1px solid rgba(224, 100, 92, 0.35);
+            border-radius: var(--radius-sm);
+            background: rgba(224, 100, 92, 0.06);
+            color: #eba39d;
+            font-family: var(--font-mono);
+            font-size: 12px;
+            white-space: pre-wrap;
+            overflow-wrap: anywhere;
+        }
+
+        .hist-more { display: flex; justify-content: center; margin-top: 10px; }
+        .hist-empty { padding: 28px 16px; text-align: center; font-size: 13px; color: var(--paper-faint); }
+
+        /* ========== USAGE ========== */
+        .usage-meta {
+            display: flex;
+            align-items: center;
+            gap: 8px 12px;
+            flex-wrap: wrap;
+            margin-bottom: 14px;
+            font-size: 12.5px;
+            color: var(--paper-faint);
+        }
+
+        .usage-meta .btn { margin-left: auto; }
+
+        .meter-list { display: flex; flex-direction: column; gap: 18px; }
+
+        .meter-head {
+            display: flex;
+            align-items: baseline;
+            justify-content: space-between;
+            gap: 4px 12px;
+            flex-wrap: wrap;
+            margin-bottom: 7px;
+        }
+
+        .meter-label { display: flex; align-items: center; gap: 8px; font-size: 13.5px; font-weight: 600; color: var(--paper); }
+        .meter-value { font-size: 13.5px; color: var(--paper-dim); }
+        .meter-value b { font-size: 15px; font-weight: 600; color: var(--paper); }
+
+        /* The fill carries severity; the track is the same hue, faint */
+        .meter {
+            --meter: var(--accent);
+            height: 8px;
+            border-radius: 999px;
+            background: color-mix(in srgb, var(--meter) 16%, transparent);
+            overflow: hidden;
+        }
+
+        .meter > span { display: block; height: 100%; border-radius: 999px; background: var(--meter); min-width: 2px; }
+        .meter.warning { --meter: var(--warn); }
+        .meter.critical { --meter: var(--error); }
+
+        .meter-sub { margin-top: 6px; font-size: 12px; color: var(--paper-faint); }
+
+        .usage-split { display: flex; flex-direction: column; gap: 6px; margin-top: 4px; font-size: 12.5px; color: var(--paper-dim); }
+        .usage-split-row { display: flex; justify-content: space-between; gap: 12px; }
+        .usage-split-row span:last-child { font-variant-numeric: tabular-nums; color: var(--paper); }
+
+        .kpi-row {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 10px;
+            margin-bottom: 14px;
+        }
+
+        .kpi {
+            background: var(--ink-raised);
+            border: 1px solid var(--rule);
+            border-radius: var(--radius);
+            padding: 12px 14px;
+            min-width: 0;
+        }
+
+        .kpi-label { font-size: 12px; color: var(--paper-faint); }
+        .kpi-value { margin-top: 2px; font-size: 22px; font-weight: 600; letter-spacing: -0.01em; color: var(--paper); }
+        .kpi-sub { margin-top: 2px; font-size: 11.5px; color: var(--paper-faint); }
+
         /* ========== RESPONSIVE ========== */
         @media (max-width: 720px) {
             .container { padding: 0 16px 56px; }
@@ -1069,6 +1258,9 @@
             .form-grid { grid-template-columns: 1fr; gap: 6px; }
             .pv-section { padding: 14px 12px; }
             .pv-children { padding-left: 10px; }
+            .hist-head { grid-template-columns: minmax(0, 1fr); }
+            .hist-right { justify-self: start; text-align: left; white-space: normal; }
+            .hist-title { max-width: 100%; }
         }
     </style>
 </head>
@@ -1102,6 +1294,8 @@
             <button class="tab active" onclick="showTab('welcome')">Welcome</button>
             <button class="tab" onclick="showTab('settings')">Settings</button>
             <button class="tab" onclick="showTab('system')">Prompts</button>
+            <button class="tab" onclick="showTab('history')">History</button>
+            <button class="tab" onclick="showTab('usage')">Usage</button>
             <button class="tab" onclick="showTab('tools')">Tools</button>
             <button class="tab" onclick="showTab('lorebook')">Lorebook</button>
             <button class="tab" onclick="showTab('memory')">Memory</button>
@@ -1142,6 +1336,12 @@
 
                 <dt>Prompts</dt>
                 <dd>Optional style notes added to every roleplay's system prompt, and a preview of how the bridge assembles a turn from your SillyTavern prompt: where its own text goes, and where SillyTavern's prompts end up.</dd>
+
+                <dt>History</dt>
+                <dd>Every call the bridge made to the Claude CLI (roleplay turns, memory, lorebook, image and summary calls) with the exact command, system prompt and input text it passed, the reply, the tokens it used, and how much of your 5-hour and weekly limits each roleplay turn took.</dd>
+
+                <dt>Usage</dt>
+                <dd>Your plan's current usage limits (the same numbers as Claude Code's <code>/usage</code>) and the tokens the bridge used in the current 5-hour and weekly windows.</dd>
 
                 <dt>Tools</dt>
                 <dd><strong>Auto-Summary</strong> (the important one): maintains a running narrative digest per character. Cuts per-request usage massively on long RPs — instead of re-sending 200 raw messages every turn, you send <em>summary + last 15</em>. One summarization call pays back over dozens of subsequent turns, and prompt caching makes the stable parts near-free. <strong>Chunking</strong>: one-shot manual reset that rebuilds a character's summary from scratch. <strong>Summary Cache</strong>: inspector for every stored summary, one row per character, with per-entry delete.</dd>
@@ -1430,6 +1630,72 @@
             </p>
             <div id="promptPreview" class="pv">
                 <div class="pv-empty">Loading…</div>
+            </div>
+        </div>
+
+        <!-- History Panel: every claude call with its raw input, output and usage -->
+        <div id="history" class="panel">
+            <h3>History</h3>
+            <p>
+                Every call the bridge makes to the Claude CLI, newest first. Open one to see the exact command, system prompt and input text it passed, and the reply. Roleplay turns also show how much of your 5-hour and weekly limits they took: the change in your account's usage from just before the turn to a few seconds after it. The usage endpoint reports whole percents, so a turn that used less shows "&lt;1%", and anything else using your account at the same time (other Claude apps, background memory or lorebook calls) is counted too.
+            </p>
+
+            <div class="hist-toolbar">
+                <select id="histKind" aria-label="Kind of call">
+                    <option value="">All calls</option>
+                    <option value="chat">Roleplay turns</option>
+                    <option value="memory">Character Memory</option>
+                    <option value="lorebook">Lorebook</option>
+                    <option value="image">Images</option>
+                    <option value="summary">Summaries</option>
+                    <option value="utility">Other</option>
+                </select>
+                <input type="text" id="histSearch" placeholder="Search names, prompts and replies…" aria-label="Search">
+                <button class="btn btn-secondary btn-sm" id="histRefreshBtn">Refresh</button>
+                <button class="btn btn-danger btn-sm" id="histClearBtn">Clear history</button>
+            </div>
+            <div id="histList"><div class="hist-empty">Loading…</div></div>
+            <div class="hist-more" id="histMore" style="display:none;">
+                <button class="btn btn-secondary btn-sm" id="histMoreBtn">Load older</button>
+            </div>
+        </div>
+
+        <!-- Usage Panel: plan limits + the bridge's own token totals -->
+        <div id="usage" class="panel">
+            <h3>Usage</h3>
+            <p>
+                Your Claude plan's usage limits, read with Claude Code's login from the same endpoint as its <code>/usage</code> command. Reading them uses none of your limits.
+            </p>
+
+            <div class="usage-meta">
+                <span id="usagePlan"></span>
+                <span id="usageUpdated"></span>
+                <button class="btn btn-secondary btn-sm" id="usageRefreshBtn">Refresh</button>
+            </div>
+            <div id="usageNotice" class="notice warn" style="display:none;margin-bottom:14px;"></div>
+
+            <div class="setting-card">
+                <div id="usageMeters" class="meter-list"><div class="pv-empty" style="padding:0;">Loading…</div></div>
+            </div>
+
+            <div class="setting-card" id="usageBreakdownCard" style="display:none;">
+                <h3>This week by product</h3>
+                <p>Where your weekly usage went, as reported by your account.</p>
+                <div id="usageBreakdown" class="usage-split"></div>
+            </div>
+
+            <h3>Bridge usage</h3>
+            <p>
+                Tokens used by the bridge's own calls in the current window, as the CLI reported them. Cost is the CLI's estimate at API prices; on a subscription it shows relative weight, not a bill.
+            </p>
+            <div class="toggle-group" id="usageSpan" style="max-width:340px;margin-bottom:14px;">
+                <button class="toggle-btn active" data-span="five_hour">5-hour window</button>
+                <button class="toggle-btn" data-span="seven_day">Weekly window</button>
+            </div>
+            <div id="usageKpis" class="kpi-row"></div>
+            <div class="hist-tables">
+                <div class="table-wrap"><table class="data-table" id="usageByKind"></table></div>
+                <div class="table-wrap"><table class="data-table" id="usageByModel"></table></div>
             </div>
         </div>
 
@@ -1966,6 +2232,10 @@ Common subject fields: subject, character, npc, entity, name.'></textarea>
                 refreshLorebook();
             } else if (tabName === 'memory') {
                 memLoadCharList();
+            } else if (tabName === 'history') {
+                histLoad();
+            } else if (tabName === 'usage') {
+                usageLoad(true);
             }
         }
 
@@ -4291,6 +4561,488 @@ Common subject fields: subject, character, npc, entity, name.'></textarea>
                 btn.disabled = false;
             }
         }
+
+        // ===== History and Usage tabs =====
+        // Shared formatting. hEsc also escapes quotes, for attribute values.
+        function hEsc(s) {
+            return String(s ?? '')
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;');
+        }
+
+        function fmtTok(n) {
+            n = n || 0;
+            if (n >= 1e6) return (n / 1e6).toFixed(n >= 1e7 ? 0 : 1) + 'M';
+            if (n >= 1e4) return (n / 1e3).toFixed(n >= 1e5 ? 0 : 1) + 'K';
+            return n.toLocaleString();
+        }
+
+        function fmtPct(v) {
+            return v == null ? '—' : (Math.round(v * 10) / 10).toLocaleString() + '%';
+        }
+
+        function fmtCost(v) {
+            return v ? '$' + (v < 0.1 ? v.toFixed(4) : v.toFixed(2)) : '$0';
+        }
+
+        function fmtDuration(s) {
+            if (s == null) return '';
+            if (s < 60) return s.toFixed(1) + 's';
+            const m = Math.floor(s / 60);
+            return `${m}m ${Math.round(s - m * 60)}s`;
+        }
+
+        // Time of day today, or date and time for other days.
+        function fmtWhen(ts, seconds = true) {
+            const d = new Date(ts * 1000);
+            const time = d.toLocaleTimeString([], {hour: '2-digit', minute: '2-digit', ...(seconds ? {second: '2-digit'} : {})});
+            if (d.toDateString() === new Date().toDateString()) return time;
+            return d.toLocaleDateString([], {weekday: 'short', month: 'short', day: 'numeric'}) + ' ' + time;
+        }
+
+        function fmtAgo(ts) {
+            const s = Math.max(0, Date.now() / 1000 - ts);
+            if (s < 45) return 'just now';
+            if (s < 3600) return Math.round(s / 60) + ' min ago';
+            if (s < 86400) return Math.round(s / 3600) + ' h ago';
+            return Math.round(s / 86400) + ' d ago';
+        }
+
+        function fmtIn(ts) {
+            let s = Math.max(0, ts - Date.now() / 1000);
+            const d = Math.floor(s / 86400); s -= d * 86400;
+            const h = Math.floor(s / 3600); s -= h * 3600;
+            const m = Math.floor(s / 60);
+            if (d) return `${d}d ${h}h`;
+            if (h) return `${h}h ${m}m`;
+            return `${m}m`;
+        }
+
+        // ----- History -----
+        // histItems: call id -> {summary, detail, el}. Polling re-reads the
+        // newest page and updates rows in place (a turn's usage reading
+        // arrives a few seconds after it ends); "Load older" appends pages.
+        const HIST_KINDS = {chat: 'Roleplay', memory: 'Memory', lorebook: 'Lorebook', image: 'Image', summary: 'Summary', utility: 'Other'};
+        const histItems = new Map();
+        let histOldestId = null;
+        let histHasMore = false;
+        let histFilterKey = null;
+        let histLoading = false;
+
+        function histDeltaText(w) {
+            if (!w) return null;
+            if (w.reset) return 'reset';
+            if (w.delta == null) return null;
+            // Readings are whole percents, so no change means under 1%.
+            return w.delta <= 0 ? '<1%' : '+' + fmtPct(w.delta);
+        }
+
+        function histHeadHtml(c) {
+            const kind = HIST_KINDS[c.kind] || c.kind;
+            const title = c.label || (c.kind === 'chat' ? 'Roleplay turn' : kind);
+            const sub = [c.model, c.effort];
+            if (c.resumed === 1) sub.push('resumed session');
+            if (c.resumed === 0) sub.push('new session');
+            const pills = [`<span class="pv-pill">${hEsc(kind)}</span>`];
+            if (c.status === 'error') pills.push('<span class="pv-pill bad">✕ Error</span>');
+            if (c.status === 'cancelled') pills.push('<span class="pv-pill when">■ Cancelled</span>');
+            if (c.rate_limit_status === 'allowed_warning') pills.push('<span class="pv-pill when">⚠ Near limit</span>');
+            if (c.rate_limit_status === 'rejected') pills.push('<span class="pv-pill bad">✕ Limit reached</span>');
+
+            const metrics = c.tokens_total
+                ? `in <b>${fmtTok(c.input_tokens)}</b> · cache read <b>${fmtTok(c.cache_read_tokens)}</b> · cache write <b>${fmtTok(c.cache_creation_tokens)}</b> · out <b>${fmtTok(c.output_tokens)}</b> · total <b>${fmtTok(c.tokens_total)}</b>${c.cost_usd ? ' · ' + fmtCost(c.cost_usd) : ''}`
+                : 'no token report from the CLI';
+
+            const u = c.usage || {};
+            const five = histDeltaText(u.five_hour), week = histDeltaText(u.seven_day);
+            let usage = '';
+            if (five || week) usage = `5h <b>${five ?? '—'}</b> · week <b>${week ?? '—'}</b>`;
+            else if (u.pending) usage = 'reading usage…';
+
+            return `
+                <div class="hist-line">
+                    <span class="hist-time">${fmtWhen(c.started)}</span>
+                    ${pills.join('')}
+                    <span class="hist-title">${hEsc(title)}</span>
+                    <span>${hEsc(sub.filter(Boolean).join(' · '))}</span>
+                </div>
+                <div class="hist-right">${fmtDuration(c.duration)}</div>
+                <div class="hist-line hist-metrics">${metrics}</div>
+                <div class="hist-right">${usage}</div>`;
+        }
+
+        function histRenderHead(item) {
+            const c = item.summary;
+            const open = item.el.classList.contains('open');
+            item.el.className = ['hist-item', c.kind === 'chat' ? 'chat' : '', c.status === 'ok' ? '' : c.status, open ? 'open' : '']
+                .filter(Boolean).join(' ');
+            item.el.querySelector('.hist-head').innerHTML = histHeadHtml(c);
+        }
+
+        function shellQuote(a) {
+            return /^[\w@%+=:,./-]+$/.test(a) ? a : "'" + a.replace(/'/g, `'\\''`) + "'";
+        }
+
+        function histText(d, field) {
+            return field === 'command' ? (d.argv || []).map(shellQuote).join(' ') : d[field];
+        }
+
+        function histTextBlock(d, field, name, meta = '') {
+            const text = histText(d, field);
+            if (text == null || text === '') return '';
+            const clamp = text.length > 360 || text.split('\n').length > 5;
+            return `<div class="pv-block plain${clamp ? ' clampable' : ''}">
+                <div class="pv-head">
+                    ${clamp ? '<span class="pv-caret">▶</span>' : ''}
+                    <span class="pv-name">${hEsc(name)}</span>
+                    <span class="pv-meta">${hEsc(meta || text.length.toLocaleString() + ' chars')}</span>
+                    <button class="toggle-btn sm hist-copy" data-field="${field}">Copy</button>
+                </div>
+                <pre class="pv-body">${hEsc(text)}</pre>
+            </div>`;
+        }
+
+        function histBodyHtml(d) {
+            const facts = [
+                ['Call', '#' + d.id],
+                ['Started', new Date(d.started * 1000).toLocaleString()],
+                ['Duration', fmtDuration(d.duration)],
+                ['Model', d.model],
+                ['Effort', d.effort],
+                ['Stop reason', d.stop_reason],
+                ['CLI session', d.session_id, true],
+                ['Session', d.note],
+                ['Character key', d.char_key, true],
+            ];
+            const extra = d.usage_details || {};
+            if (extra.num_turns != null) facts.push(['API requests', extra.num_turns]);
+            if (extra.duration_api_ms != null) facts.push(['Time in API', fmtDuration(extra.duration_api_ms / 1000)]);
+            const factsHtml = facts.filter(f => f[1] != null && f[1] !== '')
+                .map(([k, v, mono]) => `<div><dt>${hEsc(k)}</dt><dd${mono ? ' class="mono"' : ''}>${hEsc(v)}</dd></div>`).join('');
+
+            const row = (label, value) => `<tr><td>${label}</td><td class="num">${value}</td></tr>`;
+            const tokens = d.tokens_total ? `<div class="table-wrap"><table class="data-table">
+                <thead><tr><th>Tokens</th><th class="num">Count</th></tr></thead>
+                <tbody>
+                    ${row('Input (not cached)', (d.input_tokens || 0).toLocaleString())}
+                    ${row('Cache read', (d.cache_read_tokens || 0).toLocaleString())}
+                    ${row('Cache write', (d.cache_creation_tokens || 0).toLocaleString())}
+                    ${row('Output (incl. thinking)', (d.output_tokens || 0).toLocaleString())}
+                    ${row('<strong>Total</strong>', '<strong>' + d.tokens_total.toLocaleString() + '</strong>')}
+                    ${d.cost_usd ? row('Cost at API prices', fmtCost(d.cost_usd)) : ''}
+                </tbody></table></div>` : '';
+
+            let usage = '';
+            const b = d.usage_before, a = d.usage_after;
+            if (b || a) {
+                const urow = (label, w, key) => {
+                    const before = b && b[key] != null ? fmtPct(b[key]) : '—';
+                    const after = a && a[key] != null ? fmtPct(a[key]) : '—';
+                    return `<tr><td>${label}</td><td class="num">${before}</td><td class="num">${after}</td><td class="num">${histDeltaText(w) ?? '—'}</td></tr>`;
+                };
+                const times = [b && 'before at ' + fmtWhen(b.at), a && 'after at ' + fmtWhen(a.at)].filter(Boolean).join(', ');
+                usage = `<div class="table-wrap"><table class="data-table">
+                    <thead><tr><th>Plan limit</th><th class="num">Before</th><th class="num">After</th><th class="num">This turn</th></tr></thead>
+                    <tbody>
+                        ${urow('5-hour session', d.usage.five_hour, 'five_hour')}
+                        ${urow('Weekly', d.usage.seven_day, 'seven_day')}
+                        <tr><td colspan="4" class="muted">Read ${times}${d.usage.pending ? '; waiting for the after reading' : ''}</td></tr>
+                    </tbody></table></div>`;
+            }
+            if (d.rate_limit) {
+                const rl = d.rate_limit;
+                const wins = Object.entries(rl.unifiedWindows || {})
+                    .map(([k, w]) => `${k.replace(/_/g, ' ')} ${fmtPct((w.utilization || 0) * 100)}`).join(', ');
+                usage += `<div class="notice">CLI rate-limit status: <strong>${hEsc(rl.status || 'unknown')}</strong>${wins ? ' · ' + hEsc(wins) : ''}</div>`;
+            }
+
+            const sameSp = d.system_prompt_first_id && d.system_prompt_first_id !== d.id
+                ? ` · same as call #${d.system_prompt_first_id}` : '';
+            const texts = d.has_text
+                ? [
+                    histTextBlock(d, 'command', 'Command'),
+                    histTextBlock(d, 'system_prompt', 'System prompt', d.system_prompt ? d.system_prompt.length.toLocaleString() + ' chars' + sameSp : ''),
+                    histTextBlock(d, 'prompt', 'Input (stdin)'),
+                    histTextBlock(d, 'thinking', 'Thinking (summary)'),
+                    histTextBlock(d, 'response', 'Reply'),
+                  ].join('')
+                : '<div class="notice">The text of this call is no longer kept; only the most recent 500 calls keep theirs.</div>';
+
+            return `
+                <dl class="hist-facts">${factsHtml}</dl>
+                ${d.error ? `<div class="hist-error">${hEsc(d.error)}</div>` : ''}
+                ${tokens || usage ? `<div class="hist-tables">${tokens}${usage ? `<div style="flex:1 1 300px;display:flex;flex-direction:column;gap:8px;min-width:0;">${usage}</div>` : ''}</div>` : ''}
+                <div class="pv-list">${texts}</div>`;
+        }
+
+        async function histLoadDetail(item) {
+            const body = item.el.querySelector('.hist-body');
+            if (!item.detail) {
+                body.innerHTML = '<div class="pv-empty" style="padding:0;">Loading…</div>';
+                try {
+                    const resp = await fetch('/api/history/' + item.summary.id);
+                    if (!resp.ok) throw new Error(resp.status === 404 ? 'This call is no longer in the history.' : 'HTTP ' + resp.status);
+                    item.detail = await resp.json();
+                } catch (e) {
+                    body.innerHTML = `<div class="pv-empty" style="padding:0;">${hEsc(e.message)}</div>`;
+                    return;
+                }
+            }
+            body.innerHTML = histBodyHtml(item.detail);
+        }
+
+        function histMerge(calls) {
+            const list = document.getElementById('histList');
+            list.querySelectorAll('.hist-empty').forEach(el => el.remove());
+            for (const c of calls) {
+                let item = histItems.get(c.id);
+                if (item) {
+                    if (JSON.stringify(item.summary) !== JSON.stringify(c)) {
+                        item.summary = c;
+                        histRenderHead(item);
+                        item.detail = null;
+                        if (item.el.classList.contains('open')) histLoadDetail(item);
+                    }
+                    continue;
+                }
+                item = {summary: c, detail: null, el: document.createElement('div')};
+                item.el.dataset.id = c.id;
+                item.el.innerHTML = '<div class="hist-head"></div><div class="hist-body"></div>';
+                histItems.set(c.id, item);
+                histRenderHead(item);
+                // Keep newest first.
+                const next = [...list.children].find(el => Number(el.dataset.id) < c.id) || null;
+                list.insertBefore(item.el, next);
+                if (histOldestId == null || c.id < histOldestId) histOldestId = c.id;
+            }
+            if (!histItems.size) {
+                const filtered = document.getElementById('histKind').value || document.getElementById('histSearch').value.trim();
+                list.innerHTML = `<div class="hist-empty">${filtered ? 'No calls match.' : 'No calls recorded yet. They appear here as SillyTavern sends messages.'}</div>`;
+            }
+            document.getElementById('histMore').style.display = histHasMore ? '' : 'none';
+        }
+
+        // Reads the newest page (or, with older=true, the page before the
+        // oldest row shown). A changed filter or search starts over.
+        async function histLoad({older = false} = {}) {
+            if (histLoading) return;
+            const params = new URLSearchParams({limit: '50'});
+            const kind = document.getElementById('histKind').value;
+            const q = document.getElementById('histSearch').value.trim();
+            if (kind) params.set('kind', kind);
+            if (q) params.set('q', q);
+            const key = params.toString();
+            const reset = key !== histFilterKey;
+            if (older && !reset && histOldestId != null) params.set('before_id', histOldestId);
+            // A plain refresh only needs the newest rows.
+            if (!reset && !older) params.set('limit', '20');
+            histLoading = true;
+            try {
+                const resp = await fetch('/api/history?' + params);
+                const data = await resp.json();
+                if (reset) {
+                    histItems.clear();
+                    histOldestId = null;
+                    histFilterKey = key;
+                    document.getElementById('histList').innerHTML = '';
+                }
+                // Whether rows older than the oldest shown exist; a refresh
+                // of the newest rows doesn't change that.
+                if (reset || older) histHasMore = data.has_more;
+                histMerge(data.calls || []);
+            } catch (e) {
+                if (!histItems.size) {
+                    document.getElementById('histList').innerHTML = `<div class="hist-empty">Couldn't load the history: ${hEsc(e.message)}</div>`;
+                }
+            } finally {
+                histLoading = false;
+            }
+        }
+
+        document.getElementById('histList').addEventListener('click', async e => {
+            const copy = e.target.closest('.hist-copy');
+            if (copy) {
+                const item = histItems.get(Number(copy.closest('.hist-item').dataset.id));
+                try {
+                    await navigator.clipboard.writeText(histText(item.detail, copy.dataset.field));
+                    copy.textContent = 'Copied';
+                } catch (err) {
+                    copy.textContent = 'Copy failed';
+                }
+                setTimeout(() => { copy.textContent = 'Copy'; }, 1500);
+                return;
+            }
+            const blockHead = e.target.closest('.pv-block.clampable > .pv-head');
+            if (blockHead) {
+                blockHead.parentElement.classList.toggle('open');
+                return;
+            }
+            const head = e.target.closest('.hist-head');
+            if (head) {
+                const item = histItems.get(Number(head.parentElement.dataset.id));
+                const open = item.el.classList.toggle('open');
+                if (open) histLoadDetail(item);
+            }
+        });
+
+        let histSearchTimer = null;
+        document.getElementById('histSearch').addEventListener('input', () => {
+            clearTimeout(histSearchTimer);
+            histSearchTimer = setTimeout(() => histLoad(), 300);
+        });
+        document.getElementById('histKind').addEventListener('change', () => histLoad());
+        document.getElementById('histRefreshBtn').addEventListener('click', () => histLoad());
+        document.getElementById('histMoreBtn').addEventListener('click', () => histLoad({older: true}));
+        document.getElementById('histClearBtn').addEventListener('click', async () => {
+            if (!confirm('Delete every recorded call, with its text and token counts?')) return;
+            await fetch('/api/history/clear', {method: 'POST'});
+            histFilterKey = null;
+            histLoad();
+        });
+
+        // ----- Usage -----
+        let usageData = null;
+        let usageSpan = 'five_hour';
+        let usageLastLoad = 0;
+
+        // The endpoint's own severity, raised by how full the window is.
+        function usageSeverity(w) {
+            const s = String(w.severity || 'normal').toLowerCase();
+            if (w.percent >= 100 || ['critical', 'exceeded', 'blocked', 'rejected'].includes(s)) return 'critical';
+            if (w.percent >= 80 || !['normal', 'ok', 'low', 'none'].includes(s)) return 'warning';
+            return 'normal';
+        }
+
+        function usageResetText(ts) {
+            if (!ts) return 'No reset time reported';
+            const sameDay = new Date(ts * 1000).toDateString() === new Date().toDateString();
+            return `Resets in ${fmtIn(ts)} · ${sameDay ? 'at ' : ''}${fmtWhen(ts, false)}`;
+        }
+
+        function usageRender() {
+            const d = usageData;
+            if (!d) return;
+            const snap = d.snapshot;
+            let windows = (snap && snap.windows) || [];
+            let readAt = snap ? snap.at : null;
+            let fromCli = false;
+            if (!windows.length && d.cli && d.cli.windows && d.cli.windows.length) {
+                windows = d.cli.windows;
+                readAt = d.cli.at;
+                fromCli = true;
+            }
+
+            const plan = d.plan ? d.plan.charAt(0).toUpperCase() + d.plan.slice(1) : '';
+            document.getElementById('usagePlan').innerHTML = plan ? `Plan: <strong>${hEsc(plan)}</strong>` : '';
+            document.getElementById('usageUpdated').textContent = readAt
+                ? `Updated ${fmtAgo(readAt)}${fromCli ? ', from the last Claude call' : ''}`
+                : 'Not read yet';
+
+            const notice = document.getElementById('usageNotice');
+            notice.style.display = d.error ? '' : 'none';
+            notice.textContent = d.error ? (windows.length ? 'Showing the last reading. ' : '') + d.error : '';
+
+            document.getElementById('usageMeters').innerHTML = windows.length
+                ? windows.map(w => {
+                    const sev = usageSeverity(w);
+                    const pct = Math.max(0, Math.min(100, w.percent || 0));
+                    const status = sev === 'critical' ? '<span class="pv-pill bad">✕ At the limit</span>'
+                        : sev === 'warning' ? '<span class="pv-pill when">⚠ Getting close</span>' : '';
+                    return `<div>
+                        <div class="meter-head">
+                            <span class="meter-label">${hEsc(w.label)}${status}</span>
+                            <span class="meter-value"><b>${fmtPct(w.percent)}</b> used</span>
+                        </div>
+                        <div class="meter ${sev}" role="meter" aria-label="${hEsc(w.label)}" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${pct}"><span style="width:${pct}%"></span></div>
+                        <div class="meter-sub">${hEsc(usageResetText(w.resets_at))}</div>
+                    </div>`;
+                }).join('')
+                : '<div class="pv-empty" style="padding:0;">No usage reading yet.</div>';
+
+            const extra = snap && snap.extra_usage;
+            if (extra && extra.utilization != null) {
+                document.getElementById('usageMeters').insertAdjacentHTML('beforeend',
+                    `<div class="meter-sub">Extra usage is on: ${fmtPct(extra.utilization)} of its monthly limit used.</div>`);
+            }
+
+            const breakdown = (snap && snap.breakdown) || [];
+            document.getElementById('usageBreakdownCard').style.display = breakdown.length ? '' : 'none';
+            document.getElementById('usageBreakdown').innerHTML = breakdown
+                .slice().sort((x, y) => y.percent - x.percent)
+                .map(r => `<div class="usage-split-row"><span>${hEsc(r.name)}</span><span>${fmtPct(r.percent)}</span></div>`).join('');
+
+            usageRenderTotals();
+        }
+
+        function usageRenderTotals() {
+            const t = usageData && usageData.totals && usageData.totals[usageSpan];
+            if (!t) return;
+            const tot = t.total;
+            const tokens = tot.input_tokens + tot.output_tokens + tot.cache_read_tokens + tot.cache_creation_tokens;
+            const turns = t.usage_deltas.turns_measured;
+            const share = t.usage_deltas[usageSpan];
+            const name = usageSpan === 'five_hour' ? '5-hour' : 'weekly';
+            const kpi = (label, value, sub) =>
+                `<div class="kpi"><div class="kpi-label">${label}</div><div class="kpi-value">${value}</div><div class="kpi-sub">${sub}</div></div>`;
+            document.getElementById('usageKpis').innerHTML = [
+                kpi('Calls', tot.calls.toLocaleString(), 'since ' + hEsc(fmtWhen(t.since, false))),
+                kpi('Tokens', fmtTok(tokens), `${fmtTok(tot.cache_read_tokens)} of them cache reads`),
+                kpi('Output tokens', fmtTok(tot.output_tokens), 'replies and thinking'),
+                kpi('Cost at API prices', fmtCost(tot.cost_usd), 'the CLI\'s estimate'),
+                kpi(`Roleplay turns' share`, turns ? fmtPct(share) : '—',
+                    turns ? `of the ${name} limit, summed over ${turns} measured turn${turns === 1 ? '' : 's'}` : 'no measured turns yet'),
+            ].join('');
+
+            const tokCells = b => `<td class="num">${b.calls.toLocaleString()}</td>
+                <td class="num">${fmtTok(b.input_tokens)}</td><td class="num">${fmtTok(b.cache_read_tokens)}</td>
+                <td class="num">${fmtTok(b.cache_creation_tokens)}</td><td class="num">${fmtTok(b.output_tokens)}</td>
+                <td class="num">${fmtCost(b.cost_usd)}</td>`;
+            const head = first => `<thead><tr><th>${first}</th><th class="num">Calls</th><th class="num">Input</th>
+                <th class="num">Cache read</th><th class="num">Cache write</th><th class="num">Output</th><th class="num">Cost</th></tr></thead>`;
+            const kinds = Object.keys(HIST_KINDS).filter(k => t.by_kind[k])
+                .concat(Object.keys(t.by_kind).filter(k => !(k in HIST_KINDS)));
+            document.getElementById('usageByKind').innerHTML = head('Kind') + '<tbody>' + (kinds.length
+                ? kinds.map(k => `<tr><td>${hEsc(HIST_KINDS[k] || k)}</td>${tokCells(t.by_kind[k])}</tr>`).join('')
+                : '<tr><td colspan="7" class="muted">No calls in this window.</td></tr>') + '</tbody>';
+            const models = Object.entries(t.by_model).sort((x, y) => y[1].calls - x[1].calls);
+            document.getElementById('usageByModel').innerHTML = head('Model') + '<tbody>' + (models.length
+                ? models.map(([m, b]) => `<tr><td>${hEsc(m)}</td>${tokCells(b)}</tr>`).join('')
+                : '<tr><td colspan="7" class="muted">No calls in this window.</td></tr>') + '</tbody>';
+        }
+
+        async function usageLoad(refresh) {
+            usageLastLoad = Date.now();
+            try {
+                const resp = await fetch('/api/usage' + (refresh ? '?refresh=1' : ''));
+                usageData = await resp.json();
+            } catch (e) {
+                const notice = document.getElementById('usageNotice');
+                notice.style.display = '';
+                notice.textContent = `Couldn't reach the bridge: ${e.message}`;
+                return;
+            }
+            usageRender();
+        }
+
+        document.getElementById('usageRefreshBtn').addEventListener('click', () => usageLoad(true));
+        document.querySelectorAll('#usageSpan .toggle-btn').forEach(btn => btn.addEventListener('click', () => {
+            document.querySelectorAll('#usageSpan .toggle-btn').forEach(b => b.classList.toggle('active', b === btn));
+            usageSpan = btn.dataset.span;
+            usageRenderTotals();
+        }));
+
+        // While the History tab is open, pick up new calls every 5 s; while
+        // the Usage tab is open, re-read the limits every minute.
+        setInterval(() => {
+            if (document.hidden) return;
+            if (document.getElementById('history').classList.contains('active')) histLoad();
+            if (document.getElementById('usage').classList.contains('active')) {
+                if (Date.now() - usageLastLoad > 60000) usageLoad(true);
+                else usageRender();
+            }
+        }, 5000);
 
         // Initialize — load the defaults and settings first (the editors
         // depend on both), then fan out parallel fetches for panels that
