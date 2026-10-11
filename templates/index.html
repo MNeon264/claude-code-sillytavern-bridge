@@ -1403,7 +1403,7 @@
                 <dd>Extensions like TunnelVision route through the tool-calling toggle. Disable it if you're getting strange outputs or the extension is in an odd state.</dd>
 
                 <dt>Streaming</dt>
-                <dd>The bridge does not stream. The Claude Code CLI doesn't emit token deltas, so it has nothing to stream out — the bridge waits for Claude's full response and returns it in one payload. If ST requests <code>stream: true</code>, the response is wrapped in a single SSE chunk so the client still gets a valid event stream.</dd>
+                <dd>With streaming on in SillyTavern, the reply streams as Claude writes it: the thinking summary first (shown when "Request model reasoning" is on and Include Thinking is enabled), then the reply. Requests with tool calling or a JSON schema arrive in one piece at the end.</dd>
 
                 <dt>Chunking</dt>
                 <dd>One-shot by design: enable it, send one message, the bridge splits the conversation, summarizes every chunk, seeds the character's auto-summary bucket, and auto-disables. Use it after importing a long chat, not for every turn. The Cancel button disarms it without sending a request.</dd>

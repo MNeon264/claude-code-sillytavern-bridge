@@ -18,6 +18,7 @@ import base64
 import re
 import shutil
 import threading
+import queue
 import urllib.request
 import urllib.error
 from datetime import datetime
@@ -2744,7 +2745,7 @@ def _update_session(char_key: str, session_id: str, messages: list, state: dict 
 _load_sessions()
 
 
-def call_claude_code(messages: list, tools: list = None, process_holder: dict = None, char_key: str = None, json_schema: dict = None, skip_memory: bool = False, tracking_messages: list = None, requested_model: str = None, history_kind: str = None, history_label: str = None) -> dict:
+def call_claude_code(messages: list, tools: list = None, process_holder: dict = None, char_key: str = None, json_schema: dict = None, skip_memory: bool = False, tracking_messages: list = None, requested_model: str = None, history_kind: str = None, history_label: str = None, on_delta=None) -> dict:
     """
     Call Claude Code CLI with the given messages.
     Converts OpenAI message format to a prompt for Claude.
@@ -2771,7 +2772,13 @@ def call_claude_code(messages: list, tools: list = None, process_holder: dict = 
     History tab. The kind defaults to "chat" for roleplay turns and
     "utility" for skip_memory calls.
 
-    Returns dict with 'response', optionally 'thinking', and optionally 'tool_calls'.
+    on_delta: optional callable(kind, text), with kind "thinking" or "text".
+    When supplied (and the turn has no tools or JSON schema), the CLI runs
+    with --include-partial-messages and each token delta is passed to it as
+    it arrives. process_holder, if supplied, also gets the "model" key.
+
+    Returns dict with 'response', optionally 'thinking', and optionally
+    'tool_calls'. 'error' is True when 'response' is an error message.
     """
     # Started before the image and memory pre-calls, so a roleplay turn's
     # usage reading covers everything done to answer it.
@@ -3190,6 +3197,15 @@ Use the Read tool to view each, then weave the visual details into your scene wi
     if runtime_settings.get("include_thinking") or runtime_settings.get("show_thinking_console"):
         cmd.extend(["--thinking-display", "summarized"])
 
+    # Live streaming: with --include-partial-messages the CLI writes each
+    # token delta as a `stream_event` line while the reply is generated. Not
+    # for turns with tools (text written before a Read isn't the reply) or a
+    # JSON schema (the reply is the validated structured_output).
+    if on_delta is not None and (tools_arg or json_schema is not None):
+        on_delta = None
+    if on_delta is not None:
+        cmd.append("--include-partial-messages")
+
     # Structured-output passthrough. Clients that send OpenAI's
     # `response_format` get Claude Code's `--json-schema` validation so the
     # model's output is guaranteed to match the supplied schema. Schema is
@@ -3277,6 +3293,7 @@ Use the Read tool to view each, then weave the visual details into your scene wi
         # (e.g. on client disconnect in the SSE generator).
         if process_holder is not None:
             process_holder["process"] = process
+            process_holder["model"] = model
 
         # Send prompt and close stdin
         process.stdin.write(prompt)
@@ -3324,18 +3341,37 @@ Use the Read tool to view each, then weave the visual details into your scene wi
                     error_msg = event.get("error", {}).get("message", str(event))
                     log(f"Error event: {error_msg}", "ERROR")
                     hist_outcome["error"] = error_msg
-                    return {"response": f"Error: {error_msg}", "thinking": None}
+                    return {"response": f"Error: {error_msg}", "thinking": None, "error": True}
 
-                # Accumulate content_block_delta into response/thinking buffers.
-                # Final assistant event is also handled below as a fallback;
-                # whichever arrives populates the buffers.
-                if event_type == "content_block_delta":
-                    delta = event.get("delta", {})
-                    delta_type = delta.get("type", "")
-                    if delta_type == "thinking_delta":
-                        thinking_text += delta.get("thinking", "")
-                    elif delta_type == "text_delta":
-                        response_text += delta.get("text", "")
+                # Token deltas (only with --include-partial-messages) fill the
+                # response/thinking buffers and go to on_delta as they arrive.
+                # The assistant event below is the fallback when none came.
+                if event_type == "stream_event":
+                    inner = event.get("event") or {}
+                    inner_type = inner.get("type")
+                    kind = piece = None
+                    if event.get("parent_tool_use_id"):
+                        pass
+                    elif inner_type == "content_block_start":
+                        # A second thinking or text block starts a new paragraph.
+                        block_type = (inner.get("content_block") or {}).get("type")
+                        if block_type == "thinking" and thinking_text:
+                            kind, piece = "thinking", "\n\n"
+                        elif block_type == "text" and response_text:
+                            kind, piece = "text", "\n\n"
+                    elif inner_type == "content_block_delta":
+                        delta = inner.get("delta") or {}
+                        if delta.get("type") == "thinking_delta":
+                            kind, piece = "thinking", delta.get("thinking", "")
+                        elif delta.get("type") == "text_delta":
+                            kind, piece = "text", delta.get("text", "")
+                    if piece:
+                        if kind == "thinking":
+                            thinking_text += piece
+                        else:
+                            response_text += piece
+                        if on_delta is not None:
+                            on_delta(kind, piece)
 
                 # Handle assistant message (final content)
                 elif event_type == "assistant":
@@ -3376,7 +3412,7 @@ Use the Read tool to view each, then weave the visual details into your scene wi
                         error_msg = event.get("result", "Unknown error")
                         log(f"Claude Code returned error: {error_msg}", "ERROR")
                         hist_outcome["error"] = str(error_msg)
-                        return {"response": f"Error: {error_msg}", "thinking": None}
+                        return {"response": f"Error: {error_msg}", "thinking": None, "error": True}
 
                     # When a json_schema was supplied, the CLI validates the
                     # model output against it and surfaces the validated
@@ -3442,7 +3478,7 @@ Use the Read tool to view each, then weave the visual details into your scene wi
             error_msg = stderr.strip() if stderr.strip() else "Unknown error (no stderr)"
             log(f"Claude Code error (exit {process.returncode}): {error_msg}", "ERROR")
             hist_outcome["error"] = f"exit {process.returncode}: {error_msg}"
-            return {"response": f"Error from Claude Code: {error_msg}", "thinking": None}
+            return {"response": f"Error from Claude Code: {error_msg}", "thinking": None, "error": True}
 
         if runtime_settings["debug_output"]:
             log(
@@ -3616,6 +3652,7 @@ Use the Read tool to view each, then weave the visual details into your scene wi
                 "global bin (%APPDATA%\\npm) must be on PATH."
             ),
             "thinking": None,
+            "error": True,
         }
     except Exception as e:
         log(f"Exception: {str(e)}", "ERROR")
@@ -3625,7 +3662,7 @@ Use the Read tool to view each, then weave the visual details into your scene wi
             process.kill()
         except:
             pass
-        return {"response": f"Error calling Claude Code: {str(e)}", "thinking": None}
+        return {"response": f"Error calling Claude Code: {str(e)}", "thinking": None, "error": True}
     finally:
         # The raw reply (before tool-call parsing) and thinking, as the CLI
         # returned them.
@@ -3745,13 +3782,8 @@ def consolidate_think_blocks(text: str) -> str:
 def sse_full_response(response_text: str):
     """
     Emit a full text response in OpenAI SSE format as a single content chunk
-    plus a stop chunk and the [DONE] terminator.
-
-    The bridge does not stream. The Claude Code CLI doesn't emit token deltas,
-    and trying to fake it with paced SSE chunks introduced bugs (silently
-    dropping late-arriving thinking blocks). For clients that request
-    `stream: true`, this produces a valid SSE response that arrives all at
-    once when Claude finishes, which is what they were going to see anyway.
+    plus a stop chunk and the [DONE] terminator. Used for chunking mode's
+    reply, which comes from several calls and isn't streamed.
     """
     response_id = f"chatcmpl-{uuid.uuid4().hex[:8]}"
     created = int(time.time())
@@ -4063,9 +4095,8 @@ Now, based on this context, please respond to the following request:
                 log("Chunking complete!")
                 runtime_settings["chunking_enabled"] = False  # Auto-disable after use
 
-                # Return as SSE if requested, JSON otherwise. The bridge
-                # never produces real per-token streaming — both shapes carry
-                # the full response in one payload at the end.
+                # Return as SSE if requested, JSON otherwise. Both shapes
+                # carry the full response in one payload at the end.
                 if stream:
                     return Response(
                         sse_full_response(response_text),
@@ -4094,44 +4125,78 @@ Now, based on this context, please respond to the following request:
                     "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
                 })
 
-        # The bridge does not stream. We run call_claude_code on a worker
-        # thread and drive the response as a generator that yields keepalives
-        # every second while Claude thinks, then yields the full payload at
-        # the end. The keepalive yields force Werkzeug to write to the socket
-        # periodically — if the client disconnected (user hit Stop in
-        # SillyTavern), the write fails, the exception propagates back to
-        # the yield, and the finally block kills the Claude subprocess so we
-        # stop burning model time on a response nobody will read.
+        # call_claude_code runs on a worker thread, and the response is a
+        # generator that yields at least once a second while Claude works.
+        # The yields force Werkzeug to write to the socket — if the client
+        # disconnected (user hit Stop in SillyTavern), the write fails, the
+        # exception propagates back to the yield, and the finally block kills
+        # the Claude subprocess so we stop burning model time on a response
+        # nobody will read.
         #
-        # Two output shapes:
-        #   - stream=True (and no tool calls): SSE event stream — keepalive
-        #     is `: keepalive\n\n` (an SSE comment), final payload is one
-        #     content chunk + stop chunk + [DONE].
+        # Three output shapes:
+        #   - stream=True, no tools, no JSON schema: live SSE. The worker
+        #     puts each CLI token delta on `events`, and it goes out at once
+        #     as a `reasoning_content` or `content` chunk; stop + [DONE] when
+        #     the call finishes. An empty-delta chunk is the keepalive while
+        #     nothing arrives (image description, memory ranking, the API's
+        #     time to first token).
+        #   - stream=True with tools or a JSON schema: SSE with the whole
+        #     reply in one content chunk at the end.
         #   - otherwise (non-stream, or any tool-call response): JSON object.
         #     Keepalive is " " (a JSON-spec-legal leading whitespace that
         #     every mainstream parser tolerates), final payload is the full
         #     chat.completion object.
         #
         # Tool calls always go through the JSON branch — OpenAI's SSE shape
-        # for tool_calls is finicky and we're not trying to look like a real
-        # streaming endpoint anyway.
+        # for tool_calls is finicky, and a tool-call reply can't be streamed
+        # before it's parsed.
         process_holder = {}
         result_holder = {}
+        live = bool(stream and not tools and json_schema is None)
+        # Claude's thinking summary goes to SillyTavern's reasoning block (it
+        # reads `reasoning_content` when "Request model reasoning" is on),
+        # never into the reply text.
+        want_reasoning = bool(runtime_settings["include_thinking"] and json_schema is None)
+        # (kind, text) deltas from the worker; None when it's done.
+        events = queue.Queue()
+
+        def on_delta(kind, text):
+            if kind == "text" or want_reasoning:
+                events.put((kind, text))
 
         def worker():
             try:
                 result_holder["result"] = call_claude_code(
                     messages, tools=tools, process_holder=process_holder, char_key=original_char_key, json_schema=json_schema,
                     tracking_messages=original_messages, requested_model=requested_model,
+                    on_delta=on_delta if live else None,
                 )
             except Exception as e:
                 log(f"Worker crashed: {e}", "ERROR")
                 result_holder["error"] = str(e)
+            finally:
+                events.put(None)
 
         worker_thread = threading.Thread(target=worker, daemon=True)
         worker_thread.start()
 
         def response_generator(as_sse: bool):
+            response_id = f"chatcmpl-{uuid.uuid4().hex[:8]}"
+            created = int(time.time())
+            # What has gone out as live chunks so far.
+            streamed = {"thinking": "", "text": ""}
+
+            def sse_chunk(delta, finish_reason=None):
+                if not streamed["thinking"] and not streamed["text"]:
+                    delta = {"role": "assistant", **delta}
+                return "data: " + json.dumps({
+                    "id": response_id,
+                    "object": "chat.completion.chunk",
+                    "created": created,
+                    "model": process_holder.get("model") or DEFAULT_MODEL,
+                    "choices": [{"index": 0, "delta": delta, "finish_reason": finish_reason}],
+                }) + "\n\n"
+
             if as_sse:
                 # Send a real empty-delta SSE data event instead of a comment.
                 # SSE comments (": keepalive") are skipped by OpenAI-compatible
@@ -4149,10 +4214,18 @@ Now, based on this context, please respond to the following request:
             else:
                 keepalive = " "
             try:
-                while worker_thread.is_alive():
-                    worker_thread.join(timeout=1.0)
-                    if worker_thread.is_alive():
+                while True:
+                    try:
+                        item = events.get(timeout=1.0)
+                    except queue.Empty:
                         yield keepalive
+                        continue
+                    if item is None:
+                        break
+                    kind, text = item
+                    chunk = sse_chunk({"reasoning_content" if kind == "thinking" else "content": text})
+                    streamed[kind] += text
+                    yield chunk
 
                 if "error" in result_holder:
                     err_payload = {
@@ -4169,9 +4242,10 @@ Now, based on this context, please respond to the following request:
                 response_text = result["response"]
                 thinking_text = result.get("thinking")
                 tool_calls = result.get("tool_calls")
-                response_id = f"chatcmpl-{uuid.uuid4().hex[:8]}"
+                # Live chunks already carried the reply.
+                text_streamed = bool(streamed["text"].strip())
 
-                if tool_calls:
+                if tool_calls and not live:
                     # Tool-call responses always serialize as JSON regardless
                     # of the stream flag (see comment above).
                     log(f"Returning {len(tool_calls)} tool call(s) to SillyTavern")
@@ -4203,6 +4277,20 @@ Now, based on this context, please respond to the following request:
                     # JSON from markdown fences when the CLI didn't emit a
                     # validated structured_output block.
                     response_text = _strip_markdown_json_fences(response_text)
+                elif text_streamed:
+                    # The reply went out as it was written, so it can't be
+                    # reworked here. An error after a partial reply is added
+                    # below it.
+                    if result.get("error"):
+                        response_text = "\n\n" + response_text
+                    else:
+                        response_text = ""
+                    if runtime_settings.get("debug_output"):
+                        log(
+                            f"FINAL → ST: streamed {len(streamed['text']):,} chars of reply, "
+                            f"{len(streamed['thinking']):,} chars of thinking",
+                            "INFO",
+                        )
                 else:
                     pre_consolidate_len = len(response_text)
                     response_text = consolidate_think_blocks(response_text)
@@ -4231,43 +4319,23 @@ Now, based on this context, please respond to the following request:
                         log(f"FINAL tail: {sent_tail}", "INFO")
                 trigger_lorebook_analysis(messages)
 
-                # Claude's thinking summary goes to SillyTavern's reasoning
-                # block (it reads `reasoning_content` when "Request model
-                # reasoning" is on), never into the reply text.
+                # Thinking that didn't stream goes out whole, unless reply text
+                # already did (SillyTavern's reasoning block comes first).
                 reasoning = (
                     thinking_text
-                    if runtime_settings["include_thinking"] and thinking_text and json_schema is None
+                    if want_reasoning and thinking_text and not streamed["thinking"] and not text_streamed
                     else None
                 )
                 reported_model = result.get("model") or DEFAULT_MODEL
 
                 if as_sse:
-                    created = int(time.time())
                     if reasoning:
-                        reasoning_chunk = {
-                            "id": response_id,
-                            "object": "chat.completion.chunk",
-                            "created": created,
-                            "model": reported_model,
-                            "choices": [{"index": 0, "delta": {"role": "assistant", "reasoning_content": reasoning}, "finish_reason": None}],
-                        }
-                        yield f"data: {json.dumps(reasoning_chunk)}\n\n"
-                    content_chunk = {
-                        "id": response_id,
-                        "object": "chat.completion.chunk",
-                        "created": created,
-                        "model": reported_model,
-                        "choices": [{"index": 0, "delta": {"role": "assistant", "content": response_text}, "finish_reason": None}],
-                    }
-                    final_chunk = {
-                        "id": response_id,
-                        "object": "chat.completion.chunk",
-                        "created": created,
-                        "model": reported_model,
-                        "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
-                    }
-                    yield f"data: {json.dumps(content_chunk)}\n\n"
-                    yield f"data: {json.dumps(final_chunk)}\n\n"
+                        yield sse_chunk({"reasoning_content": reasoning})
+                        streamed["thinking"] += reasoning
+                    if response_text or not text_streamed:
+                        yield sse_chunk({"content": response_text})
+                        streamed["text"] += response_text
+                    yield sse_chunk({}, finish_reason="stop")
                     yield "data: [DONE]\n\n"
                 else:
                     message = {"role": "assistant", "content": response_text}
