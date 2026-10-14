@@ -3818,7 +3818,7 @@ Common subject fields: subject, character, npc, entity, name.'></textarea>
                     'when something changed'));
                 const lastReply = inChat.findIndex(m => m.lastReply);
                 msg.push('<div class="pv-sublabel">Everything after Claude\'s last reply</div>');
-                msg.push(...inChat.slice(lastReply + 1).map(m => pvStItem(m, m.role === 'system' ? '<sillytavern_note>' : '')));
+                msg.push(...inChat.slice(lastReply + 1).map(m => pvStItem(m, pvTranscriptPrefix(m))));
                 msg.push(afterHistory('when it changed'));
             }
             msg.push(images, memory);
@@ -3867,7 +3867,7 @@ Common subject fields: subject, character, npc, entity, name.'></textarea>
                         <h4>System prompt</h4>
                         <span class="pv-section-meta">--system-prompt-file</span>
                         <span class="pv-section-note">${resumed
-                            ? "Re-sent byte-identical from the session's first turn. If the bridge's part (frame, style notes, creativity, tools) has changed since, the bridge starts a new session instead."
+                            ? "Re-sent byte-identical from the session's first turn. If the bridge's part (frame, style notes, creativity, tools) has changed since, the bridge starts a new session instead. In a group chat, so does a change to SillyTavern's part: each character has its own session."
                             : "Built on a session's first turn, then kept unchanged for the rest of the session."}</span>
                     </div>
                     <div class="pv-list">${sys.join('')}</div>
@@ -3879,8 +3879,8 @@ Common subject fields: subject, character, npc, entity, name.'></textarea>
                         <span class="pv-section-note">${resumed
                             ? (reuseOff
                                 ? '<span style="color:var(--warn);">CLI Session Reuse is off in Settings, so every turn starts a new session.</span>'
-                                : 'A later turn of the same chat. The CLI already holds the earlier turns, so only what is new is sent. Swipes and edits start a new session.')
-                            : "The first turn of a CLI session: a new chat, or after a swipe, an edit, or a change to the bridge's part of the system prompt."}</span>
+                                : "A later turn of the same chat. The CLI already holds the earlier turns, so only what came after the session's last reply is sent; in a group chat that includes the other characters' replies. Swiping, editing, deleting or moving a message the session saw starts a new session.")
+                            : "The first turn of a CLI session: a new chat, branch or group member, or after a swipe, an edit, a deletion, a moved message, or a change to the bridge's part of the system prompt."}</span>
                     </div>
                     <div class="pv-list">${msg.join('')}</div>
                 </div>

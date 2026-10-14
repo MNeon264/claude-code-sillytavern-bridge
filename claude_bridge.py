@@ -1934,7 +1934,7 @@ def resolve_model(requested_model=None) -> str:
 # from SillyTavern's prompt (and the optional style notes below).
 BRIDGE_FRAME = """You are writing a roleplay in SillyTavern. SillyTavern's prompt for this chat is in <sillytavern_prompt> below: the user's preset instructions, the character card, persona, and lore, in the order SillyTavern sent them. It sets how to write; follow it.
 
-The first user message holds the chat so far as a transcript, with "Human:" before the user's turns and "Assistant:" before your earlier replies, and ends with the user's latest turn. Each later user message is the user's next turn. Reply with your next turn only, without a speaker label.
+The first user message holds the chat so far as a transcript, with "Human:" before the user's turns and "Assistant:" before the characters' replies; in a group chat each reply starts with the name of the character who wrote it. Each later user message continues the transcript with what was said since your last reply. Reply with your next turn only, without a speaker label.
 
 SillyTavern can also send:
 - <sillytavern_note>: a note it placed at that point in the chat.
@@ -2070,11 +2070,13 @@ runtime_settings = {
     "bridge_port": 5001,
     # CLI session reuse via --resume. When enabled, the bridge captures the
     # CLI's session_id from each response and on subsequent turns sends only
-    # the newest user message with --resume <id>, letting the CLI's cached
-    # prompt prefix do the work. Dramatic reduction in per-turn input tokens
-    # on long RPs. Automatically invalidates on swipes, edits, or any change
-    # to the unchanged-prefix portion of the payload — falls back to the
-    # full-prompt path transparently. Disable if you see unexpected behavior.
+    # what came after the session's last reply with --resume <id>, letting
+    # the CLI's cached prompt prefix do the work. Dramatic reduction in
+    # per-turn input tokens on long RPs. Swipes, and edits, deletions or
+    # moves of messages the session saw, start a new session, and in group
+    # chats each character has its own (see
+    # _decide_resume) — falls back to the full-prompt path transparently.
+    # Disable if you see unexpected behavior.
     "cli_session_reuse": True,
     # Check the bridge's GitHub releases on startup and warn if a newer
     # version is available. Single unauthenticated API call, runs on a
@@ -2087,7 +2089,7 @@ runtime_settings = {
     # maintenance pass after.
     "character_memory_v2_enabled": False,
     # Pinned char_key for memory. When non-empty, the bridge uses this exact key
-    # for memory + CLI session reuse instead of fingerprinting the messages.
+    # for memory instead of fingerprinting the messages.
     # Lets users keep one memory DB across small card edits (which would
     # otherwise change the auto-derived hash and orphan the prior memory).
     # Set/cleared from the GUI Memory tab. Empty = auto-detect (default).
@@ -2365,14 +2367,16 @@ if runtime_settings.get("update_check_enabled", True):
 # The `claude` CLI keeps its own conversation state when invoked with
 # `--resume <session_id>`. Reusing that session on follow-up turns means
 # the CLI re-uses its cached prompt prefix instead of our bridge paying
-# full input-token cost every turn. We capture the session_id from the
-# first stream-json event, stash it keyed by character, and resume when
-# the incoming message list looks like a natural continuation (user added
-# 1 or 2 trailing messages, and the unchanged prefix still hashes the same).
+# full input-token cost every turn. Each session is stored by its id with
+# the bridge's own last reply in it; a request resumes the session whose
+# last reply is still in the chat and sends what came after that reply
+# (see _decide_resume).
 
 SESSIONS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "bridge_sessions.json")
 SESSION_MAP: dict = {}
 _SESSION_LOCK = threading.Lock()
+# Sessions kept in bridge_sessions.json; the least recently used go first.
+_SESSION_CAP = 200
 
 
 def _load_sessions():
@@ -2382,7 +2386,9 @@ def _load_sessions():
             with open(SESSIONS_FILE, "r", encoding="utf-8") as f:
                 data = json.load(f)
             if isinstance(data, dict):
-                SESSION_MAP = data
+                # Entries from before sessions were found by their last reply
+                # (keyed by character, without "reply_keys") can't be matched.
+                SESSION_MAP = {k: v for k, v in data.items() if isinstance(v, dict) and "reply_keys" in v}
                 log(f"Loaded {len(SESSION_MAP)} persisted CLI session(s)", "INFO")
     except Exception as e:
         log(f"Could not load {SESSIONS_FILE}: {e}", "WARN")
@@ -2390,6 +2396,11 @@ def _load_sessions():
 
 
 def _save_sessions():
+    """Write SESSION_MAP to disk. Call with _SESSION_LOCK held."""
+    if len(SESSION_MAP) > _SESSION_CAP:
+        oldest = sorted(SESSION_MAP, key=lambda k: SESSION_MAP[k].get("updated_at", 0))
+        for sid in oldest[:len(SESSION_MAP) - _SESSION_CAP]:
+            del SESSION_MAP[sid]
     try:
         with open(SESSIONS_FILE, "w", encoding="utf-8") as f:
             json.dump(SESSION_MAP, f, indent=2)
@@ -2398,8 +2409,10 @@ def _save_sessions():
 
 
 def _render_transcript(conversation_messages: list) -> str:
-    """Render the chat for the first message of a new CLI session: "Human:" /
-    "Assistant:" turns, with SillyTavern's in-chat system notes kept in place."""
+    """Render chat messages as "Human:" / "Assistant:" turns, with
+    SillyTavern's in-chat system notes kept in place. Used for the whole chat
+    in the first message of a new CLI session, and for the messages after
+    the session's last reply on a resumed turn."""
     parts = []
     for m in conversation_messages:
         if m["role"] == "assistant":
@@ -2411,41 +2424,22 @@ def _render_transcript(conversation_messages: list) -> str:
     return "\n\n".join(parts)
 
 
-def _render_new_turn(conversation_messages: list) -> str:
-    """Render everything after the last assistant message, for a resumed turn.
-
-    Grabs the entire "new turn" rather than just the final user message.
-    SillyTavern presets often wrap each turn with multiple user-role
-    entries — e.g. Celia's <latest_turn_start> marker, the actual user
-    input, a <latest_turn_end> + context block, and a per-turn directive.
-    If we only forwarded the last one, Claude would see only the directive.
-    Tool results and in-chat SillyTavern notes after the last reply are
-    kept too, so the resumed turn carries what the full prompt would.
-    """
-    last_asst = max((i for i, m in enumerate(conversation_messages) if m["role"] == "assistant"), default=-1)
-    parts = []
-    for m in conversation_messages[last_asst + 1:]:
-        if m["role"] == "system":
-            parts.append(f"<sillytavern_note>\n{m['content']}\n</sillytavern_note>")
-        else:
-            parts.append(str(m["content"]))
-    return "\n\n".join(x for x in parts if x.strip())
-
-
 # Per-session prompt state stored next to the session id (see call_claude_code).
-_SESSION_STATE_KEYS = ("system_prompt", "bridge_sig", "delivered", "after_history_hash")
+_SESSION_STATE_KEYS = ("system_prompt", "bridge_sig", "prompt_blocks", "delivered", "after_history_hash")
 _DELIVERED_CAP = 300
+# Chat messages remembered per session for the edit/delete/reorder check:
+# all of them, up to a cap far above what fits in a context window.
+_SEEN_CAP = 2000
+# Chat messages a session may grow by before a fresh one is started, so a
+# long session doesn't keep the raw history auto-summary has replaced.
+SESSION_GROWTH_LIMIT = 50
+# SillyTavern's speaker label at the start of a message in group chats
+# ("Mudrock: ..."), which it also strips from a reply that starts with one.
+_SPEAKER_LABEL = re.compile(r"^[^\n:]{1,60}:\s+")
 
 
 def _block_hash(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
-
-
-def _count_user_msgs(messages: list) -> int:
-    """Count messages with role=='user'. Used to disambiguate swipes (which
-    add an assistant message without a new user message) from real accepts
-    (which add a new user message)."""
-    return sum(1 for m in messages if m.get("role") == "user")
 
 
 def _msg_text(m: dict) -> str:
@@ -2460,285 +2454,170 @@ def _msg_text(m: dict) -> str:
     return str(content) if content is not None else ""
 
 
-def _per_msg_prefix_sigs(messages: list, prefix_count: int) -> list:
-    """Build the per-message signatures used by both the prefix hash and the
-    diagnostic. Returns a list of `<role-initial>:<first-150-chars>|<last-100-chars>|<len>` strings,
-    one per user/assistant message up to prefix_count. Pass a very large
-    prefix_count (e.g. 10**9) to get all user/asst sigs in the messages list.
-    System messages are skipped because ST churns them every turn (lorebook
-    entries, persona notes etc.) and that churn is benign — only
-    user/assistant content edits should invalidate the session.
-
-    Using both start and end of message + length catches edits to the end
-    of responses (cutting content short) which would be invisible if we
-    only hashed the first N characters."""
-    sigs = []
-    count = 0
-    for m in messages:
-        if m.get("role") not in ("user", "assistant"):
-            continue
-        if count >= prefix_count:
-            break
-        text = _msg_text(m)
-        # Use first 150 + last 100 chars + total length
-        # This catches edits at both ends and length changes
-        first = text[:150]
-        last = text[-100:] if len(text) > 100 else text
-        length = len(text)
-        sigs.append(f"{m['role'][0]}:{first}|{last}|{length}")
-        count += 1
-    return sigs
+def _norm_text(text: str) -> str:
+    return " ".join(text.split())
 
 
-def _count_user_asst(messages: list) -> int:
-    """Count user+assistant messages, skipping system entries."""
-    return sum(1 for m in messages if m.get("role") in ("user", "assistant"))
+def _chat_msgs(messages: list) -> list:
+    """The chat part of a request: every message but SillyTavern's system ones."""
+    return [m for m in messages if m.get("role") != "system"]
 
 
-# Preset-injection patterns to ignore when identifying the user's actual
-# reply for swipe detection. ST presets (Celia, Storyteller, etc.) wrap
-# every turn with marker messages and a fixed-content "author instruction"
-# block — those appear at the same positions every turn and are byte-
-# identical between turns. Without this filter, the swipe check picks up
-# the constant instruction block as the "latest user msg" and falsely
-# concludes every turn is a replay.
-_ST_INJECTION_PREFIXES = ("<turn>", "<latest_turn", "[ooc", "(ooc")
-_ST_INJECTION_SUBSTRINGS = ("vital that author", "past events:", "story summary:")
+def _msg_sig(m: dict) -> str:
+    """Identity of one chat message: its role and whole text. System
+    messages are never compared: SillyTavern moves and rewrites them every
+    turn (lorebook entries, depth notes), and the session gets the changed
+    ones as <sillytavern_update>."""
+    return _block_hash(f"{m.get('role')}\0{_norm_text(_msg_text(m))}")
 
 
-def _sig_is_st_injection(sig: str) -> bool:
-    """True if this signature looks like an ST preset injection rather than
-    the user's actual chat reply. Mirrors the equivalent logic in
-    memory_v2.find_npcs_in_scene's injection skip."""
-    if not sig or len(sig) < 2:
-        return False
-    content = sig[2:]  # strip "u:" / "a:" role prefix
-    low = content.lower().strip()
-    if any(low.startswith(p) for p in _ST_INJECTION_PREFIXES):
-        return True
-    if any(s in low for s in _ST_INJECTION_SUBSTRINGS):
-        return True
-    return False
+def _reply_keys(text: str) -> list:
+    """[hash of the text, hash of it without a leading speaker label, or
+    None], whitespace-normalized. See _same_reply."""
+    t = _norm_text(text)
+    bare = _SPEAKER_LABEL.sub("", t, count=1)
+    return [_block_hash(t), _block_hash(bare) if bare != t else None]
 
 
-def _last_real_user_sig(sigs: list):
-    """Find the last user-role signature that ISN'T a preset injection.
-    Returns None if no real user msg found."""
-    for sig in reversed(sigs):
-        if sig.startswith("u:") and not _sig_is_st_injection(sig):
-            return sig
-    return None
+def _same_reply(a: list, b: list) -> bool:
+    """Whether two _reply_keys are the same reply. SillyTavern adds the
+    speaker label in group chats and strips one the model wrote, so one side
+    may have a label the other lacks; both losing a different one would
+    make any two replies that only share the text after a colon equal."""
+    return a[0] == b[0] or (a[1] is not None and a[1] == b[0]) or (b[1] is not None and a[0] == b[1])
 
 
-def _decide_resume(messages: list, char_key_override: str = None, bridge_sig: str = None) -> tuple:
-    """Return (char_key, session_id_or_None, reason).
+def _is_group_chat(messages: list) -> bool:
+    """True when every character message carries a speaker name, as in a
+    SillyTavern group chat: the "Name: " label (Character Names Behavior
+    "Default" or "Message Content") or the `name` field ("Message Names")."""
+    replies = [m for m in messages if m.get("role") == "assistant" and _msg_text(m).strip()]
+    return bool(replies) and all(m.get("name") or _SPEAKER_LABEL.match(_msg_text(m).lstrip()) for m in replies)
 
-    session_id_or_None is the CLI session to --resume, or None if we should
-    fall back to the full-prompt path. `reason` is a short string for logs.
 
-    char_key_override lets the caller supply a char_key computed from the
-    ORIGINAL request messages, before auto-summary rebuilds the list.
-    Without this, the char_key we compute here hashes the first assistant
-    message of the REBUILT list (a mid-conversation response instead of
-    the greeting), which doesn't match the key the session was saved
-    under — so cache misses every turn once auto-summary is active.
+def _history_continues(seen: list, sigs: list, anchor: int) -> bool:
+    """Whether the chat before the session's reply (sigs[:anchor]) is still
+    exactly what the session saw (seen), in the same order.
+
+    Two differences are allowed. SillyTavern drops the oldest messages to
+    fit the context, so the start may be missing. And presets can insert
+    user- or assistant-role messages at a fixed depth (e.g. a
+    <latest_turn_end> marker), which SillyTavern places again on every
+    turn: such a message keeps its distance from the end of the chat,
+    while every real message moves at least two places further from it
+    (the session's reply and a new message come after it). Those are left
+    out on both sides. Anything else, an edited, deleted, inserted or
+    moved message, is a mismatch.
     """
-    if char_key_override:
-        char_key = char_key_override
-    else:
-        try:
-            char_key = get_character_key(messages)
-        except Exception as e:
-            return (None, None, f"char_key error: {e}")
+    n, m = len(sigs), len(seen)
+    moved_seen, moved_now = set(), set()
+    for i, sig in enumerate(seen):
+        j = n - m + i  # the same distance from the end
+        if 0 <= j < n and sigs[j] == sig:
+            moved_seen.add(i)
+            moved_now.add(j)
+    before = [sig for j, sig in enumerate(sigs[:anchor]) if j not in moved_now]
+    saw = [sig for i, sig in enumerate(seen) if i not in moved_seen]
+    return len(before) <= len(saw) and saw[len(saw) - len(before):] == before
 
-    if not char_key or char_key == "default":
-        return (char_key, None, "no stable character key")
+
+def _decide_resume(messages: list, bridge_sig: str, prompt_blocks: list) -> tuple:
+    """Find the CLI session this request continues.
+
+    Returns (session_id or None, number of chat messages after the
+    session's last reply, reason). `prompt_blocks` are the hashes of the
+    SillyTavern system messages before the chat.
+
+    A session is resumed when:
+    - the bridge's part of its system prompt and its tools are unchanged
+      (bridge_sig);
+    - its own last reply is in the request. A swipe, an edit or a deletion
+      of that reply removes it, and the next turn starts a new session;
+    - the chat before that reply is still what the session saw, in the
+      same order (see _history_continues). Editing, deleting, hiding or
+      moving any message it saw, however old, starts a new session; so
+      does a branch that leaves out its reply;
+    - something came after the reply;
+    - in a group chat, every SillyTavern block its system prompt was built
+      from is still sent. Each character gets its own prompt there (its
+      card, and a main prompt that names it), so a missing block means
+      another character's turn, or an edited card or preset.
+
+    The messages after the reply are what the session hasn't seen. In a
+    group chat each character keeps its own session, so they include the
+    other characters' replies since its last turn. Of several matching
+    sessions the one whose reply is latest wins.
+    """
+    chat = _chat_msgs(messages)
+    sigs = [_msg_sig(m) for m in chat]
+    keys_at = [_reply_keys(_msg_text(m)) if m.get("role") == "assistant" else None for m in chat]
+    group = _is_group_chat(messages)
+    blocks = set(prompt_blocks)
 
     with _SESSION_LOCK:
-        entry = SESSION_MAP.get(char_key)
-        if not entry:
-            return (char_key, None, "no prior session")
-        session_id = entry.get("session_id")
-        last_count = entry.get("last_message_count", 0)
-        last_user_count = entry.get("last_user_count")
+        entries = [(sid, dict(e)) for sid, e in SESSION_MAP.items()]
 
-    if not session_id:
-        return (char_key, None, "missing session_id")
+    best = None   # (anchor index, updated_at, session_id)
+    miss = None   # (anchor index, reason) of the closest session that didn't fit
+    for sid, e in entries:
+        keys = e.get("reply_keys")
+        if not keys or not e.get("system_prompt"):
+            continue
+        # The latest copy of its reply whose preceding chat matches; an
+        # earlier identical message fails the history check.
+        seen = e.get("seen") or []
+        found = [i for i in range(len(chat) - 1, -1, -1) if keys_at[i] and _same_reply(keys_at[i], keys)]
+        if not found:
+            continue
+        anchor = next((i for i in found if _history_continues(seen, sigs, i)), None)
+        reason = None
+        if anchor is None:
+            anchor = found[0]
+            reason = "a message the session saw was edited, deleted, hidden or moved"
+        elif e.get("bridge_sig") != bridge_sig:
+            reason = "bridge prompt or tools changed since the session started"
+        elif anchor == len(chat) - 1:
+            reason = "nothing new after the session's last reply"
+        elif group and not set(e.get("prompt_blocks") or []) <= blocks:
+            reason = "group chat: SillyTavern's prompt differs (another character's turn, or an edited card or preset)"
+        elif e.get("grown", 0) >= SESSION_GROWTH_LIMIT:
+            reason = (f"session grew by {e.get('grown')} messages (limit {SESSION_GROWTH_LIMIT}); "
+                      f"refreshing for cache hygiene")
+        if reason:
+            if miss is None or anchor > miss[0]:
+                miss = (anchor, reason)
+            continue
+        cand = (anchor, e.get("updated_at", 0), sid)
+        if best is None or cand > best:
+            best = cand
 
-    # A CLI session keeps the system prompt it started with. Rebuilding the
-    # system prompt or the tools mid-session edits the conversation the
-    # model's earlier thinking is bound to: on current Opus models that
-    # thinking is dropped, and newer accounts get the request rejected. When
-    # the bridge's own part of the prompt changed (style notes, creativity,
-    # tools, a bridge update), start a new session instead of resuming.
-    if bridge_sig is not None and (entry.get("bridge_sig") != bridge_sig or not entry.get("system_prompt")):
-        with _SESSION_LOCK:
-            SESSION_MAP.pop(char_key, None)
-            _save_sessions()
-        return (char_key, None, "bridge prompt or tools changed since the session started")
-
-    new_count = len(messages)
-    delta = new_count - last_count
-
-    # Bound the cached session's lifespan. The CLI's --resume keeps
-    # appending to the cached context; without a refresh, the model's
-    # cached view grows monotonically and contains the original raw
-    # history of every prior turn — which defeats auto-summary entirely
-    # (the bridge's prompt becomes summary+recent but the model's cache
-    # still has the originals). After SESSION_GROWTH_LIMIT messages of
-    # growth since the session was first established, force a fresh
-    # session — the next call will use the rebuilt summary+recent prompt
-    # and the cache will be sized down to that.
-    SESSION_GROWTH_LIMIT = 50
-    msgs_at_session_start = entry.get("messages_at_session_start", last_count)
-    session_growth = last_count - msgs_at_session_start
-    if session_growth >= SESSION_GROWTH_LIMIT:
-        with _SESSION_LOCK:
-            SESSION_MAP.pop(char_key, None)
-            _save_sessions()
-        return (char_key, None,
-                f"session age limit reached ({session_growth} msgs since establish, "
-                f"limit {SESSION_GROWTH_LIMIT}); refreshing for cache hygiene")
-
-    # Discriminate swipe / replay vs real follow-up by comparing the
-    # LATEST user message in the new request against the latest user
-    # message at session capture:
-    #
-    #   - SAME content → ST is replaying the user msg unchanged (swipe).
-    #     Invalidate so the next call doesn't piggyback on the cached
-    #     response.
-    #
-    #   - DIFFERENT content → genuine follow-up. Continue to the
-    #     recent-tail check.
-    #
-    # Only the LATEST stored user sig is compared, not all stored sigs.
-    # Comparing against all stored sigs false-positives on common short
-    # messages ("ok", "yes", "continue") that the user has typed before
-    # — any prior occurrence in stored would falsely look like a swipe.
-    # A real swipe specifically replays the immediately-prior user msg.
-    stored_per_msg = entry.get("last_prefix_per_msg") or []
-    new_full_sigs = _per_msg_prefix_sigs(messages, prefix_count=10**9)
-    # Use the last REAL user msg (skipping ST preset injections like
-    # <latest_turn_end> markers and "Vital that author" instruction
-    # blocks). Without this skip, the constant injection block at the
-    # tail looks identical between turns and trips swipe detection on
-    # every real reply.
-    last_new_user_sig = _last_real_user_sig(new_full_sigs)
-    last_stored_user_sig = _last_real_user_sig(stored_per_msg)
-    if (last_stored_user_sig is not None
-            and last_new_user_sig is not None
-            and last_new_user_sig == last_stored_user_sig):
-        # Diagnostic: surface what the last user sig looks like in both
-        # the stored snapshot and the new request, plus where the new last
-        # user msg sits in the message list. False positives here usually
-        # mean either ST is appending something after the user's actual
-        # reply (so "find last user" returns an earlier msg) or signature
-        # truncation (200 chars) is making two distinct messages collide.
-        try:
-            new_user_pos = -1
-            for idx in range(len(messages) - 1, -1, -1):
-                if messages[idx].get("role") == "user":
-                    new_user_pos = idx
-                    break
-            new_total = len(messages)
-            log(
-                f"swipe diagnostic: last_user matched stored. "
-                f"new last-user is at position {new_user_pos} of {new_total} "
-                f"(distance from end: {new_total - 1 - new_user_pos if new_user_pos >= 0 else '?'})",
-                "INFO",
-            )
-            log(f"  stored last-user sig: {last_stored_user_sig[:200]!r}", "INFO")
-            log(f"  new    last-user sig: {last_new_user_sig[:200]!r}", "INFO")
-            # Show the next few stored sigs after the last-user too — if
-            # there were assistant msgs after the captured user msg (the
-            # response we cached), they'd be there.
-            stored_tail = stored_per_msg[-5:]
-            log(f"  stored tail (last 5 sigs): {[s[:60] for s in stored_tail]}", "INFO")
-            # And the same for the new tail.
-            new_tail = new_full_sigs[-5:]
-            log(f"  new    tail (last 5 sigs): {[s[:60] for s in new_tail]}", "INFO")
-        except Exception as e:
-            log(f"swipe diagnostic failed: {e}", "WARN")
-        with _SESSION_LOCK:
-            SESSION_MAP.pop(char_key, None)
-            _save_sessions()
-        return (char_key, None,
-                "swipe/replay detected (latest user msg unchanged from capture)")
-
-    # Validate the RECENT tail of stored sigs is still in the new request.
-    # If the user edited a recent message, its old sig won't be in new and
-    # we invalidate. If old (ancient-history) messages got dropped or
-    # ST shifted things mid-history, the recent tail is unaffected and
-    # we resume — that's the right call since --resume only sends the
-    # latest user msg and the cache's continuity from recent context is
-    # what matters.
-    RECENT_VALIDATION_COUNT = 5
-    if stored_per_msg:
-        recent_to_check = stored_per_msg[-RECENT_VALIDATION_COUNT:]
-        new_sig_set = set(new_full_sigs)
-        missing = [s for s in recent_to_check if s not in new_sig_set]
-        if missing:
-            log(
-                f"recent-context check: {len(missing)} of {len(recent_to_check)} "
-                f"recent captured msg(s) not present in new request — "
-                f"likely an edit to a recent message. Invalidating.",
-                "INFO",
-            )
-            for s in missing[:3]:
-                log(f"  missing from new: {s[:120]!r}", "INFO")
-            with _SESSION_LOCK:
-                SESSION_MAP.pop(char_key, None)
-                _save_sessions()
-            return (char_key, None, "recent message edit detected")
-
-    # SillyTavern's own system messages don't invalidate the session: they
-    # churn every turn with active lorebooks. call_claude_code sends the
-    # ones the session hasn't seen as a <sillytavern_update> instead.
-
-    return (char_key, session_id, "resume ok")
+    if best:
+        return best[2], len(chat) - 1 - best[0], "resume ok"
+    if miss:
+        return None, 0, miss[1]
+    return None, 0, "no session's last reply is in this chat (new chat, swipe, or that reply was edited or deleted)"
 
 
-def _update_session(char_key: str, session_id: str, messages: list, state: dict = None):
-    """Record the session after a successful call. `state` holds the prompt
-    state (_SESSION_STATE_KEYS) for this session; when omitted on the same
-    session, the stored state is kept."""
-    if not char_key or char_key == "default" or not session_id:
-        return
-    new_count = len(messages)
-    new_user_count = _count_user_msgs(messages)
-    new_user_asst_count = _count_user_asst(messages)
-    # Only store the recent tail used by the resume check. Storing the
-    # full prefix turned out wrong: ST drops summarized-away messages
-    # from the request and the bridge would then invalidate every turn
-    # because old stored sigs weren't in the new request — but those
-    # old messages don't affect --resume anyway. Tail of 30 covers the
-    # default 5-msg recent-validation window with comfortable margin.
-    new_recent = _per_msg_prefix_sigs(messages, prefix_count=10**9)[-30:]
+def _update_session(session_id: str, char_key: str, messages: list, reply: str, state: dict,
+                    resumed_from: str = None, added: int = 0):
+    """Record a session after a successful call: its prompt state, the chat
+    messages it has seen, and its reply. `resumed_from` is the session the
+    call resumed, and `added` the chat messages that call sent it."""
+    chat = _chat_msgs(messages)
+    reply_keys = _reply_keys(reply) if reply.strip() else None
     with _SESSION_LOCK:
-        existing = SESSION_MAP.get(char_key, {})
-        # Track when the current session_id was first established. Same
-        # session_id (we're updating after a successful --resume) → keep
-        # the original start count. New session_id (CLI established a
-        # fresh session) → reset to current count. The resume decision
-        # uses this to bound session age so the cached context doesn't
-        # grow unbounded across many resumed turns.
-        if existing.get("session_id") == session_id:
-            messages_at_session_start = existing.get("messages_at_session_start", new_count)
-            prior_state = {k: existing[k] for k in _SESSION_STATE_KEYS if k in existing}
+        prev = SESSION_MAP.pop(resumed_from, None) if resumed_from else None
+        if not reply_keys:
+            SESSION_MAP.pop(session_id, None)
         else:
-            messages_at_session_start = new_count
-            prior_state = {}
-        SESSION_MAP[char_key] = {
-            **prior_state,
-            **(state or {}),
-            "session_id": session_id,
-            "last_message_count": new_count,
-            "last_user_count": new_user_count,
-            "last_user_asst_count": new_user_asst_count,
-            "last_prefix_per_msg": new_recent,
-            "messages_at_session_start": messages_at_session_start,
-            "updated_at": time.time(),
-        }
+            SESSION_MAP[session_id] = {
+                **state,
+                "char_key": char_key,
+                "seen": [_msg_sig(m) for m in chat][-_SEEN_CAP:],
+                "reply_keys": reply_keys,
+                "grown": (prev.get("grown", 0) + added + 1) if prev else 0,
+                "updated_at": time.time(),
+            }
         _save_sessions()
 
 
@@ -2760,7 +2639,7 @@ def call_claude_code(messages: list, tools: list = None, process_holder: dict = 
     the messages list, the key computed from the rebuilt list will differ
     from the key originally saved under. Callers that have access to the
     original (pre-rebuild) messages should compute char_key there and pass
-    it in so session reuse correctly matches prior turns.
+    it in so memory and the History tab use the same key as prior turns.
 
     json_schema: optional JSON Schema dict. When supplied, forwarded to the
     CLI as `--json-schema <serialized>` so the model's output is validated
@@ -2888,7 +2767,13 @@ def call_claude_code(messages: list, tools: list = None, process_holder: dict = 
                 "content": f"[TOOL_RESULT: {tool_name}]\n{content}\n[/TOOL_RESULT]"
             })
         else:
-            # Keep user/assistant messages for conversation
+            # Keep user/assistant messages for conversation. With Character
+            # Names Behavior "Message Names", SillyTavern sends the speaker
+            # in `name` instead of a "Name: " label in the text; without it
+            # a group chat's characters would be indistinguishable.
+            name = msg.get("name")
+            if name and isinstance(content, str) and not content.startswith(f"{name}:"):
+                content = f"{name}: {content}"
             conversation_messages.append({"role": role, "content": content})
 
     transcript = _render_transcript(conversation_messages)
@@ -2900,6 +2785,10 @@ def call_claude_code(messages: list, tools: list = None, process_holder: dict = 
     # SillyTavern context the session must have seen: the pre-history prompt
     # and the in-chat notes. Used to send only what's new on resumed turns.
     context_blocks = leading_system + [m["content"] for m in conversation_messages if m["role"] == "system"]
+    # The pre-history blocks a new session's system prompt is built from.
+    # In a group chat, a session is resumed only while all of them are still
+    # sent (see _decide_resume).
+    prompt_blocks = [_block_hash(b) for b in leading_system]
     prompt = transcript
 
     # Temp files for cleanup
@@ -3023,9 +2912,8 @@ Use the Read tool to view each, then weave the visual details into your scene wi
     if not skip_memory and runtime_settings.get("character_memory_v2_enabled", False):
         # Pinned key takes precedence over message-fingerprint derivation.
         # When the user has pinned a char_key from the Memory tab, we use
-        # that exact value for both memory ops AND CLI session reuse — so
-        # small card edits that would otherwise change the hash don't
-        # orphan the existing memory DB or force a fresh CLI session.
+        # that exact value for memory ops — so small card edits that would
+        # otherwise change the hash don't orphan the existing memory DB.
         pinned = (runtime_settings.get("pinned_char_key") or "").strip()
         if pinned:
             char_key = pinned
@@ -3077,8 +2965,8 @@ Use the Read tool to view each, then weave the visual details into your scene wi
         log(f"Clamping effort {effort} → medium (Sonnet produces no narrative above medium)", "WARN")
         effort = "medium"
 
-    # Decide whether to resume a prior CLI session for this character.
-    # The resume path sends only the new turn (plus SillyTavern context the
+    # Decide whether to resume a prior CLI session. The resume path sends
+    # what came after the session's last reply (plus SillyTavern context the
     # session hasn't received) and re-sends the session's original system
     # prompt; the CLI supplies the earlier turns from its own session.
     # Gated on cli_session_reuse so users who see unexpected behavior can
@@ -3087,14 +2975,13 @@ Use the Read tool to view each, then weave the visual details into your scene wi
     # Resume + staging continuity decisions (here, _update_session below,
     # memory_v2.stage_turn) all use `tracking_messages` — the ORIGINAL
     # pre-rebuild message list. The model still sees `messages` (which may
-    # have been rebuilt by auto-summary), but tracking against the rebuilt
-    # list produces fixed-shape counts (system + summary + last 15) that
-    # confuse the delta + user-count heuristics. Tracking against the
-    # original messages keeps continuity stable across auto-summary cycles
-    # and across summary-threshold updates.
+    # have been rebuilt by auto-summary), but the rebuilt list has a fixed
+    # shape (system + summary + last 15) whose messages shift every turn.
+    # Tracking against the original messages keeps continuity stable across
+    # auto-summary cycles and across summary-threshold updates.
     track = tracking_messages if tracking_messages is not None else messages
-    resume_char_key = None
     resume_session_id = None
+    resume_new_count = 0
     resume_reason = "disabled by setting"
 
     # Extract SCENE IMAGES block before resume logic might overwrite prompt
@@ -3125,20 +3012,27 @@ Use the Read tool to view each, then weave the visual details into your scene wi
         session_state = {
             "system_prompt": core_identity,
             "bridge_sig": bridge_sig,
+            "prompt_blocks": prompt_blocks,
             "delivered": [_block_hash(b) for b in context_blocks][-_DELIVERED_CAP:],
             "after_history_hash": _block_hash(after_history) if after_history else None,
         }
 
     if runtime_settings.get("cli_session_reuse", True) and core_identity is not None:
-        resume_char_key, resume_session_id, resume_reason = _decide_resume(
-            track, char_key_override=char_key, bridge_sig=bridge_sig)
+        resume_session_id, resume_new_count, resume_reason = _decide_resume(track, bridge_sig, prompt_blocks)
+        new_turn = ""
         if resume_session_id:
             with _SESSION_LOCK:
-                stored = dict(SESSION_MAP.get(resume_char_key) or {})
-            new_turn = _render_new_turn(conversation_messages)
+                stored = dict(SESSION_MAP.get(resume_session_id) or {})
+            # The messages after the session's last reply, taken from
+            # conversation_messages (images described, auto-summary applied)
+            # together with SillyTavern's notes between them.
+            chat_idx = [i for i, m in enumerate(conversation_messages) if m["role"] != "system"]
+            if len(chat_idx) > resume_new_count:
+                new_turn = _render_transcript(conversation_messages[chat_idx[-resume_new_count - 1] + 1:])
             if new_turn.strip() and stored.get("system_prompt"):
                 if runtime_settings.get("debug_output"):
-                    log(f"Resuming CLI session for [{resume_char_key}] ({resume_session_id[:8]}...): {resume_reason}", "INFO")
+                    log(f"Resuming CLI session {resume_session_id[:8]}... for [{char_key}] with "
+                        f"{resume_new_count} new message(s)", "INFO")
                 # Append-only: the session keeps the system prompt it started
                 # with, and SillyTavern context it hasn't received yet (new
                 # lore, a changed summary or note) is added to this turn.
@@ -3165,18 +3059,17 @@ Use the Read tool to view each, then weave the visual details into your scene wi
                 session_state = {
                     "system_prompt": core_identity,
                     "bridge_sig": bridge_sig,
+                    "prompt_blocks": stored.get("prompt_blocks") or [],
                     "delivered": (delivered + [_block_hash(b) for b in fresh])[-_DELIVERED_CAP:],
                     "after_history_hash": after_hash,
                 }
             else:
-                # Nothing new after the last reply (e.g. Continue) — start a
-                # new session from the full prompt.
-                log("Resume skipped: no new turn after the last reply", "WARN")
+                # The new messages are empty, or the session vanished.
+                log("Resume skipped: nothing to send after the session's last reply", "WARN")
                 resume_session_id = None
-                resume_reason = "no new turn after the last reply"
-        else:
-            if runtime_settings.get("debug_output") and resume_char_key and resume_char_key != "default":
-                log(f"Not resuming [{resume_char_key}]: {resume_reason}", "INFO")
+                resume_reason = "nothing to send after the session's last reply"
+        if not resume_session_id and runtime_settings.get("debug_output"):
+            log(f"Not resuming [{char_key}]: {resume_reason}", "INFO")
 
     cmd = [
         CLAUDE_EXE,
@@ -3261,7 +3154,7 @@ Use the Read tool to view each, then weave the visual details into your scene wi
     hist.prompt = prompt
     hist.model = model
     hist.effort = effort
-    hist.char_key = char_key or resume_char_key
+    hist.char_key = char_key
     if core_identity is not None:
         hist.resumed = bool(resume_session_id)
         hist.note = (
@@ -3572,18 +3465,16 @@ Use the Read tool to view each, then weave the visual details into your scene wi
         # return path above. If the client disconnected mid-stream and we
         # killed the subprocess, call_claude_code returns before reaching
         # here, so no stale session_id gets persisted.
-        if captured_session_id:
+        # Only roleplay calls (those with a system prompt) are resumable.
+        if captured_session_id and session_state is not None:
             try:
-                # Prefer the caller-supplied char_key (computed from the
-                # original pre-rebuild messages). Fall back to the resume
-                # decision's key (also override-aware), and only as a last
-                # resort compute from the possibly-rebuilt messages here.
-                persist_key = char_key or resume_char_key or get_character_key(track)
-                # Persist counts against the ORIGINAL message list so the
-                # delta check on the next turn is comparing apples to apples.
-                # Without this, auto-summary's fixed-shape rebuild produces
-                # delta=0 every turn → invalidates the session forever.
-                _update_session(persist_key, captured_session_id, track, state=session_state)
+                # The caller-supplied char_key comes from the original
+                # pre-rebuild messages; it only labels the session.
+                persist_key = char_key or get_character_key(track)
+                # Recorded against the ORIGINAL message list, which the next
+                # request's messages are compared with (see _decide_resume).
+                _update_session(captured_session_id, persist_key, track, clean_response, session_state,
+                                resumed_from=resume_session_id, added=resume_new_count)
             except Exception as e:
                 log(f"Could not persist CLI session: {e}", "WARN")
 
@@ -3667,6 +3558,14 @@ Use the Read tool to view each, then weave the visual details into your scene wi
         # The raw reply (before tool-call parsing) and thinking, as the CLI
         # returned them.
         hist.finish(response=response_text, thinking=thinking_text, **hist_outcome)
+        # A resumed call that failed (e.g. the CLI can't find the session)
+        # would fail the same way on every later turn, and one cancelled
+        # mid-reply may have left a half-written turn in the session; start
+        # fresh instead.
+        if resume_session_id and (hist_outcome["error"] or hist_outcome["status"] == "cancelled"):
+            with _SESSION_LOCK:
+                if SESSION_MAP.pop(resume_session_id, None) is not None:
+                    _save_sessions()
         # Clean up temp files
         for temp_file in temp_files:
             if temp_file and os.path.exists(temp_file.name):
@@ -3877,8 +3776,8 @@ def chat_completions():
         # before any auto-summary rebuild. Recomputing from the rebuilt list
         # would hash a mid-conversation assistant response as the "first
         # substantive assistant" instead of the character's greeting,
-        # producing a different key than what the session was stored under
-        # — so cache reuse would miss every turn once summary is active.
+        # producing a different key than the character's memory and earlier
+        # turns were stored under once summary is active.
         try:
             original_char_key = get_character_key(messages)
         except Exception:
@@ -3887,11 +3786,10 @@ def chat_completions():
         # Snapshot the ORIGINAL message list before any auto-summary or
         # chunking rebuild. This gets passed to call_claude_code as
         # `tracking_messages` so the CLI session-reuse decision and memory
-        # v2 staging compare turn-over-turn against the real conversation
-        # length, not the fixed-shape window auto-summary produces. Without
-        # this, every turn under auto-summary saw delta=0 and the session
-        # invalidated forever; memory v2 swipe detection mis-classified
-        # accepts and swipes interchangeably.
+        # v2 staging compare turn-over-turn against the real conversation,
+        # not the fixed-shape window auto-summary produces. Without this,
+        # sessions were invalidated every turn under auto-summary, and
+        # memory v2 swipe detection mis-classified accepts and swipes.
         original_messages = list(messages)
 
         # Auto-summary mode - incremental summarization
