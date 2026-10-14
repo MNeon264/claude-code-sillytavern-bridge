@@ -25,12 +25,16 @@ from datetime import datetime
 from flask import Flask, request, jsonify, Response, render_template
 from flask_cors import CORS
 
-# Bump this in the same commit you tag a new release. The update checker
-# compares it against the latest GitHub release tag and tells users when
-# they're behind. Keeping it in the source file (rather than deriving
-# from git) means it Just Works for users who download a zip instead of
-# cloning — no git metadata required at runtime.
-__version__ = "1.3.1"
+# Fork versions are "<upstream base>+fork.<build>": the upstream release this
+# fork is based on, then this fork's own build number. Bump the build number
+# in the same commit you tag a fork release (tag "v" + __version__). When
+# merging a newer upstream release, change the base and reset the build to 1.
+# The update checker ignores the "+fork.N" part and compares the base against
+# upstream's latest GitHub release tag, so it reports new upstream releases.
+# Keeping it in the source file (rather than deriving from git) means it Just
+# Works for users who download a zip instead of cloning — no git metadata
+# required at runtime.
+__version__ = "1.3.1+fork.1"
 
 # =============================================================================
 # CLAUDE CLI RESOLUTION
@@ -2344,7 +2348,7 @@ def _check_for_updates():
         if _parse_version_tuple(latest_tag) > _parse_version_tuple(__version__):
             UPDATE_STATUS["update_available"] = True
             log(
-                f"Update available: {latest_tag} (you have v{__version__}) — "
+                f"Upstream update available: {latest_tag} (you have v{__version__}) — "
                 f"{UPDATE_STATUS['release_url']}",
                 "WARN",
             )

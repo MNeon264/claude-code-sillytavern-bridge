@@ -3379,7 +3379,7 @@ Common subject fields: subject, character, npc, entity, name.'></textarea>
 
                 if (info.latest) {
                     if (info.update_available) {
-                        statusEl.textContent = `· update available: ${info.latest}`;
+                        statusEl.textContent = `· upstream update available: ${info.latest}`;
                         statusEl.style.color = 'var(--warn, #d4a15a)';
                         if (info.release_url) {
                             linkEl.href = info.release_url;
