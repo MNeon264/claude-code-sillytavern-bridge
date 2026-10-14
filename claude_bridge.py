@@ -20,21 +20,21 @@ import shutil
 import threading
 import queue
 import urllib.request
+import urllib.parse
 import urllib.error
 from datetime import datetime
 from flask import Flask, request, jsonify, Response, render_template
 from flask_cors import CORS
 
-# Fork versions are "<upstream base>+fork.<build>": the upstream release this
-# fork is based on, then this fork's own build number. Bump the build number
-# in the same commit you tag a fork release (tag "v" + __version__). When
-# merging a newer upstream release, change the base and reset the build to 1.
-# The update checker ignores the "+fork.N" part and compares the base against
-# upstream's latest GitHub release tag, so it reports new upstream releases.
+# This fork is versioned on its own, by date: YEAR.MONTH.BUILD, where BUILD
+# counts the builds released that month, from 1 (2026.10.1, 2026.10.2, then
+# 2026.11.1). Bump it in the same commit you tag the build "v" + __version__.
+# The update checker compares it against the newest version tag on this
+# fork's GitHub repo, so a bridge left running on an older build says so.
 # Keeping it in the source file (rather than deriving from git) means it Just
 # Works for users who download a zip instead of cloning — no git metadata
 # required at runtime.
-__version__ = "1.3.1+fork.1"
+__version__ = "2026.10.1"
 
 # =============================================================================
 # CLAUDE CLI RESOLUTION
@@ -2286,18 +2286,20 @@ if runtime_settings.get("character_memory_v2_enabled", False):
 # =============================================================================
 # UPDATE CHECKER
 # =============================================================================
-# Non-blocking check against GitHub releases. Fired once on startup in a
-# background thread so it never delays the bridge boot. Result is cached
-# in UPDATE_STATUS and surfaced via /api/version for the GUI to display.
+# Non-blocking check against this fork's version tags on GitHub. Fired once
+# on startup in a background thread so it never delays the bridge boot.
+# Result is cached in UPDATE_STATUS and surfaced via /api/version for the GUI
+# to display. The fork publishes tags, not GitHub releases, so it reads the
+# tag list and takes the highest version; upstream's v1.x tags never win.
 
-GITHUB_RELEASES_API = "https://api.github.com/repos/MissSinful/claude-code-sillytavern-bridge/releases/latest"
+GITHUB_REPO = "MNeon264/claude-code-sillytavern-bridge"
+GITHUB_TAGS_API = f"https://api.github.com/repos/{GITHUB_REPO}/tags?per_page=100"
 
 UPDATE_STATUS = {
     "current": __version__,
     "latest": None,
     "update_available": False,
     "release_url": None,
-    "release_notes_preview": None,
     "checked_at": None,
     "error": None,
 }
@@ -2322,7 +2324,7 @@ def _parse_version_tuple(v):
 
 
 def _check_for_updates():
-    """Hit GitHub's latest-release endpoint, update UPDATE_STATUS.
+    """Read the fork's tags from GitHub, update UPDATE_STATUS.
 
     Silent on failure — offline users and users behind restrictive firewalls
     shouldn't see scary error messages for a nice-to-have feature. The error
@@ -2331,7 +2333,7 @@ def _check_for_updates():
     """
     try:
         req = urllib.request.Request(
-            GITHUB_RELEASES_API,
+            GITHUB_TAGS_API,
             headers={
                 "User-Agent": f"claude-code-sillytavern-bridge/{__version__}",
                 "Accept": "application/vnd.github+json",
@@ -2339,16 +2341,18 @@ def _check_for_updates():
         )
         with urllib.request.urlopen(req, timeout=10) as resp:
             data = json.loads(resp.read().decode("utf-8"))
-        latest_tag = data.get("tag_name", "")
-        UPDATE_STATUS["latest"] = latest_tag
-        UPDATE_STATUS["release_url"] = data.get("html_url")
-        body = data.get("body") or ""
-        UPDATE_STATUS["release_notes_preview"] = body[:500] if body else None
+        tags = [t.get("name", "") for t in data if isinstance(t, dict)]
+        latest_tag = max(tags, key=_parse_version_tuple, default="")
+        UPDATE_STATUS["latest"] = latest_tag or None
+        UPDATE_STATUS["release_url"] = (
+            f"https://github.com/{GITHUB_REPO}/releases/tag/{urllib.parse.quote(latest_tag)}"
+            if latest_tag else None
+        )
         UPDATE_STATUS["checked_at"] = time.time()
         if _parse_version_tuple(latest_tag) > _parse_version_tuple(__version__):
             UPDATE_STATUS["update_available"] = True
             log(
-                f"Upstream update available: {latest_tag} (you have v{__version__}) — "
+                f"Update available: {latest_tag} (you have v{__version__}) — "
                 f"{UPDATE_STATUS['release_url']}",
                 "WARN",
             )

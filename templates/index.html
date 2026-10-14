@@ -1572,7 +1572,7 @@
                 <div class="setting-row">
                     <div>
                         <h4>Update Check</h4>
-                        <p>Check GitHub for new releases on startup. One unauthenticated API call. Non-blocking, logs a warning if outdated. No auto-install.</p>
+                        <p>Check this fork's GitHub tags for a newer version on startup. One unauthenticated API call. Non-blocking, logs a warning if outdated. No auto-install.</p>
                     </div>
                     <div class="setting-row-control">
                         <span class="switch-label" id="updateCheckStatus">Enabled</span>
@@ -3379,7 +3379,7 @@ Common subject fields: subject, character, npc, entity, name.'></textarea>
 
                 if (info.latest) {
                     if (info.update_available) {
-                        statusEl.textContent = `· upstream update available: ${info.latest}`;
+                        statusEl.textContent = `· update available: ${info.latest}`;
                         statusEl.style.color = 'var(--warn, #d4a15a)';
                         if (info.release_url) {
                             linkEl.href = info.release_url;

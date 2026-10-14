@@ -21,7 +21,7 @@ This fork of [MissSinful/claude-code-sillytavern-bridge](https://github.com/Miss
 - **Restyled dashboard with a prompt preview.** The dashboard uses a plain sans-serif layout instead of the serif/italic editorial styling. The Prompts tab previews what a roleplay turn sends to the CLI, for a new session and for a resumed turn: the bridge's own text placed around SillyTavern's prompt order, which `GET /api/prompt_preview` reads from SillyTavern's `settings.json` (found next to the bridge's folder, or via the Lorebook tab's worlds path). Card, lore and chat-history entries show as placeholders.
 - **History and Usage tabs.** Every `claude -p` call the bridge makes (roleplay turns, Character Memory, lorebook, image and summary calls) is recorded in `prompt_history.db` with its argv, system prompt, stdin text, reply, thinking summary, and the token counts from the CLI's `result` event. The History tab lists them. For each roleplay turn the bridge also reads the account's 5-hour and weekly usage just before the turn and a few seconds after it, and shows the change. It reads them from the endpoint behind Claude Code's `/usage` (`GET https://api.anthropic.com/api/oauth/usage`) with the CLI's own login token from `~/.claude/.credentials.json`; the bridge never refreshes that token itself, and the reads use no quota. The endpoint reports whole percents and counts everything that used the account meanwhile, so per-turn figures are approximate. The Usage tab shows the current limits and the bridge's token totals for the current windows. Text is kept for the last 500 calls and token counts for 30 days.
 
-- **Fork versions.** The version is `<upstream base>+fork.<build>`, for example `1.3.1+fork.1`: the upstream release the fork is based on, then the fork's own build number, which goes up with each fork release and is tagged `v1.3.1+fork.1`. The update checker ignores the `+fork.N` part and compares the base with upstream's latest release, so the dashboard reports new upstream releases as "upstream update available".
+- **Own version numbers.** This fork is run as a separate project and doesn't track or merge upstream releases. Versions are by date, `YEAR.MONTH.BUILD`, where the build counts that month's builds from 1 (`2026.10.1`, `2026.10.2`, then `2026.11.1`), and each build is tagged `v<version>`. The update checker reads this fork's version tags instead of upstream's GitHub releases, so the dashboard shows when the running bridge is older than the newest tagged build.
 
 With no environment variables set, the network and auth changes are the default listen address and the usage reads above.
 
@@ -68,7 +68,7 @@ SillyTavern is an excellent frontend for creative writing and roleplay, but it s
 - **Settings persistence** — model, effort, creativity, thresholds, and port all survive bridge restarts via `bridge_settings.json`
 - **Configurable port** from the GUI (default `:5001`)
 - **Tool calling fallback** for SillyTavern extensions like TunnelVision
-- **Update checker** — checks GitHub releases on startup and warns if a newer version is available
+- **Update checker** — checks GitHub on startup and warns if a newer version is available
 - **Debug logging** with structured output, token usage panels, narrative-failure detection, and `stop_reason` capture
 
 ## What it actually produces
