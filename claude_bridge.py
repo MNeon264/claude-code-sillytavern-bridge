@@ -34,7 +34,7 @@ from flask_cors import CORS
 # Keeping it in the source file (rather than deriving from git) means it Just
 # Works for users who download a zip instead of cloning — no git metadata
 # required at runtime.
-__version__ = "2026.10.1"
+__version__ = "2026.10.2"
 
 # =============================================================================
 # CLAUDE CLI RESOLUTION
@@ -672,6 +672,44 @@ def get_character_key(messages):
         )
 
     return key
+
+
+# What Character Memory did on the latest roleplay turn, for the Memory tab:
+# the character it ran for, or why it didn't run.
+memory_last_turn = {}
+
+
+def memory_identity(messages, character_name=None):
+    """(char_key, name) of the character whose memory a turn uses, or
+    (None, None) when the request doesn't say who that is.
+
+    The name is the request's `character_name` field, which SillyTavern
+    sends when the Custom endpoint's Include Body Parameters hold
+    `character_name: "{{char}}"`. ST fills in the macro for every
+    generation, so in a group chat it names the member whose turn it is.
+    Without the field, a "[Name's personality: ...]" card wrapper is used.
+    The key is the one get_character_key derives from a name. A key pinned
+    on the Memory tab overrides it.
+
+    get_character_key's other strategies (hashing the first assistant
+    message or the whole system prompt) are not used here: the hash changes
+    whenever the oldest message in the context does, and a group chat's
+    members all share it, so memory would start over every few turns.
+    """
+    name = character_name.strip()[:100] if isinstance(character_name, str) else ""
+    if name.startswith("{{"):
+        name = ""  # macro left unsubstituted
+    if not name:
+        system_text = "\n\n".join(
+            _stringify_content(m.get("content", "")) for m in messages if m.get("role") == "system"
+        )
+        name = _extract_character_name(system_text) or ""
+    pinned = (runtime_settings.get("pinned_char_key") or "").strip()
+    if pinned:
+        return pinned, name or memory_v2.load_label(pinned) or None
+    if not name:
+        return None, None
+    return hashlib.md5(name.encode("utf-8")).hexdigest()[:16], name
 
 def get_cached_summary(conv_hash):
     """Get cached summary if it exists."""
@@ -2092,11 +2130,10 @@ runtime_settings = {
     # retrieval call before each Opus turn (~3-8s) and a non-blocking Sonnet
     # maintenance pass after.
     "character_memory_v2_enabled": False,
-    # Pinned char_key for memory. When non-empty, the bridge uses this exact key
-    # for memory instead of fingerprinting the messages.
-    # Lets users keep one memory DB across small card edits (which would
-    # otherwise change the auto-derived hash and orphan the prior memory).
-    # Set/cleared from the GUI Memory tab. Empty = auto-detect (default).
+    # Pinned char_key for memory. When non-empty, every turn uses this exact
+    # key for memory instead of the one derived from the character's name
+    # (memory_identity), e.g. to keep a memory after renaming a character.
+    # Set/cleared from the GUI Memory tab. Empty = by name (default).
     "pinned_char_key": "",
 }
 
@@ -2632,7 +2669,7 @@ def _update_session(session_id: str, char_key: str, messages: list, reply: str, 
 _load_sessions()
 
 
-def call_claude_code(messages: list, tools: list = None, process_holder: dict = None, char_key: str = None, json_schema: dict = None, skip_memory: bool = False, tracking_messages: list = None, requested_model: str = None, history_kind: str = None, history_label: str = None, on_delta=None) -> dict:
+def call_claude_code(messages: list, tools: list = None, process_holder: dict = None, char_key: str = None, json_schema: dict = None, skip_memory: bool = False, tracking_messages: list = None, requested_model: str = None, history_kind: str = None, history_label: str = None, on_delta=None, character_name: str = None) -> dict:
     """
     Call Claude Code CLI with the given messages.
     Converts OpenAI message format to a prompt for Claude.
@@ -2647,7 +2684,12 @@ def call_claude_code(messages: list, tools: list = None, process_holder: dict = 
     the messages list, the key computed from the rebuilt list will differ
     from the key originally saved under. Callers that have access to the
     original (pre-rebuild) messages should compute char_key there and pass
-    it in so memory and the History tab use the same key as prior turns.
+    it in so sessions and the History tab use the same key as prior turns.
+    Character Memory keys on the character's name instead (memory_identity).
+
+    character_name: the request's `character_name` field, which SillyTavern
+    sends when its Include Body Parameters hold `character_name: "{{char}}"`.
+    Names whose memory the turn uses.
 
     json_schema: optional JSON Schema dict. When supplied, forwarded to the
     CLI as `--json-schema <serialized>` so the model's output is validated
@@ -2906,8 +2948,8 @@ Use the Read tool to view each, then weave the visual details into your scene wi
     # before each turn and stages the response for post-turn maintenance.
     # Opus reads the curated block but does NOT write to the DB itself, so
     # no extra tools or permission-mode flags are required.
-    memory_v2_active = False
     memory_v2_char_key = None
+    memory_v2_char_name = None
     memory_block = ""
     # skip_memory short-circuits the memory v2 pipeline. Set by utility
     # callers (chunking summary, condense, lorebook generation, etc.)
@@ -2918,33 +2960,36 @@ Use the Read tool to view each, then weave the visual details into your scene wi
     # summarization context, and then staged the utility response as if
     # it were the character's narrative — contaminating the memory DB.
     if not skip_memory and runtime_settings.get("character_memory_v2_enabled", False):
-        # Pinned key takes precedence over message-fingerprint derivation.
-        # When the user has pinned a char_key from the Memory tab, we use
-        # that exact value for memory ops — so small card edits that would
-        # otherwise change the hash don't orphan the existing memory DB.
-        pinned = (runtime_settings.get("pinned_char_key") or "").strip()
-        if pinned:
-            char_key = pinned
-            log(f"[memv2] using pinned char_key: {pinned}", "INFO")
-        elif char_key is None:
-            try:
-                char_key = get_character_key(messages)
-            except Exception as e:
-                log(f"[memv2] char_key derivation failed: {e}", "WARN")
-        if char_key and char_key != "default":
+        mem_key, mem_name = memory_identity(messages, character_name)
+        if mem_key is None:
+            log("[memv2] skipped: the request doesn't name the character. In SillyTavern's "
+                "API Connections, add  character_name: \"{{char}}\"  to Include Body Parameters.", "WARN")
+            memory_last_turn.clear()
+            memory_last_turn.update({"at": time.time(), "skipped": "no_name"})
+        else:
+            if runtime_settings.get("pinned_char_key"):
+                log(f"[memv2] using pinned char_key: {mem_key}", "INFO")
+            # The name labels the character on the Memory tab and tells
+            # maintenance not to register them as an NPC of their own.
+            if mem_name and not memory_v2.load_label(mem_key):
+                memory_v2.save_label(mem_key, mem_name)
+            memory_last_turn.clear()
+            memory_last_turn.update({"at": time.time(), "char_key": mem_key, "name": mem_name})
             try:
                 injection_text, _used_ids = memory_v2.prepare_turn(
-                    char_key=char_key,
+                    char_key=mem_key,
                     messages=messages,
-                    char_name=char_key,  # display name; we don't have a better one without parsing the card
+                    char_name=mem_name or "character",
+                    chat_messages=tracking_messages,
                 )
+                memory_v2_char_key = mem_key
+                memory_v2_char_name = mem_name or "character"
+                memory_last_turn["injected"] = len(_used_ids)
             except Exception as e:
                 log(f"[memv2] prepare_turn failed: {e}", "ERROR")
+                memory_last_turn["error"] = str(e)
                 injection_text = ""
-                _used_ids = []
             if injection_text:
-                memory_v2_active = True
-                memory_v2_char_key = char_key
                 # Last in the turn, after the chat and any images, so it's
                 # the freshest context before the reply. A resumed turn adds
                 # it again (see the resume block).
@@ -3170,7 +3215,8 @@ Use the Read tool to view each, then weave the visual details into your scene wi
             else f"New CLI session: {resume_reason}"
         )
         if not hist.label:
-            hist.label = _extract_character_name("\n\n".join(str(b) for b in leading_system))
+            hist.label = ((character_name or "").strip() if isinstance(character_name, str) else "") \
+                or _extract_character_name("\n\n".join(str(b) for b in leading_system))
     hist_outcome = {"status": None, "error": None}
     response_text = ""
     thinking_text = ""
@@ -3506,23 +3552,19 @@ Use the Read tool to view each, then weave the visual details into your scene wi
         # Character Memory v2 — stage this turn for delayed maintenance.
         # We do NOT fire Sonnet maintenance immediately because that pollutes
         # the DB on swipes. Instead, the response is buffered and committed
-        # on the *next* request once we can confirm the user accepted it
-        # (their next prompt will include this response in messages history).
-        # Swipe/regen → buffer is discarded and replaced. See stage_turn().
+        # on the character's *next* request if that request still contains
+        # it. Swipe/regen → buffer is discarded and replaced. See stage_turn().
         #
-        # Pass `track` (the original pre-rebuild messages), not `messages`.
-        # The swipe-vs-accept detection in _flush_pending_if_accepted compares
-        # user-message counts between stage and the next request; using the
-        # rebuilt list here would compare against a fixed-shape window that
-        # doesn't reliably grow on accept, so accepts get mis-classified as
-        # swipes (or vice versa).
-        if memory_v2_active and memory_v2_char_key and clean_response and clean_response.strip():
+        # Pass `track` (the original pre-rebuild messages), not `messages`:
+        # maintenance reads the chat's last turns from it, and the rebuilt
+        # list holds the summary in their place.
+        if memory_v2_char_key and clean_response and clean_response.strip():
             try:
                 memory_v2.stage_turn(
                     char_key=memory_v2_char_key,
                     messages=track,
                     assistant_response=clean_response,
-                    char_name=memory_v2_char_key,
+                    char_name=memory_v2_char_name,
                 )
             except Exception as e:
                 log(f"[memv2] stage_turn failed: {e}", "WARN")
@@ -3723,6 +3765,9 @@ def chat_completions():
         stream = data.get("stream", False)
         # Only used when the GUI's Model setting is "Use SillyTavern's model"
         requested_model = data.get("model")
+        # Not an OpenAI field: SillyTavern sends it from Include Body
+        # Parameters (see memory_identity).
+        character_name = data.get("character_name")
         # OpenAI-style tool definitions - only use if enabled
         tools = None
         if runtime_settings.get("tool_calling_enabled", True):
@@ -4075,7 +4120,7 @@ Now, based on this context, please respond to the following request:
                 result_holder["result"] = call_claude_code(
                     messages, tools=tools, process_holder=process_holder, char_key=original_char_key, json_schema=json_schema,
                     tracking_messages=original_messages, requested_model=requested_model,
-                    on_delta=on_delta if live else None,
+                    on_delta=on_delta if live else None, character_name=character_name,
                 )
             except Exception as e:
                 log(f"Worker crashed: {e}", "ERROR")
@@ -4545,21 +4590,46 @@ def update_settings():
 
 @app.route("/api/memory/list", methods=["GET"])
 def memory_list():
-    """Return summary info for every character with a memory dir."""
-    return jsonify({"characters": memory_v2.list_characters()})
+    """Return summary info for every character with a memory dir, plus
+    whether memory is on and what it did on the latest roleplay turn."""
+    return jsonify({
+        "characters": memory_v2.list_characters(),
+        "enabled": bool(runtime_settings.get("character_memory_v2_enabled", False)),
+        "embeddings": memory_v2.embeddings_installed(),
+        "st_sends_name": _sillytavern_sends_character_name(),
+        "last_turn": memory_last_turn,
+    })
+
+
+def _sillytavern_sends_character_name():
+    """Whether SillyTavern's saved Include Body Parameters send the
+    `character_name` field memory_identity reads; None when its
+    settings.json can't be read."""
+    user_dir = _sillytavern_user_dir()
+    if not user_dir:
+        return None
+    try:
+        with open(os.path.join(user_dir, "settings.json"), encoding="utf-8") as f:
+            body = (json.load(f).get("oai_settings") or {}).get("custom_include_body") or ""
+    except (OSError, ValueError):
+        return None
+    return bool(re.search(r"""(?m)^\s*["']?character_name["']?\s*:""", body))
 
 
 def _memory_row_dict(row: dict) -> dict:
     """Strip embedding bytes (not JSON-serializable) and normalize for the GUI."""
     out = dict(row)
     out.pop("embedding", None)
+    out["card_copy"] = memory_v2.is_card_copy(row)
     return out
 
 
 @app.route("/api/memory/<char_key>", methods=["GET"])
 def memory_get_char(char_key):
     """Return all rows + needs + NPC list for one character."""
-    conn = memory_v2.get_connection(char_key)
+    # get_connection and load_needs create the DB and files for a new key.
+    cdir = memory_v2.char_dir(char_key)
+    conn = memory_v2.get_connection(char_key) if cdir and os.path.isdir(cdir) else None
     if conn is None:
         return jsonify({"error": "no DB for that char_key"}), 404
     rows = [_memory_row_dict(r) for r in memory_v2.query_memories(
@@ -4640,6 +4710,13 @@ def memory_update_row(char_key, row_id):
         emb = memory_v2.embed(str(data["content"]))
         if emb:
             data["embedding"] = emb
+    # A row rewritten here says something the chat and card don't, so it's
+    # injected even while the reply it came from is in context
+    # (memory_v2.is_card_copy, memory_v2.in_visible_chat).
+    existing = memory_v2.get_memory(conn, int(row_id))
+    if existing and "content" in data and data["content"] != existing.get("content"):
+        meta = data.get("metadata") if isinstance(data.get("metadata"), dict) else existing.get("metadata")
+        data["metadata"] = {**(meta if isinstance(meta, dict) else {}), "edited": True}
     try:
         ok = memory_v2.update_memory(conn, int(row_id), **data)
     except ValueError as e:

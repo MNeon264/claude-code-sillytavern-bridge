@@ -686,19 +686,26 @@ def auto_dormant(conn: sqlite3.Connection, current_turn: int, threshold_turns: i
     """Mark active memories `dormant` if last_seen_turn is too far behind.
 
     Skips entries with importance >= 5 (those are explicitly "always relevant"
-    and shouldn't auto-fade). Returns count transitioned.
+    and shouldn't auto-fade), and card copies (is_card_copy), which are never
+    injected and so never seen. Returns count transitioned.
     """
     cutoff = max(0, int(current_turn) - int(threshold_turns))
-    cur = conn.execute(
+    rows = conn.execute(
         """
-        UPDATE memories
-        SET status = 'dormant'
+        SELECT id, metadata FROM memories
         WHERE status = 'active'
           AND importance < 5
           AND (last_seen_turn IS NULL OR last_seen_turn < ?)
           AND created_turn < ?
         """,
         (cutoff, cutoff),
+    ).fetchall()
+    ids = [r["id"] for r in rows if not is_card_copy({"metadata": _deserialize_metadata(r["metadata"])})]
+    if not ids:
+        return 0
+    cur = conn.execute(
+        f"UPDATE memories SET status = 'dormant' WHERE id IN ({','.join('?' * len(ids))})",
+        ids,
     )
     return cur.rowcount
 
@@ -841,6 +848,13 @@ def _load_embed_model():
 def embeddings_available() -> bool:
     """True if embeddings can be computed. Triggers lazy load on first call."""
     return _load_embed_model() is not None
+
+
+def embeddings_installed() -> bool:
+    """True if sentence-transformers is installed and hasn't failed to load.
+    Doesn't load the model (for the GUI)."""
+    import importlib.util
+    return not _embed_load_failed and importlib.util.find_spec("sentence_transformers") is not None
 
 
 def warmup_embeddings_async():
@@ -1119,6 +1133,66 @@ def is_bootstrap_needed(char_key: str) -> bool:
     return (row[0] if row else 0) == 0
 
 
+def is_card_copy(row: dict) -> bool:
+    """True for a row the bootstrap took from the character card that
+    nothing has changed since.
+
+    SillyTavern sends the card with every turn, so these rows are never
+    injected or ranked. They stay in the DB, and active, as maintenance's
+    record of what the card says: it doesn't see the card itself, and
+    without them it would re-record the card's facts as new memories.
+    An update that changes what the row says (content, intensity,
+    importance, or a relationship's closeness/trust) sets
+    `last_updated_turn`, and rewriting it on the Memory tab sets `edited`;
+    from then on it's an ordinary memory.
+    """
+    meta = row.get("metadata")
+    return (isinstance(meta, dict) and meta.get("source") == "card_seed"
+            and "last_updated_turn" not in meta and not meta.get("edited"))
+
+
+# Sources of rows written from the chat or the card, as opposed to the GUI,
+# an import or the v1 migration.
+_CHAT_SOURCES = {"card_seed", "post_turn", "npc_seed", "npc_bio"}
+
+
+def visible_turns(conn: sqlite3.Connection, messages: list[dict]) -> set[int]:
+    """Memory turns whose reply is one of the assistant messages in
+    `messages`, plus turn 0 (the bootstrap, from the card SillyTavern sends
+    with every turn). Matched by the hash the turn log keeps of each reply,
+    with or without SillyTavern's "Name: " label."""
+    hashes = set()
+    for m in messages:
+        if m.get("role") != "assistant":
+            continue
+        content = m.get("content", "")
+        if isinstance(content, list):
+            content = "\n".join(p.get("text", "") for p in content if isinstance(p, dict) and p.get("type") == "text")
+        text = " ".join(str(content or "").split())
+        hashes.add(_hash_text(text))
+        hashes.add(_hash_text(_SPEAKER_LABEL_RE.sub("", text, count=1)))
+    hashes.discard("")
+    visible = {0}
+    if hashes:
+        rows = conn.execute(
+            f"SELECT turn_number FROM turn_log WHERE message_hash IN ({','.join('?' * len(hashes))})",
+            list(hashes),
+        ).fetchall()
+        visible.update(r[0] for r in rows)
+    return visible
+
+
+def in_visible_chat(row: dict, visible: set[int]) -> bool:
+    """True when everything a row says is already in the prompt: it was
+    written from the card or from a reply in `visible` (see visible_turns),
+    and so was its last change. Rows from replies that have left the context,
+    from other chats, or added or rewritten by hand are False."""
+    meta = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
+    if meta.get("source") not in _CHAT_SOURCES or meta.get("edited"):
+        return False
+    return row.get("created_turn") in visible and meta.get("last_updated_turn", row.get("created_turn")) in visible
+
+
 _BOOTSTRAP_SYSTEM = """You are a memory-system bootstrapper for an interactive RP system. Given a character card and the opening of a roleplay session, extract initial structured memory entries that will seed the character's persistent memory database.
 
 You MUST respond with a single JSON object matching this exact shape:
@@ -1173,9 +1247,10 @@ def _flatten_card(messages: list[dict]) -> str:
     """Pull what we believe is the character card out of a SillyTavern messages list.
 
     SillyTavern packs the character description into the system messages plus
-    the first assistant message (the greeting). We concatenate up to ~12k
+    the first assistant message (the greeting). We concatenate up to ~40k
     chars of system content + the first assistant message + the first user
-    message for context — that's enough for any realistic card.
+    message for context. The preset usually comes before the card, and a
+    long preset plus a W++ card with example chats runs past 20k chars.
     """
     sys_parts = []
     greeting = None
@@ -1198,8 +1273,8 @@ def _flatten_card(messages: list[dict]) -> str:
             first_user = content
 
     sys_text = "\n\n".join(sys_parts)
-    if len(sys_text) > 12000:
-        sys_text = sys_text[:12000] + "\n[...truncated for bootstrap...]"
+    if len(sys_text) > 40000:
+        sys_text = sys_text[:40000] + "\n[...truncated for bootstrap...]"
 
     parts = ["=== CHARACTER CARD / SYSTEM CONTEXT ===", sys_text]
     if greeting:
@@ -1209,10 +1284,12 @@ def _flatten_card(messages: list[dict]) -> str:
     return "\n".join(parts)
 
 
-def run_bootstrap(char_key: str, messages: list[dict], current_turn: int = 0) -> Optional[dict]:
+def run_bootstrap(char_key: str, messages: list[dict], current_turn: int = 0,
+                  char_name: Optional[str] = None) -> Optional[dict]:
     """Run the Sonnet bootstrap pass and seed the character's DB.
 
-    - Extracts the card+greeting from `messages`
+    - Extracts the card+greeting from `messages`; `char_name` tells Sonnet
+      which character to seed when the context holds several (group chats)
     - Calls Sonnet with the bootstrap prompt
     - Parses the JSON
     - Writes initial rows to memories table + needs.json + card_seed.json
@@ -1232,6 +1309,12 @@ def run_bootstrap(char_key: str, messages: list[dict], current_turn: int = 0) ->
     if not card_text.strip():
         log(f"bootstrap: empty card for {char_key}, skipping", "WARN")
         return None
+    if char_name and char_name != "character":
+        card_text = (
+            f"=== WHOSE MEMORY THIS IS ===\n{char_name}. Seed {char_name}'s memory only: "
+            f"in a group chat the context may also hold other characters' cards and replies.\n\n"
+            + card_text
+        )
 
     log(f"bootstrap: calling Sonnet for {char_key}...", "INFO")
     t0 = time.time()
@@ -1986,17 +2069,21 @@ def find_npcs_in_scene(char_key: str, messages: list[dict], lookback: int = 2) -
     return found
 
 
-def _query_npc_memories(char_key: str, npc_key: str, current_turn: int, cap: int = 15) -> list[dict]:
-    """Pull a small high-importance slice of an NPC's DB for injection."""
+def _query_npc_memories(char_key: str, npc_key: str, current_turn: int, cap: int = 15,
+                        skip=None) -> list[dict]:
+    """Pull a small high-importance slice of an NPC's DB for injection,
+    leaving out rows `skip` returns True for."""
     conn = get_connection(char_key, npc_key=npc_key)
     if conn is None:
         return []
     rows = query_memories(
         conn,
         statuses=("active",),
-        limit=cap,
+        limit=cap if skip is None else 100000,
         order_by="default",
     )
+    if skip is not None:
+        rows = [r for r in rows if not skip(r)][:cap]
     if rows:
         # Mark seen — keeps NPC entries from going dormant when they're being used.
         mark_seen(conn, [r["id"] for r in rows], current_turn)
@@ -2050,6 +2137,7 @@ def _candidate_pull(
     current_turn: int,
     active_subjects: list[str],
     cap: int = 30,
+    skip=is_card_copy,
 ) -> list[dict]:
     """Cheap programmatic SQL pull of candidate memories for this turn.
 
@@ -2061,12 +2149,16 @@ def _candidate_pull(
       - Recent (last 10 turns seen)
       - High-importance (>= 4) regardless of subject
       - About active subjects regardless of recency
+    Rows `skip` returns True for are left out: by default card copies, as
+    the card is already in the prompt; prepare_turn also skips everything
+    else the visible chat holds.
     """
     seen = {}  # id -> dict
 
     def take(rows: list[dict]):
         for r in rows:
-            seen.setdefault(r["id"], r)
+            if not skip(r):
+                seen.setdefault(r["id"], r)
 
     # Intensity 6 = INEVITABLE. Always pull these first, regardless of subject
     # or recency. They override every other retrieval rule.
@@ -2099,12 +2191,13 @@ def _semantic_augment(
     scene_query: str,
     existing_ids: set[int],
     extra_cap: int = 10,
+    skip=is_card_copy,
 ) -> list[dict]:
     """Pull additional candidates via embedding similarity to scene_query.
 
     Embeds scene_query, scans active memories with embeddings, and returns
-    the top `extra_cap` not already in `existing_ids`. Returns [] if
-    embeddings aren't available.
+    the top `extra_cap` not already in `existing_ids` and not skipped (see
+    _candidate_pull). Returns [] if embeddings aren't available.
     """
     if not embeddings_available():
         return []
@@ -2112,7 +2205,7 @@ def _semantic_augment(
     rows = conn.execute(
         "SELECT * FROM memories WHERE status = 'active' AND embedding IS NOT NULL"
     ).fetchall()
-    pool = [_row_to_dict(r) for r in rows if r["id"] not in existing_ids]
+    pool = [d for d in (_row_to_dict(r) for r in rows if r["id"] not in existing_ids) if not skip(d)]
     if not pool:
         return []
     ranked = cosine_search(scene_query, pool, top_k=extra_cap * 2)
@@ -2216,11 +2309,13 @@ def _split_pinned(candidates: list[dict], scene_subjects: Iterable[str]) -> tupl
 def _build_scene_text(messages: list[dict], chars_in_scene: list[str]) -> str:
     """Compact scene description for Sonnet ranking + embedding semantic search.
 
-    Uses last user message + last 2 messages of any role for context.
+    Uses the last 3 chat messages. System messages are skipped: SillyTavern
+    sends Post-History Instructions after the chat, and ranking against them
+    instead of the scene would pick the same memories every turn.
     """
     if not messages:
         return ""
-    tail = messages[-3:]
+    tail = [m for m in messages if m.get("role") in ("user", "assistant")][-3:]
     parts = [f"Active characters: {', '.join(chars_in_scene) if chars_in_scene else 'main character only'}"]
     for m in tail:
         role = m.get("role", "?")
@@ -2237,6 +2332,11 @@ def _build_scene_text(messages: list[dict], chars_in_scene: list[str]) -> str:
             content = content[:1500] + "..."
         parts.append(f"[{role}] {content}")
     return "\n".join(parts)
+
+
+# The "closeness=N trust=M — " prefix run_bootstrap writes into a seeded
+# relationship's content.
+_SEED_REL_NUMS_RE = re.compile(r"^closeness=\S+ trust=\S+ — ")
 
 
 def format_injection(memories: list[dict], needs: dict, char_name: str = "character") -> str:
@@ -2281,6 +2381,12 @@ def format_injection(memories: list[dict], needs: dict, char_name: str = "charac
             needs_line = "[NEEDS] " + " | ".join(chunks)
 
     out_lines: list[str] = [f"=== CHARACTER MEMORY ({char_name.upper()}) ==="]
+    if memories:
+        # prepare_turn leaves out what the chat already shows.
+        out_lines.append(
+            f"What {char_name} remembers that isn't in the chat above: scenes from before "
+            f"the part of the chat shown, and from other chats with {char_name}."
+        )
     if needs_line:
         out_lines.append(needs_line)
 
@@ -2322,7 +2428,7 @@ def format_injection(memories: list[dict], needs: dict, char_name: str = "charac
     type_labels = (
         ("desire", "ACTIVE DESIRES"),
         ("relationship", "RELATIONSHIPS"),
-        ("event", "RECENT EVENTS"),
+        ("event", "EARLIER EVENTS"),
         ("rule", "RULES"),
         ("trait", "ACTIVE TRAITS"),
         ("place", "PLACES"),
@@ -2342,6 +2448,7 @@ def format_injection(memories: list[dict], needs: dict, char_name: str = "charac
         out_lines.append(f"\n[{label}]")
         for r in rows:
             prefix = ""
+            content = r["content"]
             if tname == "desire" and r.get("intensity") is not None:
                 tu = ""
                 last_acted = r.get("last_acted_turn")
@@ -2350,7 +2457,15 @@ def format_injection(memories: list[dict], needs: dict, char_name: str = "charac
                 prefix = f"intensity {r['intensity']}{tu} | "
             elif r.get("subject"):
                 prefix = f"{r['subject']}: "
-            out_lines.append(f"- {prefix}{r['content']}")
+            if tname == "relationship":
+                # Closeness/trust from metadata, which updates patch; the
+                # bootstrap also wrote them into the text, where they go stale.
+                meta = r.get("metadata") if isinstance(r.get("metadata"), dict) else {}
+                nums = ", ".join(f"{k} {meta[k]}" for k in ("closeness", "trust") if meta.get(k) is not None)
+                if nums:
+                    prefix += f"[{nums}] "
+                    content = _SEED_REL_NUMS_RE.sub("", content, count=1)
+            out_lines.append(f"- {prefix}{content}")
 
     if secrets:
         out_lines.append("\n[SECRETS — HIDDEN, do not reveal unless directly forced or contextually appropriate]")
@@ -2368,6 +2483,7 @@ def prepare_turn(
     char_name: str = "character",
     active_subjects: Optional[list[str]] = None,
     inject_row_budget: int = DEFAULT_INJECT_ROW_BUDGET,
+    chat_messages: Optional[list[dict]] = None,
 ) -> tuple[str, list[int]]:
     """Top-level pre-turn entry point. Returns (injection_text, used_ids).
 
@@ -2382,6 +2498,9 @@ def prepare_turn(
 
     `active_subjects` defaults to ['user'] — the most common case. NPCs in
     scene get added by the bridge before calling.
+
+    `chat_messages` is the request as the client sent it, when `messages`
+    has been rebuilt (auto-summary); the staged turn is looked for in it.
     """
     conn = get_connection(char_key)
     if conn is None:
@@ -2392,7 +2511,7 @@ def prepare_turn(
 
     # First: decide what to do with the previous turn's staged buffer (if any).
     # Either commit (user accepted) or discard (swipe/regen detected).
-    _flush_pending_if_accepted(char_key, messages)
+    _flush_pending_if_accepted(char_key, chat_messages if chat_messages is not None else messages)
 
     # If this character has v1 .md files lying around (state.md/diary.md/
     # rules.md from the original toggle), migrate them into the v2 DB once
@@ -2403,9 +2522,25 @@ def prepare_turn(
 
     if is_bootstrap_needed(char_key):
         # Bootstrap is blocking on first turn. Subsequent turns skip this branch.
-        run_bootstrap(char_key, messages, current_turn=0)
+        run_bootstrap(char_key, messages, current_turn=0, char_name=char_name)
 
     current_turn = latest_turn(conn) + 1
+
+    # What the prompt already holds: the card, and every reply still in the
+    # chat SillyTavern sent (as the model will see it, so after an
+    # auto-summary rebuild only the raw messages count). Rows written from
+    # those aren't injected; memory brings back what has scrolled out of the
+    # context and what happened in other chats. They count as seen, so they
+    # don't go dormant while they're in plain view.
+    visible = visible_turns(conn, messages)
+
+    def in_chat(r: dict) -> bool:
+        return in_visible_chat(r, visible)
+
+    in_chat_ids = [r["id"] for r in query_memories(conn, statuses=("active",), limit=100000)
+                   if in_chat(r) and not is_card_copy(r)]
+    if in_chat_ids:
+        mark_seen(conn, in_chat_ids, current_turn)
 
     tick_needs(char_key, current_turn)
     dormant_count = auto_dormant(conn, current_turn, threshold_turns=DEFAULT_DORMANCY_TURNS)
@@ -2434,25 +2569,29 @@ def prepare_turn(
         pull_subjects.extend(_subject_variants_for_npcs(char_key, npcs_in_scene))
         pull_subjects = list(dict.fromkeys(pull_subjects))  # dedupe, preserve order
 
-    candidates = _candidate_pull(conn, current_turn, pull_subjects, cap=30)
+    candidates = _candidate_pull(conn, current_turn, pull_subjects, cap=30, skip=in_chat)
 
     scene_text = _build_scene_text(messages, [char_name] + [s for s in active_subjects if s != "user"])
     if scene_text:
         existing_ids = {c["id"] for c in candidates}
-        extras = _semantic_augment(conn, scene_text, existing_ids, extra_cap=10)
+        extras = _semantic_augment(conn, scene_text, existing_ids, extra_cap=10, skip=in_chat)
         if extras:
             log(f"prepare_turn[{char_key}]: +{len(extras)} via semantic search", "INFO")
         candidates.extend(extras)
 
     # Pinned rows (strong desires, secrets, in-scene relationships) always go
-    # first; Sonnet ranks the rest into the remaining slots. Falls back to
-    # programmatic order on failure or timeout.
+    # first; Sonnet ranks the rest into the remaining slots, only when there
+    # are more than fit: otherwise they all go in, and the turn doesn't wait
+    # for a ranking call. Falls back to programmatic order on failure or
+    # timeout.
     final_ids: Optional[list[int]] = None
     if candidates:
         pinned, rankable = _split_pinned(candidates, pull_subjects)
         room = max(0, inject_row_budget - len(pinned))
         ranked_ids: list[int] = []
-        if rankable and room:
+        if len(rankable) <= room:
+            ranked_ids = [c["id"] for c in rankable]
+        elif room:
             ranked = _sonnet_rank(scene_text, rankable, room)
             if ranked is not None:
                 rankable_ids = {c["id"] for c in rankable}
@@ -2463,6 +2602,12 @@ def prepare_turn(
         final_ids = ([c["id"] for c in pinned] + ranked_ids[:room])[:inject_row_budget]
     else:
         final_ids = []
+    log(
+        f"prepare_turn[{char_key}]: {len(in_chat_ids)} entries from replies still in the chat, "
+        f"{len(candidates)} candidates from outside it, {len(final_ids)} injected"
+        + (" (ranked by Sonnet)" if candidates and len(rankable) > room and room else ""),
+        "INFO",
+    )
 
     # Re-fetch in ranked order. (We could re-use the candidates list, but
     # going through the DB ensures we get fresh row state in case maintenance
@@ -2482,12 +2627,15 @@ def prepare_turn(
     # Append per-NPC sections for any NPCs detected in scene. Each NPC gets
     # a small slice of their own DB (top ~10 entries by importance/recency)
     # appended to the main injection so Opus has each NPC's perspective.
+    # NPC rows use the main DB's turn numbers, so the same rows are left out
+    # as in-chat, and an NPC with nothing beyond the chat gets no section.
     for nk in npcs_in_scene:
         card = load_npc_card(char_key, nk) or {}
         if (card.get("status") or "active") != "active":
             continue
-        npc_rows = _query_npc_memories(char_key, nk, current_turn, cap=10)
-        injection += _format_npc_section(card, npc_rows)
+        npc_rows = _query_npc_memories(char_key, nk, current_turn, cap=10, skip=in_chat)
+        if npc_rows:
+            injection += _format_npc_section(card, npc_rows)
 
     return injection, final_ids
 
@@ -2545,6 +2693,7 @@ RULES:
 - Use `register_npc` ONLY for newly-named recurring characters. Skip one-offs.
 - needs_delta: signed floats. Negative = need decreased (more pressure). Positive = need restored (less pressure). Bounded -1.0 to +1.0.
 - Skip the operation entirely if you're not sure. Quality > quantity.
+- The character card is sent to the writer with every turn. FROM THE CHARACTER CARD lists what was taken from it; those entries are not shown to the writer while they still say what the card says. Never insert an entry that only restates the card. When the story changes something the card established (a secret comes out, a fact stops being true, a trait shifts, the relationship moves), `update`, `resolve` or `mutate` that card entry by its id instead of inserting a new one.
 
 RELATIONSHIP UPDATES (do not skip these):
 If THIS turn changed how the active character feels about someone — warmer, colder, owed something, owing something, more suspicious, more trusting, freshly grateful, freshly resentful — you MUST emit an `update` on that subject's `relationship` row (or `insert` a new one if none exists). Relationships that never update are a bug. Even small shifts ("noticed kindness, +1 closeness") should be recorded.
@@ -2730,14 +2879,23 @@ def _op_update(conn, op, current_turn, char_key):
     if "content" in fields:
         # If content changed, refresh the embedding too.
         fields["embedding"] = embed(fields["content"])
-    if rel_meta:
+    existing = get_memory(conn, mid) or {}
+    existing_meta = existing.get("metadata") or {}
+    if not isinstance(existing_meta, dict):
+        existing_meta = {}
+    # A change to what the row says, as opposed to a bumped turn counter or
+    # a tag, records its turn: a card row stops being a card copy
+    # (is_card_copy), and a row changed in another chat counts as not in
+    # this one (in_visible_chat).
+    changed = any(k in fields and fields[k] != existing.get(k)
+                  for k in ("content", "intensity", "importance", "subject", "type")) \
+        or any(existing_meta.get(k) != v for k, v in rel_meta.items())
+    if rel_meta or changed:
         # Merge into existing metadata rather than replacing it. Preserves
         # source / origin info while letting closeness/trust be patched.
-        existing = get_memory(conn, mid)
-        existing_meta = (existing or {}).get("metadata") or {}
-        if not isinstance(existing_meta, dict):
-            existing_meta = {}
-        merged = {**existing_meta, **rel_meta, "last_updated_turn": current_turn}
+        merged = {**existing_meta, **rel_meta}
+        if changed:
+            merged["last_updated_turn"] = current_turn
         # If caller also passed an explicit metadata dict, merge it on top.
         if isinstance(fields.get("metadata"), dict):
             merged.update(fields["metadata"])
@@ -3047,11 +3205,16 @@ def record_turn(
         current_turn = latest_turn(conn) + 1
 
     needs = load_needs(char_key)
-    recent_memories = query_memories(conn, statuses=("active",), limit=40)
+    # Card copies get their own section and don't take up the 40 places.
+    active = query_memories(conn, statuses=("active",), limit=100000)
+    card_memories = [m for m in active if is_card_copy(m)][:60]
+    recent_memories = [m for m in active if not is_card_copy(m)][:40]
 
-    # Build context from the last 2 user/assistant exchanges.
+    # Build context from the last 2 user/assistant exchanges. System messages
+    # are skipped: SillyTavern sends Post-History Instructions after the chat,
+    # and they would take the place of the turns.
     convo_tail = []
-    for m in messages[-6:]:
+    for m in [m for m in messages if m.get("role") in ("user", "assistant")][-6:]:
         role = m.get("role", "?")
         content = m.get("content", "")
         if isinstance(content, list):
@@ -3063,23 +3226,36 @@ def record_turn(
                 content = content[:1500] + "..."
             convo_tail.append(f"[{role}] {content}")
 
-    memory_lines = []
-    for m in recent_memories:
-        memory_lines.append(
+    def memory_line(m):
+        return (
             f"[{m['id']}] type={m['type']} subj={m.get('subject') or '-'} "
             f"int={m.get('intensity')} imp={m['importance']} :: {m['content']}"
         )
+
+    memory_lines = [memory_line(m) for m in recent_memories]
+    card_lines = [memory_line(m) for m in card_memories]
 
     needs_compact = json.dumps(
         {k: v for k, v in needs.items() if k != "last_tick_turn"},
         ensure_ascii=False,
     )
 
+    whose = ""
+    if char_name and char_name != "character":
+        whose = (
+            f"\n=== ACTIVE CHARACTER ===\n{char_name}. This database is {char_name}'s, and the "
+            f"just-completed turn is {char_name}'s reply. In a group chat, the other characters' "
+            f"replies in RECENT TURNS are theirs, not {char_name}'s."
+        )
+
     prompt = (
         _MAINT_PROMPT
+        + whose
         + f"\n=== CURRENT NEEDS ===\n{needs_compact}"
+        + f"\n=== FROM THE CHARACTER CARD (id-prefixed) ===\n"
+        + ("\n".join(card_lines) or "(none)")
         + f"\n=== ACTIVE MEMORIES (id-prefixed) ===\n"
-        + "\n".join(memory_lines)
+        + ("\n".join(memory_lines) or "(none)")
         + f"\n=== RECENT TURNS ===\n"
         + "\n\n".join(convo_tail)
         + f"\n=== JUST-COMPLETED TURN (assistant) ===\n{assistant_response[:6000]}"
@@ -3154,11 +3330,19 @@ def record_turn_async(
 # the same fundamental issue (different hash means swipe undetected) and
 # it caused noticeable drift on long sessions.
 #
+# Replies are compared the way the bridge's session reuse compares them:
+# whitespace-normalized, with SillyTavern's "Name: " speaker label allowed
+# on one side only. Counting user messages instead misses every turn once
+# the chat is at the context limit, where SillyTavern drops an old user
+# message for each new one.
+#
 # Failure modes:
 #   - User closes the chat forever: buffer sits unflushed. No harm; the
 #     next session either accepts (commits) or rejects (discards) it.
-#   - Group chat with many cards: buffer is per-char_key, so cards don't
-#     interfere with each other.
+#   - Group chat: buffer is per-char_key and each member has their own
+#     key, so one member's turn doesn't flush another's.
+#   - The reply was edited in SillyTavern, or has scrolled out of the
+#     context by the character's next turn: discarded like a swipe.
 #   - First turn ever: buffer is empty, nothing to flush. Correct.
 
 _PENDING_TURNS_LOCK = threading.Lock()
@@ -3179,56 +3363,40 @@ def stage_turn(
     """
     if not assistant_response or not assistant_response.strip():
         return
-    user_count = _user_msg_count(messages)
     with _PENDING_TURNS_LOCK:
         _PENDING_TURNS[char_key] = {
             "response": assistant_response,
             "messages": list(messages),  # snapshot, not a live ref
             "char_name": char_name,
             "staged_at": time.time(),
-            "user_count_at_stage": user_count,
         }
     log(
-        f"[memv2] staged turn for {char_key} "
-        f"(user_count={user_count}); commits when next request has more user msgs",
+        f"[memv2] staged turn for {char_key}; commits if {char_name}'s next request still has this reply",
         "INFO",
     )
 
 
-def _user_msg_count(messages: list[dict]) -> int:
-    """Count substantive user messages in a request.
+# SillyTavern's speaker label at the start of a group chat message.
+_SPEAKER_LABEL_RE = re.compile(r"^[^\n:]{1,60}:\s+")
 
-    Used as the accept-vs-swipe signal for the staging buffer: if the new
-    request has MORE user messages than the snapshot we staged, the user
-    sent a follow-up (= accepted the previous response). If the count is
-    the SAME, the user is regenerating / swiping the previous response.
-    Less = conversation was rewound or messages were dropped.
 
-    "Substantive" filters out empty/marker-only messages (ST sometimes
-    sends short instruction tokens like "<turn>" or single dots that
-    aren't real user input). Keeps any message with > 5 chars after strip.
-    """
-    n = 0
+def _reply_in_chat(reply: str, messages: list[dict]) -> bool:
+    """Whether `reply` is one of the assistant messages in `messages`."""
+    r = " ".join(reply.split())
+    r_bare = _SPEAKER_LABEL_RE.sub("", r, count=1)
     for m in messages:
-        if m.get("role") != "user":
+        if m.get("role") != "assistant":
             continue
         content = m.get("content", "")
         if isinstance(content, list):
-            content = " ".join(
+            content = "\n".join(
                 p.get("text", "") for p in content
                 if isinstance(p, dict) and p.get("type") == "text"
             )
-        if not isinstance(content, str):
-            content = str(content)
-        stripped = content.strip()
-        # Filter ST-injected instruction markers that aren't real user input.
-        # Mirrors the filtering trigger_lorebook_analysis already does.
-        if not stripped or len(stripped) < 10:
-            continue
-        if stripped.startswith("<turn>") or stripped.startswith("<latest_turn"):
-            continue
-        n += 1
-    return n
+        t = " ".join(str(content or "").split())
+        if t == r or _SPEAKER_LABEL_RE.sub("", t, count=1) == r or (r_bare != r and t == r_bare):
+            return True
+    return False
 
 
 # Used only by record_turn / is_swipe to dedupe identical-content turns
@@ -3249,50 +3417,38 @@ def _hash_text(text: str) -> str:
 
 
 def _flush_pending_if_accepted(char_key: str, current_messages: list[dict]):
-    """Decide what to do with the staged turn using user-message count.
+    """Commit the staged turn if this request still has its reply, else
+    discard it.
 
-    Semantic: "user accepted the previous response" === "user sent another
-    user message after it". So we just compare user-message counts:
-      - current > staged → user moved forward → COMMIT
-      - current == staged → swipe / regenerate → DISCARD (new gen will re-stage)
-      - current  < staged → rewind / edit / weirdness → DISCARD
-
-    This sidesteps the brittle text-hash matching, which couldn't survive
-    SillyTavern's history mangling (HTML, font tags, name prefixes,
-    truncation, group-chat routing). The user message count is a much
-    harder signal to mangle.
+    The character's next request has the reply when the user kept it: they
+    wrote a new message, another character spoke, or they pressed Continue.
+    It doesn't when they swiped or regenerated it, edited or deleted it, or
+    went back to an earlier message or branch.
     """
     with _PENDING_TURNS_LOCK:
         pending = _PENDING_TURNS.get(char_key)
     if not pending:
         return
 
-    staged_count = int(pending.get("user_count_at_stage", 0))
-    current_count = _user_msg_count(current_messages)
-
-    if current_count > staged_count:
-        # User sent a new message → they accepted the previous response.
+    if _reply_in_chat(pending["response"], current_messages):
         with _PENDING_TURNS_LOCK:
             popped = _PENDING_TURNS.pop(char_key, None)
         if popped:
-            log(
-                f"[memv2] flushing accepted turn for {char_key} "
-                f"(user_count {staged_count} → {current_count})",
-                "SUCCESS",
-            )
+            log(f"[memv2] flushing accepted turn for {char_key} (reply is in this request)", "SUCCESS")
             # Pre-stamp the turn_log row synchronously so the caller's
             # subsequent `latest_turn()` read reflects this accepted turn
             # immediately. Without this, prepare_turn could compute the same
             # current_turn twice (race), and a chronically failing Sonnet
             # maintenance pass would leave latest_turn stuck forever. The
             # background record_turn updates the same row in place with the
-            # summary + message hash once Sonnet returns.
+            # summary once Sonnet returns. The reply's hash goes in now:
+            # visible_turns matches the chat against it.
             stamped_turn: Optional[int] = None
             try:
                 conn = get_connection(char_key)
                 if conn is not None:
                     stamped_turn = latest_turn(conn) + 1
-                    log_turn(conn, stamped_turn, summary=None, message_hash=None)
+                    log_turn(conn, stamped_turn, summary=None, message_hash=_hash_text(popped["response"]))
             except Exception as e:
                 log(f"[memv2] pre-stamp log_turn failed: {e}", "WARN")
                 stamped_turn = None
@@ -3310,14 +3466,12 @@ def _flush_pending_if_accepted(char_key: str, current_messages: list[dict]):
             ).start()
         return
 
-    # Same or fewer user messages: swipe, regen, or rewind. Discard.
     with _PENDING_TURNS_LOCK:
         popped = _PENDING_TURNS.pop(char_key, None)
     if popped:
-        kind = "swipe/regen" if current_count == staged_count else "rewind/edit"
         log(
             f"[memv2] discarding staged turn for {char_key} "
-            f"({kind}; user_count staged={staged_count} now={current_count})",
+            f"(its reply isn't in this request: swiped, edited, deleted or another branch)",
             "INFO",
         )
 
@@ -3657,6 +3811,9 @@ __all__ = [
     "cosine_search",
     # bootstrap
     "is_bootstrap_needed",
+    "is_card_copy",
+    "visible_turns",
+    "in_visible_chat",
     "run_bootstrap",
     # needs
     "DEFAULT_NEEDS",

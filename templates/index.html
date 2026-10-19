@@ -1350,7 +1350,7 @@
                 <dd>Auto-generates World Info entries in the background after each RP message, using Sonnet for efficiency. Deep Analysis scans a full chat file for a more thorough pass. Manual Entry lets you add lore by hand.</dd>
 
                 <dt>Memory</dt>
-                <dd>Inspect and edit Character Memory: each character's memories, needs and NPCs.</dd>
+                <dd>Character Memory: whether it's set up, how it works, and each character's memories, needs and NPCs to inspect and edit.</dd>
 
                 <dt>Test</dt>
                 <dd>Send a message directly at the bridge without going through SillyTavern. Useful when debugging or checking that a new system prompt is wired up correctly.</dd>
@@ -1544,7 +1544,7 @@
                 <div class="setting-row">
                     <div>
                         <h4>Character Memory</h4>
-                        <p>Structured per-character SQLite + embeddings + Sonnet librarian. Sonnet curates relevant memories before each Opus turn (~3-8s added latency) and updates the DB after (background, non-blocking). See <code>MEMORY_DESIGN.md</code> for the full architecture. Requires <code>sentence-transformers</code> (installed by run_bridge.bat, or <code>pip install -r requirements-memory.txt</code>). First turn for a new character runs a one-time bootstrap pass (~5s). Old <code>state.md</code> / <code>diary.md</code> / <code>rules.md</code> files from the previous markdown-based system are migrated into the DB automatically on first enable.</p>
+                        <p>Gives each character a database of what happened to them: desires, relationships, events, secrets, body state, the NPCs they've met and needs that wear down. Before each reply, the bridge adds the entries that matter for the scene and aren't already in the chat: what has scrolled out of the context, and what happened in other chats. After you keep a reply, Sonnet updates the database in the background. Memory is per character name, so SillyTavern has to send it: add <code>character_name: "&#123;&#123;char&#125;&#125;"</code> to API Connections → Additional Parameters → Include Body Parameters. The Memory tab explains the rest.</p>
                     </div>
                     <div class="setting-row-control">
                         <span class="switch-label" id="characterMemoryV2Status">Disabled</span>
@@ -1950,7 +1950,9 @@
         <!-- Memory Panel (Character Memory v2) -->
         <div id="memory" class="panel">
             <h3>Character Memory</h3>
-            <p>Inspect and edit the structured memory database for each character. Each row is a typed memory: desires, events, traits, relationships, secrets. Updates here are immediate — no bridge restart needed.</p>
+            <p>Each character has a database of what happened to them: desires, relationships, events, secrets, body state, the NPCs they've met and needs that wear down. Before each reply, the entries that matter for the scene and aren't already in the chat are added to the turn: what has scrolled out of the context, and what happened in other chats. After you keep a reply, Sonnet updates the database. Edits made here apply from the next turn. <a href="#memHowItWorks">How it works</a> is below the editor.</p>
+
+            <div id="memStatus" class="notice" style="margin-bottom:14px;display:none;"></div>
 
             <div class="setting-card">
                 <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
@@ -1967,7 +1969,7 @@
                     <span style="color:var(--paper-faint);">Pinned:</span>
                     <span id="memPinKey" style="color:var(--paper);font-family:var(--font-mono);font-size:12px;"></span>
                     <button class="toggle-btn sm" id="memUnpinBtn" style="margin-left:8px;">Unpin</button>
-                    <span style="color:var(--paper-faint);margin-left:8px;">— bridge will use this key for every request, ignoring auto-detection.</span>
+                    <span style="color:var(--paper-faint);margin-left:8px;">— every turn uses this memory, whoever is speaking.</span>
                 </div>
                 <div id="memCharSummary" style="margin-top:10px;color:var(--paper-faint);font-size:12.5px;"></div>
             </div>
@@ -2044,7 +2046,7 @@
 
                 <!-- Card Seed sub-panel -->
                 <div id="memSub_seed" class="memSubPanel" style="display:none;">
-                    <p class="card-desc">The raw bootstrap extraction from the character card, preserved for audit. Edits here are NOT applied to the DB; this is reference only.</p>
+                    <p class="card-desc">What Sonnet extracted from the character card on the first reply, as it returned it. Its entries are the rows marked <em>card</em> on the Memories tab; this copy is for reference and isn't used.</p>
                     <pre id="memSeedBody" class="code-block" style="max-height:60vh;"></pre>
                 </div>
 
@@ -2132,6 +2134,36 @@ Common subject fields: subject, character, npc, entity, name.'></textarea>
                     <pre id="memImportOutput" class="code-block" style="margin-top:12px;max-height:40vh;display:none;"></pre>
                 </div>
             </div>
+
+            <h3 id="memHowItWorks">How it works</h3>
+            <dl class="prose-dl">
+                <dt>Setup</dt>
+                <dd>Turn on Character Memory in Settings. Then, in SillyTavern, open API Connections → Additional Parameters and add this line to Include Body Parameters:<br><code>character_name: "&#123;&#123;char&#125;&#125;"</code><br>SillyTavern fills in the name of the character it's generating for, and in a group chat that's the member whose turn it is. Nothing else in a request reliably says who is speaking, so memory skips every turn that doesn't name a character.</dd>
+
+                <dt>Characters</dt>
+                <dd>A character shows up in the list after their first reply with memory on, under their name. The key next to it is a hash of the name. Memory belongs to the name, not to a chat: all your chats with a character, solo or group, share one memory, and each group member has their own. Two cards with the same name share it too. <strong>Label</strong> changes the name shown here, which is also the name maintenance treats as the character themself. <strong>Reset</strong> deletes the character's whole memory. <strong>Pin</strong> makes every turn use the selected memory, whoever is speaking, for example to keep a memory after renaming a character; <strong>Unpin</strong> goes back to names.</dd>
+
+                <dt>First reply</dt>
+                <dd>A new character is seeded once. Sonnet reads SillyTavern's system prompt (card, preset and lore, up to 40,000 characters), the greeting and your first message, and writes the starting traits, facts, places, rules, secrets, body facts, relationships and needs. That reply waits for it. What Sonnet returned is kept on the Card Seed tab. These entries are marked <em>card</em> in the table. SillyTavern sends the card with every turn anyway, so they aren't added to turns. They're kept as the maintenance pass's record of what the card says: it never sees the card itself, and uses them to avoid recording the card again as new memories. Once the story changes one (a secret comes out, a relationship moves) or you rewrite it here, it becomes an ordinary memory.</dd>
+
+                <dt>Before each reply</dt>
+                <dd>Memory only brings in what the prompt doesn't already have. Entries written from the card or from a reply that's still in the chat SillyTavern sent are left out: the model can read those for itself. What's left is what has scrolled out of the context, what happened in other chats with the character, and what you added or rewrote here. Entries left out because they're in the chat count as used, so they don't go dormant before they scroll out. Needs wear down a little each turn (physical by 0.06, social 0.04, emotional 0.02). Entries that haven't been added to a turn or shown in the chat for 30 turns go dormant, unless their importance is 5 or they're card entries. Then up to 30 candidates are gathered from the rest: desires of intensity 3 or more, traits, secrets, relationships with you and with NPCs named in the last two chat messages, entries used in the last 10 turns, and anything of importance 4 or 5. Desires of intensity 4 or more, secrets, and relationships with someone in the scene always go in. If the other candidates fit in the remaining places (up to 20 entries in all), they all go in and the reply doesn't wait for anything. Only when there are more does Sonnet rank them against the last three chat messages; if it fails or takes over 30 seconds, they go in the order they were gathered. The bridge adds them at the end of the turn as a <code>CHARACTER MEMORY</code> block, with the needs and a short section for each NPC in the scene who has entries from outside the chat. Early in a chat, and for a new character, that's usually just the needs.</dd>
+
+                <dt>After each reply</dt>
+                <dd>The reply waits for the character's next turn. If that request still contains it, you kept it: Sonnet reads it with the last few chat messages, the card entries and up to 40 other active memories, then adds, updates, resolves or rewrites entries, adjusts needs and registers newly named NPCs, in the background. It's told not to add anything that only restates the card. If the reply is gone because you swiped, regenerated, edited or deleted it, it's dropped, so memory only learns from replies you kept. Failed updates are listed on the Errors tab.</dd>
+
+                <dt>NPCs</dt>
+                <dd>Named recurring characters get their own small memory under the character, with a card (name, bio, aliases). When an NPC's name or alias is in the last two chat messages, their entries are added to the turn as well. Edit cards on the NPCs tab; View memories opens an NPC's entries.</dd>
+
+                <dt>Semantic search</dt>
+                <dd>With <code>sentence-transformers</code> installed, each entry also gets an embedding, and up to 10 more candidates are found by similarity to the scene. Without it, candidates come only from the rules above. The status at the top of this tab says which applies.</dd>
+
+                <dt>Cost</dt>
+                <dd>A maintenance call runs in the background after each kept reply. The ranking call before a reply only happens once a character has more memories from outside the chat than fit in a turn, and then takes a few seconds. A new character adds the seeding call, which the first reply waits for. They count against your plan like any other call and are listed on the History tab under Character Memory.</dd>
+
+                <dt>Fields</dt>
+                <dd><strong>Type</strong>: desire, event, fact, rule, relationship, trait, place, possession, body or secret. <strong>Intensity</strong> (1–6, desires): 3 means the character acts if there's an opening, 4 that they act this turn, 6 that it happens no matter what. <strong>Importance</strong> (1–5): 4 and 5 are always candidates, and 5 never goes dormant. <strong>Status</strong>: only active entries are used, and of those, card entries only once changed; dormant, resolved and contradicted entries are kept but left out, and mutated entries (replaced by a rewritten one) are deleted after 20 turns. <strong>Turn</strong> counts the character's kept replies.</dd>
+            </dl>
 
             <!-- Edit/Insert modal for memory rows. Hidden by default. Opened
                  by row Edit (with rowData populated) or "+ New entry" (blank).
@@ -2256,9 +2288,53 @@ Common subject fields: subject, character, npc, entity, name.'></textarea>
         let memCurrentEntity = null;
         let memEntityRows = [];
 
+        // Whether memory is on and set up, and what it did on the latest
+        // roleplay turn. Answers "why is the character list empty?".
+        function memRenderStatus(data) {
+            const box = document.getElementById('memStatus');
+            const lines = [];
+            let warn = false;
+            const setup = 'In SillyTavern, open API Connections → Additional Parameters and add <code>character_name: "&#123;&#123;char&#125;&#125;"</code> to Include Body Parameters.';
+            const lt = data.last_turn || {};
+            const when = lt.at ? new Date(lt.at * 1000).toLocaleString() : '';
+            if (!data.enabled) {
+                warn = true;
+                lines.push('Character Memory is off, so no turn adds to it. Turn it on in Settings → Character Memory.');
+            } else {
+                if (data.st_sends_name === false) {
+                    warn = true;
+                    lines.push(`SillyTavern isn't sending the character's name, so memory skips every turn. ${setup}`);
+                }
+                if (lt.skipped === 'no_name') {
+                    warn = true;
+                    if (data.st_sends_name !== false) {
+                        lines.push(`The latest roleplay turn (${escapeHtml(when)}) didn't name its character, so memory skipped it. ${setup}`);
+                    }
+                } else if (lt.error) {
+                    warn = true;
+                    lines.push(`Memory failed on the latest roleplay turn (${escapeHtml(when)}, ${escapeHtml(lt.name || lt.char_key || '')}): ${escapeHtml(lt.error)}`);
+                } else if (lt.at) {
+                    const n = lt.injected ?? 0;
+                    lines.push(`Latest roleplay turn (${escapeHtml(when)}): memory ran for <strong>${escapeHtml(lt.name || lt.char_key)}</strong> and added ${n} ${n === 1 ? 'entry' : 'entries'} from outside the visible chat.`);
+                } else {
+                    lines.push('Memory is on. No roleplay turn has come in since the bridge started.');
+                }
+                if (data.embeddings === false) {
+                    lines.push("Semantic search is off: <code>sentence-transformers</code> isn't installed, so candidates are picked by type, subject, importance and recency only.");
+                }
+            }
+            if (!(data.characters || []).length) {
+                lines.push('No character has a memory yet. A character shows up here after their first reply with memory on.');
+            }
+            box.className = warn ? 'notice warn' : 'notice';
+            box.innerHTML = lines.map((l, i) => `<div${i ? ' style="margin-top:6px;"' : ''}>${l}</div>`).join('');
+            box.style.display = lines.length ? 'block' : 'none';
+        }
+
         async function memLoadCharList() {
             const resp = await fetch('/api/memory/list');
             const data = await resp.json();
+            memRenderStatus(data);
             const sel = document.getElementById('memCharSelect');
             const prev = sel.value;
             sel.innerHTML = '<option value="">— select a character —</option>';
@@ -2502,14 +2578,17 @@ Common subject fields: subject, character, npc, entity, name.'></textarea>
             tbody.innerHTML = '';
             rows.forEach(r => {
                 const tr = document.createElement('tr');
-                if (r.status !== 'active') tr.style.opacity = '0.55';
+                if (r.status !== 'active' || r.card_copy) tr.style.opacity = '0.55';
+                const status = r.card_copy
+                    ? `<span title="Taken from the character card, which SillyTavern already sends; added to turns only once the story changes it">${r.status} · card</span>`
+                    : r.status;
                 tr.innerHTML = `
                     <td class="muted">${r.id}</td>
                     <td>${r.type}</td>
                     <td class="muted">${escapeHtml(r.subject || '-')}</td>
                     <td>${r.intensity ?? ''}</td>
                     <td>${r.importance}</td>
-                    <td class="muted">${r.status}</td>
+                    <td class="muted">${status}</td>
                     <td>${escapeHtml(r.content || '')}</td>
                     <td class="muted">${r.created_turn}</td>
                     <td><div class="actions">
