@@ -380,7 +380,7 @@
 
         .status-msg { font-size: 12.5px; color: var(--success); }
 
-        /* Small standalone button (Memory tab actions, entity pills, row actions) */
+        /* Small standalone button (Memory tab actions, list actions) */
         .toggle-btn {
             display: inline-flex;
             align-items: center;
@@ -1246,6 +1246,108 @@
         .kpi-value { margin-top: 2px; font-size: 22px; font-weight: 600; letter-spacing: -0.01em; color: var(--paper); }
         .kpi-sub { margin-top: 2px; font-size: 11.5px; color: var(--paper-faint); }
 
+        /* ========== MEMORY TAB ========== */
+        .mem-inline { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+        .mem-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+        .mem-chips:empty { display: none; }
+        .mem-results { display: flex; flex-direction: column; gap: 2px; margin-top: 6px; max-height: 260px; overflow-y: auto; }
+        .mem-results:empty { display: none; }
+        .mem-result { padding: 7px 10px; border-radius: var(--radius-sm); cursor: pointer; color: var(--paper-dim); font-size: 13px; overflow-wrap: anywhere; }
+        .mem-result:hover { background: var(--ink-hover); color: var(--paper); }
+        .mem-result small { color: var(--paper-ghost); margin-left: 6px; }
+        .mem-card-chip { display: inline-flex; align-items: center; gap: 4px; margin: 2px 6px 2px 0; color: var(--paper-dim); }
+
+        .mem-chat {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 12px;
+            padding: 9px 12px;
+            border: 1px solid var(--rule);
+            border-radius: var(--radius-sm);
+            background: var(--ink-sunk);
+            margin-bottom: 6px;
+            cursor: pointer;
+        }
+        .mem-chat:hover { border-color: var(--rule-strong); }
+        .mem-chat-main { min-width: 0; flex: 1; }
+        .mem-chat-title { color: var(--paper); font-weight: 500; overflow-wrap: anywhere; }
+        .mem-chat-meta { font-size: 12px; color: var(--paper-faint); margin-top: 2px; overflow-wrap: anywhere; }
+        .mem-chat-side { flex: 0 0 auto; text-align: right; font-size: 12px; color: var(--paper-faint); white-space: nowrap; }
+        .mem-tag { display: inline-block; padding: 0 6px; margin-left: 4px; border: 1px solid var(--rule); border-radius: 999px; font-size: 11px; color: var(--paper-faint); }
+        .mem-tag.ok { color: var(--success); border-color: rgba(92, 184, 138, 0.4); }
+        .mem-tag.warn { color: var(--warn); border-color: rgba(217, 165, 72, 0.45); }
+        .mem-tag.accent { color: var(--accent-soft); border-color: rgba(217, 119, 87, 0.5); }
+
+        .mem-check { display: flex; align-items: flex-start; gap: 8px; padding: 6px 2px; font-size: 13px; color: var(--paper-dim); overflow-wrap: anywhere; }
+        .mem-check input { margin-top: 3px; flex: 0 0 auto; }
+        .mem-check small { color: var(--paper-faint); }
+        .mem-sub { margin: 18px 0 8px; font-size: 13px; font-weight: 600; color: var(--paper); }
+        .mem-sub:first-child { margin-top: 0; }
+        .mem-source { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 0; font-size: 13px; }
+        .mem-source-wrap { border-bottom: 1px solid var(--rule-faint); }
+        .mem-source-wrap:last-child { border-bottom: none; }
+        .mem-source-acts { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; flex: 0 0 auto; }
+        .mem-part { margin-bottom: 12px; }
+        .mem-part-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 4px; font-size: 12px; color: var(--paper-faint); }
+        .mem-part textarea { width: 100%; font-family: var(--font-body); font-size: 13px; }
+        .mem-empty { font-size: 12.5px; color: var(--paper-faint); }
+        details.mem-more > summary { cursor: pointer; font-size: 12.5px; color: var(--paper-faint); margin: 8px 0; }
+
+        /* A chat or persona: name and branch or title, details, then a clipped preview. */
+        .mem-chat-label { color: var(--paper-dim); font-weight: 400; }
+        .mem-chat-title .mem-tag { vertical-align: 1px; }
+        .mem-clip {
+            margin-top: 4px;
+            font-size: 12.5px;
+            line-height: 1.45;
+            color: var(--paper-dim);
+            overflow-wrap: anywhere;
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+        }
+        .mem-clip > b { font-weight: 500; color: var(--paper-faint); }
+        .mem-row {
+            display: flex;
+            align-items: flex-start;
+            gap: 10px;
+            padding: 9px 10px;
+            margin-bottom: 6px;
+            border: 1px solid var(--rule);
+            border-radius: var(--radius-sm);
+            cursor: pointer;
+        }
+        .mem-row:hover { border-color: var(--rule-strong); }
+        .mem-row:has(input:checked) { border-color: rgba(217, 119, 87, 0.45); background: var(--accent-tint); }
+        .mem-row > input { margin-top: 3px; flex: 0 0 auto; }
+        .mem-picker { margin-top: 12px; padding: 10px; border: 1px solid var(--rule); border-radius: var(--radius-sm); background: var(--ink-sunk); }
+        .mem-pick-list { margin-top: 8px; max-height: 440px; overflow-y: auto; }
+        .mem-pick-list .mem-sub { margin: 12px 0 6px; font-size: 12px; color: var(--paper-faint); font-weight: 500; }
+        .mem-pick-list .mem-sub:first-child { margin-top: 2px; }
+        .mem-pick-list .mem-chat { background: var(--ink-raised); }
+        .mem-source > .mem-chat-main { color: var(--paper-dim); }
+
+        /* A recap to read: the chat dialog's own, or another chat's opened under its row. */
+        .mem-sub-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+        .mem-recap {
+            max-height: 55vh;
+            overflow-y: auto;
+            margin-bottom: 8px;
+            padding: 10px 12px;
+            border: 1px solid var(--rule);
+            border-radius: var(--radius-sm);
+            background: var(--ink-sunk);
+        }
+        .mem-recap-head { margin: 12px 0 3px; font-size: 11.5px; color: var(--paper-faint); }
+        .mem-recap-head:first-child { margin-top: 0; }
+        .mem-recap-text { font-size: 13px; line-height: 1.55; color: var(--paper-dim); white-space: pre-wrap; overflow-wrap: anywhere; }
+        .mem-recap-short { margin-bottom: 4px; padding: 8px 10px; border-radius: var(--radius-sm); background: var(--accent-tint); }
+        .mem-recap-short .mem-recap-head { margin-top: 0; }
+        .mem-recap-box .mem-recap { max-height: 40vh; margin: 0 0 8px; }
+        .mem-row-wrap > .mem-recap-box .mem-recap { margin-top: -2px; }
+
         /* ========== RESPONSIVE ========== */
         @media (max-width: 720px) {
             .container { padding: 0 16px 56px; }
@@ -1261,6 +1363,19 @@
             .hist-head { grid-template-columns: minmax(0, 1fr); }
             .hist-right { justify-self: start; text-align: left; white-space: normal; }
             .hist-title { max-width: 100%; }
+            .modal { padding: 16px; }
+            .menu { max-width: calc(100vw - 16px); }
+
+            .mem-chat { flex-direction: column; gap: 6px; }
+            .mem-chat-side { text-align: left; white-space: normal; }
+            .mem-chat-side > div { display: inline-block; margin: 0 4px 0 0 !important; }
+            .mem-row { flex-wrap: wrap; }
+            .mem-row > .mem-chat-main { flex: 1 1 0; }
+            .mem-row > .mem-chat-side { flex-basis: 100%; padding-left: 23px; }
+            .mem-chat-side .mem-tag:first-child { margin-left: 0; }
+            .mem-source { flex-direction: column; align-items: stretch; gap: 8px; }
+            .mem-source-acts { justify-content: flex-start; }
+            .mem-pick-list { max-height: 60vh; }
         }
     </style>
 </head>
@@ -1350,7 +1465,7 @@
                 <dd>Auto-generates World Info entries in the background after each RP message, using Sonnet for efficiency. Deep Analysis scans a full chat file for a more thorough pass. Manual Entry lets you add lore by hand.</dd>
 
                 <dt>Memory</dt>
-                <dd>Character Memory: whether it's set up, how it works, and each character's memories, needs and NPCs to inspect and edit.</dd>
+                <dd>Character Memory: whether it's set up, how it works, and per character the persona bindings, the chats connected to each other, and every chat's recap to read and edit.</dd>
 
                 <dt>Test</dt>
                 <dd>Send a message directly at the bridge without going through SillyTavern. Useful when debugging or checking that a new system prompt is wired up correctly.</dd>
@@ -1544,12 +1659,12 @@
                 <div class="setting-row">
                     <div>
                         <h4>Character Memory</h4>
-                        <p>Gives each character a database of what happened to them: desires, relationships, events, secrets, body state, the NPCs they've met and needs that wear down. Before each reply, the bridge adds the entries that matter for the scene and aren't already in the chat: what has scrolled out of the context, and what happened in other chats. After you keep a reply, Sonnet updates the database in the background. Memory is per character name, so SillyTavern has to send it: add <code>character_name: "&#123;&#123;char&#125;&#125;"</code> to API Connections → Additional Parameters → Include Body Parameters. The Memory tab explains the rest.</p>
+                        <p>Lets characters remember other chats where you ask for it: chats you connect to a chat, and the chats of a persona you bind them to. Sonnet recaps those chats from the character's point of view, and the recap of a chat's own oldest messages fills in when they no longer fit the context. Needs the bridge's SillyTavern extension (<code>st-extension/install.sh</code>). Set it up on the Memory tab.</p>
                     </div>
                     <div class="setting-row-control">
-                        <span class="switch-label" id="characterMemoryV2Status">Disabled</span>
+                        <span class="switch-label" id="characterMemoryStatus">Disabled</span>
                         <label class="switch">
-                            <input type="checkbox" id="characterMemoryV2">
+                            <input type="checkbox" id="characterMemory">
                             <span class="slider"></span>
                         </label>
                     </div>
@@ -1947,275 +2062,94 @@
         </div>
 
 
-        <!-- Memory Panel (Character Memory v2) -->
+        <!-- Memory Panel (Character Memory, memory.py) -->
         <div id="memory" class="panel">
             <h3>Character Memory</h3>
-            <p>Each character has a database of what happened to them: desires, relationships, events, secrets, body state, the NPCs they've met and needs that wear down. Before each reply, the entries that matter for the scene and aren't already in the chat are added to the turn: what has scrolled out of the context, and what happened in other chats. After you keep a reply, Sonnet updates the database. Edits made here apply from the next turn. <a href="#memHowItWorks">How it works</a> is below the editor.</p>
+            <p>A character remembers another chat only where you ask for it: connect that chat to the chat you're in, or bind the character to a persona so they remember the chats with that persona you pick, and every new one. The bridge reads those chats from SillyTavern's folder and Sonnet recaps them from the character's point of view. Memories count over what the card says about the character's history. <a href="#memHowItWorks">How it works</a> is below.</p>
 
-            <div id="memStatus" class="notice" style="margin-bottom:14px;display:none;"></div>
+            <div id="memStatus" class="notice" style="margin-bottom:12px;display:none;"></div>
+            <div id="memJobs" class="notice" style="margin-bottom:16px;display:none;"></div>
 
             <div class="setting-card">
-                <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-                    <label for="memCharSelect" style="font-size:12.5px;color:var(--paper-faint);">Character</label>
-                    <select id="memCharSelect" style="flex:1;min-width:240px;">
-                        <option value="">— select a character —</option>
-                    </select>
-                    <button class="toggle-btn" id="memPinBtn">Pin</button>
-                    <button class="toggle-btn" id="memLabelBtn">Label</button>
-                    <button class="toggle-btn" id="memRefreshBtn">Refresh</button>
-                    <button class="toggle-btn danger" id="memResetBtn">Reset</button>
+                <div class="card-head">
+                    <h3>Character</h3>
+                    <button class="toggle-btn sm" id="memRefreshBtn">Refresh</button>
                 </div>
-                <div id="memPinBanner" class="notice" style="margin-top:12px;display:none;border-left:3px solid var(--accent);">
-                    <span style="color:var(--paper-faint);">Pinned:</span>
-                    <span id="memPinKey" style="color:var(--paper);font-family:var(--font-mono);font-size:12px;"></span>
-                    <button class="toggle-btn sm" id="memUnpinBtn" style="margin-left:8px;">Unpin</button>
-                    <span style="color:var(--paper-faint);margin-left:8px;">— every turn uses this memory, whoever is speaking.</span>
-                </div>
-                <div id="memCharSummary" style="margin-top:10px;color:var(--paper-faint);font-size:12.5px;"></div>
+                <div id="memKnown" class="mem-chips" style="margin-top:8px;"></div>
+                <input id="memCharSearch" type="text" class="w-full" placeholder="Search all characters..." autocomplete="off" style="margin-top:10px;">
+                <div id="memCharResults" class="mem-results"></div>
             </div>
 
-            <div id="memBody" style="margin-top:16px;display:none;">
-                <!-- Sub-tab buttons -->
-                <div class="toggle-group" style="margin-bottom:14px;">
-                    <button class="toggle-btn active" data-memtab="memories">Memories</button>
-                    <button class="toggle-btn" data-memtab="needs">Needs</button>
-                    <button class="toggle-btn" data-memtab="npcs">NPCs</button>
-                    <button class="toggle-btn" data-memtab="seed">Card Seed</button>
-                    <button class="toggle-btn" data-memtab="errors">Errors</button>
-                    <button class="toggle-btn" data-memtab="import">Import</button>
+            <div id="memChar" style="display:none;">
+                <div class="setting-card">
+                    <div class="card-head"><h3 id="memCharName"></h3></div>
+                    <p class="card-desc" style="margin-bottom:8px;">Cards: <span id="memCards"></span></p>
+                    <input id="memCardSearch" type="text" class="w-full" placeholder="Add another card of the same person..." autocomplete="off">
+                    <div id="memCardResults" class="mem-results"></div>
                 </div>
 
-                <!-- Memories sub-panel -->
-                <div id="memSub_memories" class="memSubPanel">
-                    <!-- Entity scope selector: which DB are we looking at? -->
-                    <div class="filter-row">
-                        <label>Entity</label>
-                        <div id="memEntityPills" style="display:flex;gap:6px;flex-wrap:wrap;flex:1;"></div>
-                        <button class="toggle-btn primary" id="memAddRowBtn">+ New entry</button>
-                    </div>
-                    <div class="filter-row">
-                        <label>Filter</label>
-                        <select id="memFilterType">
-                            <option value="">all types</option>
-                        </select>
-                        <select id="memFilterStatus">
-                            <option value="active">active only</option>
-                            <option value="">all statuses</option>
-                            <option value="dormant">dormant</option>
-                            <option value="resolved">resolved</option>
-                            <option value="mutated">mutated</option>
-                            <option value="contradicted">contradicted</option>
-                        </select>
-                        <input id="memFilterText" type="text" placeholder="search content..." style="flex:1;min-width:160px;">
-                        <span id="memRowCount" style="color:var(--paper-faint);font-size:12px;"></span>
-                    </div>
-                    <div class="table-wrap">
-                        <table id="memTable" class="data-table">
-                            <thead>
-                                <tr>
-                                    <th>id</th>
-                                    <th>type</th>
-                                    <th>subj</th>
-                                    <th>int</th>
-                                    <th>imp</th>
-                                    <th>status</th>
-                                    <th>content</th>
-                                    <th>turn</th>
-                                    <th>actions</th>
-                                </tr>
-                            </thead>
-                            <tbody id="memTableBody"></tbody>
-                        </table>
+                <div class="setting-card">
+                    <div class="card-head"><h3>Persona bindings</h3></div>
+                    <p class="card-desc">A bound character remembers, in each chat with that persona, the chats you tick under it, plus every new chat with the persona from the day you bind (branches only if you tick them). A chat never brings in itself or its own branches.</p>
+                    <div id="memBindings"></div>
+                    <button class="toggle-btn primary" id="memBindToggle" style="margin-top:12px;">Bind to a persona</button>
+                    <div id="memPersonaPicker" class="mem-picker" style="display:none;">
+                        <input id="memPersonaSearch" type="text" class="w-full" placeholder="Search by name, title or description..." autocomplete="off">
+                        <div id="memPersonaResults" class="mem-pick-list"></div>
                     </div>
                 </div>
 
-                <!-- Needs sub-panel -->
-                <div id="memSub_needs" class="memSubPanel setting-card" style="display:none;">
-                    <p class="card-desc">Higher = more satisfied. Lower = more pressure to act. Decay applies each turn.</p>
-                    <div id="memNeedsBody"></div>
-                    <button class="btn btn-secondary" id="memNeedsSaveBtn" style="margin-top:14px;">Save needs</button>
-                </div>
-
-                <!-- NPCs sub-panel: edit cards (name/bio/aliases/status). For
-                     the NPC's memory rows, click "View memories" → switches to
-                     the Memories sub-tab pre-scoped to that NPC. -->
-                <div id="memSub_npcs" class="memSubPanel" style="display:none;">
-                    <p class="card-desc">Edit NPC card metadata here. To inspect or edit an NPC's memory rows, hit "View memories" on their card — that scopes the Memories sub-tab to their DB.</p>
-                    <div id="memNpcsBody"></div>
-                </div>
-
-                <!-- Card Seed sub-panel -->
-                <div id="memSub_seed" class="memSubPanel" style="display:none;">
-                    <p class="card-desc">What Sonnet extracted from the character card on the first reply, as it returned it. Its entries are the rows marked <em>card</em> on the Memories tab; this copy is for reference and isn't used.</p>
-                    <pre id="memSeedBody" class="code-block" style="max-height:60vh;"></pre>
-                </div>
-
-                <!-- Errors sub-panel -->
-                <div id="memSub_errors" class="memSubPanel" style="display:none;">
-                    <p class="card-desc">Tail of <code>sonnet_errors.log</code> for this character. Empty means no recent maintenance failures.</p>
-                    <pre id="memErrorsBody" class="code-block" style="max-height:60vh;"></pre>
-                </div>
-
-                <!-- Import sub-panel: bulk-import memories from external dumps.
-                     Vectors from external embedders (OpenAI / Cohere / etc.)
-                     don't transfer across embedding spaces, so we re-embed
-                     locally on ingest. Text is what's portable. -->
-                <div id="memSub_import" class="memSubPanel setting-card" style="display:none;">
-                    <p class="card-desc">
-                        Bulk-import memories from external dumps. Auto-detects JSONL / JSON / plain text / CSV / markdown.
-                        External embedding vectors are dropped (different embedding spaces aren't compatible);
-                        memory v2 re-embeds locally on insert.
-                    </p>
-
-                    <div class="form-grid" style="margin-bottom:14px;">
-                        <label for="memImportFormat">Format</label>
-                        <select id="memImportFormat" style="width:240px;max-width:100%;">
-                            <option value="auto" selected>auto-detect</option>
-                            <option value="jsonl">JSONL (one JSON object per line)</option>
-                            <option value="json">JSON (array or object)</option>
-                            <option value="text">plain text (paragraphs)</option>
-                            <option value="csv">CSV (with header)</option>
-                            <option value="markdown">markdown (## sections)</option>
-                        </select>
-
-                        <label for="memImportDefaultType">Default type</label>
-                        <select id="memImportDefaultType" style="width:240px;max-width:100%;">
-                            <option value="fact" selected>fact</option>
-                            <option value="event">event</option>
-                            <option value="trait">trait</option>
-                            <option value="relationship">relationship</option>
-                            <option value="rule">rule</option>
-                            <option value="desire">desire</option>
-                            <option value="place">place</option>
-                            <option value="possession">possession</option>
-                            <option value="body">body</option>
-                            <option value="secret">secret</option>
-                        </select>
-
-                        <label for="memImportDefaultImportance">Default importance</label>
-                        <input id="memImportDefaultImportance" type="number" min="1" max="5" value="3" style="width:110px;">
-
-                        <label for="memImportNpcScope">Scope</label>
-                        <select id="memImportNpcScope" style="width:240px;max-width:100%;">
-                            <option value="">main character DB</option>
-                        </select>
-
-                        <label for="memImportFile">Upload file</label>
-                        <div>
-                            <input type="file" id="memImportFile" accept=".jsonl,.json,.txt,.csv,.md,.markdown">
-                            <span style="color:var(--paper-faint);font-size:12px;margin-left:8px;">— loads contents into the textarea below</span>
-                        </div>
+                <div class="setting-card">
+                    <div class="card-head">
+                        <h3>Chats</h3>
+                        <span id="memChatCount" class="list-item-meta"></span>
                     </div>
-
-                    <label class="field-label" for="memImportText">Memory dump</label>
-                    <textarea id="memImportText" class="w-full" rows="14" placeholder='Paste memory dump here, or upload a file above.
-
-Examples of accepted shapes:
-  JSONL:    {"text": "She prefers tea over coffee.", "subject": "user"}
-            {"text": "Met Reinhardt at Toccoa.", "type": "event"}
-  JSON:     [{"content": "..."}, {"content": "..."}]
-  Plain:    A paragraph here.
-
-            Another paragraph (blank line separates).
-  CSV:      content,subject,type
-            "...","user","fact"
-  Markdown: ## Section title
-            Section body becomes one memory.
-
-Common content fields auto-detected: content, text, memory, observation, page_content, message, body, summary.
-Common subject fields: subject, character, npc, entity, name.'></textarea>
-
-                    <div class="btn-row" style="margin-top:12px;">
-                        <button class="toggle-btn" id="memImportPreviewBtn">Preview</button>
-                        <button class="toggle-btn primary" id="memImportRunBtn">Import</button>
-                        <span id="memImportStatus" style="color:var(--paper-faint);font-size:12.5px;"></span>
+                    <p class="card-desc">The character's own chats and their group chats. Open one to read or edit its recap, connect other chats to it, or see what it brings in.</p>
+                    <div class="mem-inline" style="margin-bottom:10px;">
+                        <input id="memChatFilter" type="text" placeholder="Search name, branch, persona or last message..." style="flex:1;min-width:0;">
+                        <select id="memChatPersona" style="flex:0 1 45%;min-width:0;"></select>
                     </div>
-
-                    <pre id="memImportOutput" class="code-block" style="margin-top:12px;max-height:40vh;display:none;"></pre>
+                    <div id="memChats"></div>
                 </div>
             </div>
 
             <h3 id="memHowItWorks">How it works</h3>
             <dl class="prose-dl">
                 <dt>Setup</dt>
-                <dd>Turn on Character Memory in Settings. Then, in SillyTavern, open API Connections → Additional Parameters and add this line to Include Body Parameters:<br><code>character_name: "&#123;&#123;char&#125;&#125;"</code><br>SillyTavern fills in the name of the character it's generating for, and in a group chat that's the member whose turn it is. Nothing else in a request reliably says who is speaking, so memory skips every turn that doesn't name a character.</dd>
+                <dd>Turn on Character Memory in Settings, and install the bridge's SillyTavern extension, Bridge Memory: run <code>st-extension/install.sh</code> from the bridge's folder and reload SillyTavern. The extension adds which chat, persona and character each request is for, which nothing else in a request says. Memory skips turns without it. The status at the top of this tab says whether it has been heard from.</dd>
 
-                <dt>Characters</dt>
-                <dd>A character shows up in the list after their first reply with memory on, under their name. The key next to it is a hash of the name. Memory belongs to the name, not to a chat: all your chats with a character, solo or group, share one memory, and each group member has their own. Two cards with the same name share it too. <strong>Label</strong> changes the name shown here, which is also the name maintenance treats as the character themself. <strong>Reset</strong> deletes the character's whole memory. <strong>Pin</strong> makes every turn use the selected memory, whoever is speaking, for example to keep a memory after renaming a character; <strong>Unpin</strong> goes back to names.</dd>
+                <dt>Recaps</dt>
+                <dd>The bridge reads a chat's file from SillyTavern's folder, and Sonnet recaps it from the character's point of view, 40 messages at a time, each part with the previous part's recap for context. Hidden messages are left out. A chat whose recap is long also gets a short one (up to 150 words). Recaps are built in the background when a chat that needs them is used or opened in SillyTavern, or when you ask here, and a reply uses whatever is ready; the rest arrives on later replies. A part is recapped again only when its messages change, and a branch shares its parent's recaps up to the branch point. Open a chat below to read what the character remembers of it; <strong>Recap</strong> beside a chat in a binding or in another chat's memories shows it in place. <strong>Edit</strong> lets you rewrite any part or the short recap; <strong>Redo</strong> has a part recapped again.</dd>
 
-                <dt>First reply</dt>
-                <dd>A new character is seeded once. Sonnet reads SillyTavern's system prompt (card, preset and lore, up to 40,000 characters), the greeting and your first message, and writes the starting traits, facts, places, rules, secrets, body facts, relationships and needs. That reply waits for it. What Sonnet returned is kept on the Card Seed tab. These entries are marked <em>card</em> in the table. SillyTavern sends the card with every turn anyway, so they aren't added to turns. They're kept as the maintenance pass's record of what the card says: it never sees the card itself, and uses them to avoid recording the card again as new memories. Once the story changes one (a secret comes out, a relationship moves) or you rewrite it here, it becomes an ordinary memory.</dd>
+                <dt>Earlier in a chat</dt>
+                <dd>When SillyTavern leaves a chat's oldest messages out to fit the context, the recap of those messages comes in instead. Not with auto-summary on, which already summarizes them.</dd>
 
-                <dt>Before each reply</dt>
-                <dd>Memory only brings in what the prompt doesn't already have. Entries written from the card or from a reply that's still in the chat SillyTavern sent are left out: the model can read those for itself. What's left is what has scrolled out of the context, what happened in other chats with the character, and what you added or rewrote here. Entries left out because they're in the chat count as used, so they don't go dormant before they scroll out. Needs wear down a little each turn (physical by 0.06, social 0.04, emotional 0.02). Entries that haven't been added to a turn or shown in the chat for 30 turns go dormant, unless their importance is 5 or they're card entries. Then up to 30 candidates are gathered from the rest: desires of intensity 3 or more, traits, secrets, relationships with you and with NPCs named in the last two chat messages, entries used in the last 10 turns, and anything of importance 4 or 5. Desires of intensity 4 or more, secrets, and relationships with someone in the scene always go in. If the other candidates fit in the remaining places (up to 20 entries in all), they all go in and the reply doesn't wait for anything. Only when there are more does Sonnet rank them against the last three chat messages; if it fails or takes over 30 seconds, they go in the order they were gathered. The bridge adds them at the end of the turn as a <code>CHARACTER MEMORY</code> block, with the needs and a short section for each NPC in the scene who has entries from outside the chat. Early in a chat, and for a new character, that's usually just the needs.</dd>
+                <dt>Connections</dt>
+                <dd>Open a chat below and connect another chat to it: the character remembers that chat in this one. Connections are per character, so in a group chat only that member remembers it. Use them for one-off encounters, like a private scene only that character was in.</dd>
 
-                <dt>After each reply</dt>
-                <dd>The reply waits for the character's next turn. If that request still contains it, you kept it: Sonnet reads it with the last few chat messages, the card entries and up to 40 other active memories, then adds, updates, resolves or rewrites entries, adjusts needs and registers newly named NPCs, in the background. It's told not to add anything that only restates the card. If the reply is gone because you swiped, regenerated, edited or deleted it, it's dropped, so memory only learns from replies you kept. Failed updates are listed on the Errors tab.</dd>
+                <dt>Persona bindings</dt>
+                <dd>Bind a character to a persona, then tick the chats with that persona they should remember; <strong>Select all</strong> ticks every chat with it. From then on each new chat with that character and persona joins by itself. Branches don't, as they're alternate timelines; tick them if you want them. In every chat with the persona, the character remembers all the ticked chats except the chat itself and its own branches. A chat's <strong>Don't bring in through bindings</strong> keeps it out everywhere; <strong>Leave out here</strong> keeps one chat's memory out of one other chat.</dd>
 
-                <dt>NPCs</dt>
-                <dd>Named recurring characters get their own small memory under the character, with a card (name, bio, aliases). When an NPC's name or alias is in the last two chat messages, their entries are added to the turn as well. Edit cards on the NPCs tab; View memories opens an NPC's entries.</dd>
+                <dt>What the model gets</dt>
+                <dd>A new CLI session gets a <code>&lt;character_memory&gt;</code> block before the transcript: the recap of this chat's earlier part, then the other chats', oldest first, each saying who was there. Newest chats get their full recap while 24,000 characters last, then their short one; older chats that don't fit are left out. After that, each reply carries only recaps that are new or changed, and a note when one is dropped. The block says the memories count over the card's description and scenario about the character's history and relationships. Only the character whose reply it is gets their memories; in a group chat each member has their own CLI session.</dd>
 
-                <dt>Semantic search</dt>
-                <dd>With <code>sentence-transformers</code> installed, each entry also gets an embedding, and up to 10 more candidates are found by similarity to the scene. Without it, candidates come only from the rules above. The status at the top of this tab says which applies.</dd>
+                <dt>Conflicts</dt>
+                <dd>Once a chat with memories from other chats has your first message, Sonnet compares how it starts (its greeting, your first message and its Author's Note) with those memories. If they clash, say the chat has them meet as strangers or makes them siblings, SillyTavern shows it after the next reply: keep the memories, or untick the ones to leave out of this chat. The chat here shows it too.</dd>
+
+                <dt>Cards</dt>
+                <dd>A character can have several cards, such as the same person on cards from different creators. Add the others to the character, and their chats and memories become one character's. Removing a card takes its chats back with it.</dd>
 
                 <dt>Cost</dt>
-                <dd>A maintenance call runs in the background after each kept reply. The ranking call before a reply only happens once a character has more memories from outside the chat than fit in a turn, and then takes a few seconds. A new character adds the seeding call, which the first reply waits for. They count against your plan like any other call and are listed on the History tab under Character Memory.</dd>
-
-                <dt>Fields</dt>
-                <dd><strong>Type</strong>: desire, event, fact, rule, relationship, trait, place, possession, body or secret. <strong>Intensity</strong> (1–6, desires): 3 means the character acts if there's an opening, 4 that they act this turn, 6 that it happens no matter what. <strong>Importance</strong> (1–5): 4 and 5 are always candidates, and 5 never goes dormant. <strong>Status</strong>: only active entries are used, and of those, card entries only once changed; dormant, resolved and contradicted entries are kept but left out, and mutated entries (replaced by a rewritten one) are deleted after 20 turns. <strong>Turn</strong> counts the character's kept replies.</dd>
+                <dd>Nothing runs per reply. Recapping takes one Sonnet call per 40 messages, once; a short recap and a conflict check take one call each. They count against your plan like any other call and are listed on the History tab under Character Memory.</dd>
             </dl>
 
-            <!-- Edit/Insert modal for memory rows. Hidden by default. Opened
-                 by row Edit (with rowData populated) or "+ New entry" (blank).
-                 Submits PATCH for existing rows, POST for new. -->
-            <div id="memRowModal" class="modal-overlay">
+            <div id="memChatModal" class="modal-overlay">
                 <div class="modal">
-                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
-                        <h3 id="memModalTitle" style="margin:0;font-size:15px;font-weight:600;">Edit memory row</h3>
-                        <button class="toggle-btn sm" id="memModalCloseBtn">Close</button>
+                    <div class="card-head" style="margin-bottom:10px;align-items:flex-start;">
+                        <h3 id="memChatTitle" style="margin:0;font-size:15px;font-weight:600;overflow-wrap:anywhere;flex:1;min-width:0;"></h3>
+                        <button class="toggle-btn sm" id="memChatCloseBtn">Close</button>
                     </div>
-                    <div id="memModalScope" style="color:var(--paper-faint);font-size:12px;margin-bottom:16px;"></div>
-
-                    <div class="form-grid">
-                        <label for="memEditType">type</label>
-                        <select id="memEditType">
-                            <option>desire</option><option>event</option><option>fact</option>
-                            <option>rule</option><option>relationship</option><option>trait</option>
-                            <option>place</option><option>possession</option><option>body</option>
-                            <option>secret</option>
-                        </select>
-
-                        <label for="memEditSubject">subject</label>
-                        <input id="memEditSubject" type="text" placeholder="user / self / npc_key / null">
-
-                        <label for="memEditIntensity">intensity (1-6)</label>
-                        <input id="memEditIntensity" type="number" min="1" max="6" placeholder="(blank = none)" style="width:140px;">
-
-                        <label for="memEditImportance">importance (1-5)</label>
-                        <input id="memEditImportance" type="number" min="1" max="5" value="3" style="width:140px;">
-
-                        <label for="memEditStatus">status</label>
-                        <select id="memEditStatus">
-                            <option>active</option><option>dormant</option><option>resolved</option>
-                            <option>mutated</option><option>contradicted</option>
-                        </select>
-
-                        <label for="memEditContent" style="align-self:start;padding-top:8px;">content</label>
-                        <textarea id="memEditContent" rows="6"></textarea>
-
-                        <label for="memEditTags">tags</label>
-                        <input id="memEditTags" type="text" placeholder="comma,separated">
-
-                        <label for="memEditMetadata" style="align-self:start;padding-top:8px;">metadata (JSON)</label>
-                        <textarea id="memEditMetadata" rows="4" placeholder='{}'></textarea>
-                    </div>
-
-                    <div id="memModalError" style="margin-top:10px;color:var(--error);font-size:12.5px;display:none;"></div>
-
-                    <div class="btn-row" style="margin-top:18px;justify-content:flex-end;">
-                        <button class="btn btn-secondary" id="memModalCancelBtn">Cancel</button>
-                        <button class="btn" id="memModalSaveBtn">Save</button>
-                    </div>
+                    <div id="memChatBody"></div>
                 </div>
             </div>
         </div>
@@ -2263,7 +2197,7 @@ Common subject fields: subject, character, npc, entity, name.'></textarea>
             } else if (tabName === 'lorebook') {
                 refreshLorebook();
             } else if (tabName === 'memory') {
-                memLoadCharList();
+                memLoad();
             } else if (tabName === 'history') {
                 histLoad();
             } else if (tabName === 'usage') {
@@ -2271,1001 +2205,798 @@ Common subject fields: subject, character, npc, entity, name.'></textarea>
             }
         }
 
-        // ===== Character Memory v2 GUI =====
-        // memCurrentChar — selected character key (always the main one; NPCs
-        //   live as sub-folders under this).
-        // memCurrentData — the full payload from /api/memory/<char>: rows,
-        //   needs, npcs, card_seed, latest_turn.
-        // memCurrentEntity — null when viewing the main character's rows;
-        //   else an npc_key (string) when viewing one of the NPC sub-DBs.
-        //   Drives the entity-pill highlight + which API endpoints we hit
-        //   for table fetch / edit / insert / delete / move.
-        // memEntityRows — rows for the currently-scoped entity. For main
-        //   it's memCurrentData.memories. For an NPC it's fetched from
-        //   /api/memory/<char>/npc/<key> and cached here.
-        let memCurrentChar = null;
-        let memCurrentData = null;
-        let memCurrentEntity = null;
-        let memEntityRows = [];
+        // ===== Character Memory (memory.py) =====
+        // memCharId: the character open on the tab (its first card's avatar);
+        // memCharData: /api/memory/character for it. memChatId: the chat open
+        // in the chat dialog; memChatDirty: it has unsaved edits, and
+        // memConnectOpen: its chat picker is open, so job progress doesn't
+        // re-render it; memRecapEdit: its recap shows as text boxes to edit.
+        // memOpenBindings / memDirtyBindings: personas whose binding panel is
+        // open / has unsaved ticks. memOpenRecaps: the other chats' recaps
+        // open under their rows, kept open when the rows are drawn again.
+        let memCharId = null;
+        let memCharData = null;
+        let memChatId = null;
+        let memChatDirty = false;
+        let memConnectOpen = false;
+        let memRecapEdit = false;
+        const memOpenRecaps = new Set();
+        let memCardsCache = null;
+        let memPersonasCache = null;
+        let memPersonaMap = new Map();
+        let memJobsTimer = null;
+        let memJobsSig = '';
+        const memOpenBindings = new Set();
+        const memDirtyBindings = new Set();
 
-        // Whether memory is on and set up, and what it did on the latest
-        // roleplay turn. Answers "why is the character list empty?".
-        function memRenderStatus(data) {
+        function memEsc(s) {
+            return String(s ?? '').replace(/[&<>"']/g, ch => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'})[ch]);
+        }
+
+        async function memApi(path, body) {
+            const opts = body === undefined ? {} : {
+                method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body),
+            };
+            const resp = await fetch(path, opts);
+            const data = await resp.json().catch(() => ({}));
+            if (!resp.ok) throw new Error(data.error || `HTTP ${resp.status}`);
+            return data;
+        }
+
+        // POST and then run `after`; errors are shown in an alert.
+        async function memDo(path, body, after) {
+            try {
+                const data = await memApi(path, body);
+                if (after) await after(data);
+                return data;
+            } catch (e) {
+                alert(e.message);
+                return null;
+            }
+        }
+
+        async function memCards() {
+            if (!memCardsCache) memCardsCache = (await memApi('/api/memory/cards')).cards || [];
+            return memCardsCache;
+        }
+
+        async function memPersonas() {
+            if (!memPersonasCache) {
+                memPersonasCache = (await memApi('/api/memory/personas')).personas || [];
+                memPersonaMap = new Map(memPersonasCache.map(p => [p.avatar, p]));
+            }
+            return memPersonasCache;
+        }
+
+        // "V (Untethered)": a persona's name and its title, as SillyTavern
+        // shows them. Many personas share a name; the title tells them apart.
+        function memPersonaLabel(avatar, name) {
+            const p = memPersonaMap.get(avatar);
+            const n = p?.name || name || '?';
+            return p?.title ? `${n} (${p.title})` : n;
+        }
+
+        function memRecapTag(c) {
+            if (c.building) return `<span class="mem-tag accent">recapping ${c.building.done ?? 0}/${c.building.total ?? '?'}</span>`;
+            const r = c.recap || {};
+            if (!r.available) return '<span class="mem-tag warn">file missing</span>';
+            if (!r.parts) return '<span class="mem-tag">empty</span>';
+            if (!r.done) return '<span class="mem-tag">not recapped</span>';
+            if (r.missing) return `<span class="mem-tag warn">${r.done}/${r.parts} parts</span>`;
+            return '<span class="mem-tag ok">recapped</span>';
+        }
+
+        // A chat is shown by its card's (or group's) name, not its file name,
+        // then its branch ("Branch #3") or its own title, if it has one.
+        function memChatTitle(c) {
+            const tags = [c.group ? 'group' : '', c.branch_of && !/^Branch #/.test(c.label || '') ? 'branch' : ''];
+            return memEsc(c.name || c.title)
+                + (c.label ? `<span class="mem-chat-label"> · ${memEsc(c.label)}</span>` : '')
+                + tags.filter(Boolean).map(t => ` <span class="mem-tag">${t}</span>`).join('');
+        }
+
+        function memChatPlain(c) {
+            return (c.name || c.title) + (c.label ? ` · ${c.label}` : '');
+        }
+
+        // A day in the browser's time zone, the one SillyTavern writes the
+        // dates in chat file names in.
+        function memDay(ts) {
+            if (!ts) return '';
+            const d = new Date(ts * 1000);
+            return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+        }
+
+        function memCreated(c) {
+            return c.created_ts ? memDay(c.created_ts) : (c.created || '');
+        }
+
+        function memChatMeta(c) {
+            const personas = [...new Set((c.personas || []).map(p => memPersonaLabel(p.avatar, p.name)))].join(', ');
+            const created = memCreated(c), last = memDay(c.last_ts);
+            return [created ? `created ${created}` : '', `${c.messages} messages`,
+                    last && last !== created ? `last ${last}` : '',
+                    personas ? `with ${personas}` : ''].filter(Boolean).map(memEsc).join(' · ');
+        }
+
+        function memChatLast(c) {
+            const m = c.last_msg || {};
+            return m.text ? `<div class="mem-clip"><b>${memEsc(m.name || '?')}:</b> ${memEsc(m.text)}</div>` : '';
+        }
+
+        // A chat in a list: name and branch, dates and personas, its last message.
+        function memChatSummary(c, note = '') {
+            return `<div class="mem-chat-title">${memChatTitle(c)}</div>
+                <div class="mem-chat-meta">${memChatMeta(c)}${note}</div>${memChatLast(c)}`;
+        }
+
+        function memChatMatches(c, q) {
+            if (!q) return true;
+            const text = [memChatPlain(c), c.title, memCreated(c), c.last_msg?.name, c.last_msg?.text,
+                          ...(c.personas || []).map(p => memPersonaLabel(p.avatar, p.name))].join(' ');
+            return text.toLowerCase().includes(q);
+        }
+
+        // One of this character's chats by id, for the chat dialog's lists.
+        function memChatById(id) {
+            return (memCharData?.chats || []).find(x => x.chat_id === id) || null;
+        }
+
+        // Is memory on, set up, and what did it do on the latest roleplay turn.
+        function memRenderStatus(o) {
             const box = document.getElementById('memStatus');
             const lines = [];
             let warn = false;
-            const setup = 'In SillyTavern, open API Connections → Additional Parameters and add <code>character_name: "&#123;&#123;char&#125;&#125;"</code> to Include Body Parameters.';
-            const lt = data.last_turn || {};
-            const when = lt.at ? new Date(lt.at * 1000).toLocaleString() : '';
-            if (!data.enabled) {
+            const install = 'Run <code>st-extension/install.sh</code> in the bridge\'s folder, reload SillyTavern, and send a message.';
+            if (!o.enabled) {
                 warn = true;
-                lines.push('Character Memory is off, so no turn adds to it. Turn it on in Settings → Character Memory.');
-            } else {
-                if (data.st_sends_name === false) {
-                    warn = true;
-                    lines.push(`SillyTavern isn't sending the character's name, so memory skips every turn. ${setup}`);
-                }
-                if (lt.skipped === 'no_name') {
-                    warn = true;
-                    if (data.st_sends_name !== false) {
-                        lines.push(`The latest roleplay turn (${escapeHtml(when)}) didn't name its character, so memory skipped it. ${setup}`);
-                    }
-                } else if (lt.error) {
-                    warn = true;
-                    lines.push(`Memory failed on the latest roleplay turn (${escapeHtml(when)}, ${escapeHtml(lt.name || lt.char_key || '')}): ${escapeHtml(lt.error)}`);
-                } else if (lt.at) {
-                    const n = lt.injected ?? 0;
-                    lines.push(`Latest roleplay turn (${escapeHtml(when)}): memory ran for <strong>${escapeHtml(lt.name || lt.char_key)}</strong> and added ${n} ${n === 1 ? 'entry' : 'entries'} from outside the visible chat.`);
-                } else {
-                    lines.push('Memory is on. No roleplay turn has come in since the bridge started.');
-                }
-                if (data.embeddings === false) {
-                    lines.push("Semantic search is off: <code>sentence-transformers</code> isn't installed, so candidates are picked by type, subject, importance and recency only.");
-                }
+                lines.push('Character Memory is off, so no turn uses it. Turn it on in Settings → Character Memory.');
             }
-            if (!(data.characters || []).length) {
-                lines.push('No character has a memory yet. A character shows up here after their first reply with memory on.');
+            if (!o.st_found) {
+                warn = true;
+                lines.push('SillyTavern\'s data folder wasn\'t found, so no chat can be read. The bridge looks for a SillyTavern folder next to its own, or next to the Lorebook tab\'s worlds folder.');
+            }
+            if (!o.extension) {
+                warn = true;
+                lines.push(`The Bridge Memory extension hasn't sent a request yet. ${install}`);
+            } else {
+                lines.push(`Bridge Memory extension: last request ${memEsc(new Date(o.extension.ts * 1000).toLocaleString())}.`);
+            }
+            const lt = o.last_turn || {};
+            const when = lt.at ? memEsc(new Date(lt.at * 1000).toLocaleString()) : '';
+            if (lt.skipped === 'no_extension') {
+                warn = true;
+                lines.push(`The latest roleplay turn (${when}) didn't say which chat it was from, so memory skipped it. ${install}`);
+            } else if (lt.error) {
+                warn = true;
+                lines.push(`Memory failed on the latest roleplay turn (${when}): ${memEsc(lt.error)}`);
+            } else if (lt.name) {
+                const n = lt.sources || 0;
+                lines.push(`Latest roleplay turn (${when}): <strong>${memEsc(lt.name)}</strong> in ${memEsc(lt.chat || '')}, remembering ${n} other chat${n === 1 ? '' : 's'}${lt.sections !== undefined ? ` (${lt.sections} memory section${lt.sections === 1 ? '' : 's'} in the session)` : ''}.`);
+            } else if (lt.skipped) {
+                lines.push(`Latest turn (${when}) was a ${memEsc(lt.skipped)} generation, which memory skips.`);
             }
             box.className = warn ? 'notice warn' : 'notice';
             box.innerHTML = lines.map((l, i) => `<div${i ? ' style="margin-top:6px;"' : ''}>${l}</div>`).join('');
             box.style.display = lines.length ? 'block' : 'none';
         }
 
-        async function memLoadCharList() {
-            const resp = await fetch('/api/memory/list');
-            const data = await resp.json();
-            memRenderStatus(data);
-            const sel = document.getElementById('memCharSelect');
-            const prev = sel.value;
-            sel.innerHTML = '<option value="">— select a character —</option>';
-            // Sort: labeled chars first (alpha by label), then unlabeled (by
-            // char_key). Makes named characters easy to find at a glance.
-            const chars = (data.characters || []).slice().sort((a, b) => {
-                const la = (a.label || '').toLowerCase();
-                const lb = (b.label || '').toLowerCase();
-                if (la && !lb) return -1;
-                if (lb && !la) return 1;
-                if (la && lb) return la < lb ? -1 : la > lb ? 1 : 0;
-                return a.char_key < b.char_key ? -1 : 1;
-            });
-            chars.forEach(c => {
-                const opt = document.createElement('option');
-                opt.value = c.char_key;
-                // Label gets prominent placement; char_key shown in parens
-                // so you can still verify the right slot is selected.
-                const prefix = c.label ? `${c.label} — ${c.char_key}` : c.char_key;
-                opt.textContent = `${prefix} (${c.memory_count} mem, ${c.npc_count} NPCs, turn ${c.latest_turn})`;
-                sel.appendChild(opt);
-            });
-            if (prev) {
-                sel.value = prev;
-                if (sel.value === prev) memLoadChar(prev);
+        function memRenderJobs(j) {
+            const box = document.getElementById('memJobs');
+            const lines = [];
+            if (j.current) {
+                const c = j.current;
+                const what = c.kind === 'check' ? 'Checking for conflicts' : 'Recapping';
+                const prog = c.kind === 'recap' && c.total ? ` (${c.done ?? 0} of ${c.total} parts)` : '';
+                const chat = c.cid === memCharId ? memChatById(c.chat_id) : null;
+                lines.push(`${what}: <strong>${memEsc(c.character || '')}</strong> — ${memEsc(chat ? memChatPlain(chat) : (c.title || c.chat_id))}${prog}`);
             }
-            await memRefreshPinBanner();
-        }
-
-        // Set / edit / clear the user-facing label for the currently-selected
-        // character. Empty string clears. Persists via PATCH /label, then
-        // refreshes the dropdown so the new label appears immediately.
-        async function memEditLabel() {
-            if (!memCurrentChar) {
-                alert('Select a character first.');
+            if (j.queued.length) lines.push(`${j.queued.length} more queued.`);
+            const failed = (j.recent || []).find(r => r.error);
+            if (failed) lines.push(`<span style="color:var(--warn);">Last failure: ${memEsc(failed.character || '')} — ${memEsc(failed.title || '')}: ${memEsc(failed.error)}</span>`);
+            if (!lines.length) {
+                box.style.display = 'none';
                 return;
             }
-            // Look up current label from the cached list (avoids an extra fetch).
-            const resp = await fetch('/api/memory/list');
-            if (!resp.ok) return;
-            const data = await resp.json();
-            const me = (data.characters || []).find(c => c.char_key === memCurrentChar);
-            const current = (me && me.label) || '';
-            const next = prompt(
-                `Set a display label for this character:\n\n` +
-                `char_key: ${memCurrentChar}\n` +
-                `current: ${current || '(none)'}\n\n` +
-                `Type the new label (empty to clear):`,
-                current
-            );
-            if (next === null) return;
-            const patchResp = await fetch(
-                `/api/memory/${encodeURIComponent(memCurrentChar)}/label`,
-                {
-                    method: 'PATCH',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({label: next.trim()}),
-                }
-            );
-            if (!patchResp.ok) {
-                let msg = `save failed: HTTP ${patchResp.status}`;
-                try { const d = await patchResp.json(); if (d.error) msg = d.error; } catch (_) {}
-                alert(msg);
-                return;
-            }
-            await memLoadCharList();
+            const busy = j.current || j.queued.length;
+            box.innerHTML = lines.map((l, i) => `<div${i ? ' style="margin-top:4px;"' : ''}>${l}</div>`).join('')
+                + (busy ? '<button class="toggle-btn sm" id="memStopAllBtn" style="margin-top:8px;">Stop all</button>' : '');
+            box.style.display = 'block';
+            const stop = document.getElementById('memStopAllBtn');
+            if (stop) stop.addEventListener('click', () => memDo('/api/memory/recap/cancel', {}, memPollJobs));
         }
 
-        async function memRefreshPinBanner() {
+        async function memLoad() {
+            let o;
             try {
-                const resp = await fetch('/api/settings');
-                const settings = await resp.json();
-                const pinned = (settings.pinned_char_key || '').trim();
-                const banner = document.getElementById('memPinBanner');
-                const keyEl = document.getElementById('memPinKey');
-                if (pinned) {
-                    banner.style.display = 'block';
-                    keyEl.textContent = pinned;
-                } else {
-                    banner.style.display = 'none';
-                }
-            } catch (_) { /* ignore */ }
-        }
-
-        async function memPin() {
-            if (!memCurrentChar) {
-                alert('Select a character first, then click Pin.');
+                o = await memApi('/api/memory/overview');
+            } catch (e) {
+                memRenderStatus({enabled: true, st_found: true, extension: null, last_turn: {error: e.message, at: Date.now() / 1000}});
                 return;
             }
-            const resp = await fetch('/api/settings', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({pinned_char_key: memCurrentChar}),
-            });
-            if (resp.ok) memRefreshPinBanner();
+            memRenderStatus(o);
+            memRenderJobs(o.jobs);
+            const known = (o.characters || []).filter(c => c.bindings || c.links || c.recaps || c.alerts);
+            const box = document.getElementById('memKnown');
+            box.innerHTML = known.map(c => `<button class="toggle-btn sm${c.id === memCharId ? ' active' : ''}" data-char="${memEsc(c.id)}">${memEsc(c.name)}${c.alerts ? ' ⚠' : ''}</button>`).join('');
+            box.querySelectorAll('[data-char]').forEach(b => b.addEventListener('click', () => memLoadChar(b.dataset.char)));
+            if (memCharId) await memLoadChar(memCharId);
+            memStartJobsPoll();
         }
 
-        async function memUnpin() {
-            const resp = await fetch('/api/settings', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({pinned_char_key: ''}),
-            });
-            if (resp.ok) memRefreshPinBanner();
-        }
-
-        async function memLoadChar(charKey) {
-            if (!charKey) {
-                memCurrentChar = null;
-                memCurrentData = null;
-                memCurrentEntity = null;
-                memEntityRows = [];
-                document.getElementById('memBody').style.display = 'none';
-                document.getElementById('memCharSummary').textContent = '';
+        // A search box over SillyTavern's cards. onPick(card).
+        async function memCardSearch(inputId, resultsId, onPick, exclude = []) {
+            const q = document.getElementById(inputId).value.trim().toLowerCase();
+            const out = document.getElementById(resultsId);
+            if (!q) {
+                out.innerHTML = '';
                 return;
             }
-            const resp = await fetch('/api/memory/' + encodeURIComponent(charKey));
-            if (!resp.ok) {
-                document.getElementById('memCharSummary').textContent = 'Error: ' + resp.status;
-                return;
-            }
-            const data = await resp.json();
-            memCurrentChar = charKey;
-            memCurrentData = data;
-            // Reset to main entity on character switch — sticky entity across
-            // characters would surprise the user.
-            memCurrentEntity = null;
-            document.getElementById('memBody').style.display = 'block';
-            const npcCount = (data.npcs || []).length;
-            const seedFlag = data.card_seed ? ' · seeded' : '';
-            // Pull label from the cached list so we can show it in the
-            // summary too. Cheap — list endpoint is already loaded.
-            let labelStr = '';
+            let cards;
             try {
-                const listResp = await fetch('/api/memory/list');
-                if (listResp.ok) {
-                    const listData = await listResp.json();
-                    const me = (listData.characters || []).find(c => c.char_key === charKey);
-                    if (me && me.label) labelStr = `${me.label} · `;
-                }
-            } catch (_) {}
-            document.getElementById('memCharSummary').textContent =
-                `${labelStr}${data.memories.length} memories · ${npcCount} NPCs · turn ${data.latest_turn}${seedFlag}`;
-
-            memRenderEntityPills();
-            await memScopeToEntity(null);
-            memRenderNeeds(data.needs);
-            memRenderNpcs(data.npcs);
-            memRenderSeed(data.card_seed);
-            memRenderErrors();
+                cards = await memCards();
+            } catch (e) {
+                out.innerHTML = `<div class="mem-empty">${memEsc(e.message)}</div>`;
+                return;
+            }
+            const hits = cards.filter(c => !exclude.includes(c.avatar)
+                && (c.name.toLowerCase().includes(q) || c.avatar.toLowerCase().includes(q))).slice(0, 40);
+            out.innerHTML = hits.length
+                ? hits.map((c, i) => `<div class="mem-result" data-i="${i}">${memEsc(c.name)}<small>${memEsc(c.avatar)}</small></div>`).join('')
+                : '<div class="mem-empty">No card matches.</div>';
+            out.querySelectorAll('[data-i]').forEach(el => el.addEventListener('click', () => {
+                document.getElementById(inputId).value = '';
+                out.innerHTML = '';
+                onPick(hits[Number(el.dataset.i)]);
+            }));
         }
 
-        // Render the entity-pill row (Main · NPC1 · NPC2 ...). Highlights
-        // whichever entity is currently scoped. Clicking a pill calls
-        // memScopeToEntity which re-fetches the table for that DB.
-        function memRenderEntityPills() {
-            const wrap = document.getElementById('memEntityPills');
-            if (!wrap) return;
-            wrap.innerHTML = '';
-            const npcs = (memCurrentData && memCurrentData.npcs) || [];
-            const entities = [{key: null, label: 'Main'}].concat(
-                npcs.map(n => ({key: n.npc_key, label: n.name || n.npc_key}))
-            );
-            entities.forEach(e => {
-                const btn = document.createElement('button');
-                // Standalone (not in a .toggle-group), so pills size to
-                // their own content and wrap.
-                btn.className = 'toggle-btn sm';
-                btn.textContent = e.label;
-                if ((memCurrentEntity || null) === (e.key || null)) {
-                    btn.classList.add('active');
-                }
-                btn.onclick = () => memScopeToEntity(e.key);
-                wrap.appendChild(btn);
-            });
+        async function memLoadChar(cid) {
+            if (cid !== memCharId) {
+                // The first look at a character reads all their chat files.
+                document.getElementById('memChar').style.display = 'block';
+                document.getElementById('memCharName').textContent = 'Loading...';
+                document.getElementById('memChats').innerHTML = '<div class="mem-empty">Reading the chats...</div>';
+            }
+            let data;
+            try {
+                data = await memApi('/api/memory/character?id=' + encodeURIComponent(cid));
+            } catch (e) {
+                alert(e.message);
+                return;
+            }
+            await memPersonas().catch(() => []);
+            if (data.id !== memCharId) {
+                memOpenBindings.clear();
+                memDirtyBindings.clear();
+                memTogglePersonaPicker(false);
+            }
+            memCharId = data.id;
+            memCharData = data;
+            document.querySelectorAll('#memKnown [data-char]').forEach(b => b.classList.toggle('active', b.dataset.char === memCharId));
+            document.getElementById('memChar').style.display = 'block';
+            document.getElementById('memCharName').textContent = data.name;
+            memRenderCards(data);
+            if (!memDirtyBindings.size) memRenderBindings(data);
+            memRenderChatFilters(data);
+            memRenderChats();
         }
 
-        // Switch the Memories sub-tab to look at a specific entity's DB.
-        // entityKey === null means the main character; otherwise it's an
-        // npc_key. Fetches that entity's rows (NPC rows come from the NPC
-        // endpoint, main rows are already loaded with the character).
-        async function memScopeToEntity(entityKey) {
-            if (!memCurrentChar) return;
-            memCurrentEntity = entityKey || null;
-            if (memCurrentEntity === null) {
-                memEntityRows = (memCurrentData && memCurrentData.memories) || [];
-            } else {
-                try {
-                    const resp = await fetch(
-                        `/api/memory/${encodeURIComponent(memCurrentChar)}/npc/${encodeURIComponent(memCurrentEntity)}`
-                    );
-                    if (!resp.ok) {
-                        memEntityRows = [];
-                    } else {
-                        const data = await resp.json();
-                        memEntityRows = data.memories || [];
+        function memRenderCards(data) {
+            const el = document.getElementById('memCards');
+            el.innerHTML = data.cards.map((c, i) => `<span class="mem-card-chip">${memEsc(c.name)} <small style="color:var(--paper-ghost);">${memEsc(c.avatar)}</small>`
+                + (i ? ` <button class="toggle-btn sm danger" data-avatar="${memEsc(c.avatar)}" title="Make it a character of its own again">×</button>` : '')
+                + '</span>').join('');
+            el.querySelectorAll('[data-avatar]').forEach(b => b.addEventListener('click', () => {
+                if (!confirm(`Make ${b.dataset.avatar} a character of its own again? Its chats' memory goes with it.`)) return;
+                memDo('/api/memory/card', {character: memCharId, avatar: b.dataset.avatar, action: 'remove'}, () => memLoadChar(memCharId));
+            }));
+        }
+
+        function memAddCard(card) {
+            if (!confirm(`Add ${card.name} (${card.avatar}) to ${memCharData.name}? Its chats and memory become ${memCharData.name}'s.`)) return;
+            memDo('/api/memory/card', {character: memCharId, avatar: card.avatar, action: 'add'}, () => memLoadChar(memCharId));
+        }
+
+        // A recap to read: the short one, if the chat has one, then each part.
+        function memRecapHtml(r) {
+            const parts = r.parts || [];
+            if (!parts.some(p => p.recap) && !r.short) return '<div class="mem-empty">Not recapped yet.</div>';
+            const out = [];
+            if (r.short) {
+                out.push(`<div class="mem-recap-short"><div class="mem-recap-head">Short recap${r.short_edited ? ' · edited' : ''} · used when the full one doesn't fit</div>`
+                    + `<div class="mem-recap-text">${memEsc(r.short)}</div></div>`);
+            }
+            parts.forEach(p => out.push(`<div class="mem-recap-head">Messages #${p.from}–#${p.to}${p.edited ? ' · edited' : ''}</div>`
+                + (p.recap ? `<div class="mem-recap-text">${memEsc(p.recap)}</div>` : '<div class="mem-empty">Not recapped yet.</div>')));
+            return out.join('');
+        }
+
+        // A button that opens a chat's recap in the box under its row
+        // (memRecapBox); memWireRecaps wires them.
+        function memRecapBtn(chatId) {
+            return `<button type="button" class="toggle-btn sm" data-recap="${memEsc(chatId)}">Recap</button>`;
+        }
+
+        function memRecapBox(chatId) {
+            return `<div class="mem-recap-box" data-recap-box="${memEsc(chatId)}" style="display:none;"></div>`;
+        }
+
+        // scope: tells apart the same chat's rows in different lists.
+        function memWireRecaps(root, scope) {
+            root.querySelectorAll('[data-recap]').forEach(btn => {
+                const id = btn.dataset.recap, key = `${scope}\n${id}`;
+                const box = root.querySelector(`[data-recap-box="${CSS.escape(id)}"]`);
+                if (!box) return;
+                const show = async open => {
+                    btn.textContent = open ? 'Hide recap' : 'Recap';
+                    btn.classList.toggle('active', open);
+                    box.style.display = open ? 'block' : 'none';
+                    if (!open) {
+                        memOpenRecaps.delete(key);
+                        return;
                     }
-                } catch (_) {
-                    memEntityRows = [];
-                }
-            }
-            memRenderEntityPills();
-            memPopulateTypeFilter(memEntityRows);
-            memRenderTable();
-        }
-
-        function memPopulateTypeFilter(rows) {
-            const types = Array.from(new Set(rows.map(m => m.type))).sort();
-            const sel = document.getElementById('memFilterType');
-            const prev = sel.value;
-            sel.innerHTML = '<option value="">all types</option>';
-            types.forEach(t => {
-                const opt = document.createElement('option');
-                opt.value = t;
-                opt.textContent = t;
-                sel.appendChild(opt);
-            });
-            sel.value = prev;
-        }
-
-        function memRenderTable() {
-            if (!memCurrentData) return;
-            const ftype = document.getElementById('memFilterType').value;
-            const fstatus = document.getElementById('memFilterStatus').value;
-            const ftext = document.getElementById('memFilterText').value.toLowerCase();
-            let rows = memEntityRows.slice();
-            if (ftype) rows = rows.filter(r => r.type === ftype);
-            if (fstatus) rows = rows.filter(r => r.status === fstatus);
-            if (ftext) rows = rows.filter(r => (r.content || '').toLowerCase().includes(ftext));
-            // Sort: intensity desc, importance desc, id desc
-            rows.sort((a, b) => {
-                const ia = a.intensity || 0, ib = b.intensity || 0;
-                if (ib !== ia) return ib - ia;
-                if (b.importance !== a.importance) return b.importance - a.importance;
-                return b.id - a.id;
-            });
-            const scopeLabel = memCurrentEntity ? `NPC[${memCurrentEntity}]` : 'main';
-            document.getElementById('memRowCount').textContent =
-                `${rows.length} of ${memEntityRows.length} (${scopeLabel})`;
-            const tbody = document.getElementById('memTableBody');
-            tbody.innerHTML = '';
-            rows.forEach(r => {
-                const tr = document.createElement('tr');
-                if (r.status !== 'active' || r.card_copy) tr.style.opacity = '0.55';
-                const status = r.card_copy
-                    ? `<span title="Taken from the character card, which SillyTavern already sends; added to turns only once the story changes it">${r.status} · card</span>`
-                    : r.status;
-                tr.innerHTML = `
-                    <td class="muted">${r.id}</td>
-                    <td>${r.type}</td>
-                    <td class="muted">${escapeHtml(r.subject || '-')}</td>
-                    <td>${r.intensity ?? ''}</td>
-                    <td>${r.importance}</td>
-                    <td class="muted">${status}</td>
-                    <td>${escapeHtml(r.content || '')}</td>
-                    <td class="muted">${r.created_turn}</td>
-                    <td><div class="actions">
-                        <button class="toggle-btn sm memEditBtn" data-id="${r.id}">edit</button>
-                        <button class="toggle-btn sm memMoveBtn" data-id="${r.id}">move ▾</button>
-                        <button class="toggle-btn sm danger memDeleteBtn" data-id="${r.id}">×</button>
-                    </div></td>
-                `;
-                tbody.appendChild(tr);
-            });
-            // Wire row-action buttons. Using delegation-via-class is fine here
-            // because the table is fully re-rendered each time and there are
-            // no leftover stale listeners.
-            tbody.querySelectorAll('.memEditBtn').forEach(b => {
-                b.addEventListener('click', () => memOpenEditModal(parseInt(b.dataset.id, 10)));
-            });
-            tbody.querySelectorAll('.memMoveBtn').forEach(b => {
-                b.addEventListener('click', e => memShowMoveMenu(e.currentTarget, parseInt(b.dataset.id, 10)));
-            });
-            tbody.querySelectorAll('.memDeleteBtn').forEach(b => {
-                b.addEventListener('click', () => memDeleteRow(parseInt(b.dataset.id, 10)));
-            });
-        }
-
-        function escapeHtml(s) {
-            return String(s)
-                .replace(/&/g, '&amp;')
-                .replace(/</g, '&lt;')
-                .replace(/>/g, '&gt;');
-        }
-
-        // Build the ?npc=... query suffix used by the row endpoints. Empty
-        // string when the main DB is in scope.
-        function memScopeQuery() {
-            return memCurrentEntity ? ('?npc=' + encodeURIComponent(memCurrentEntity)) : '';
-        }
-
-        async function memDeleteRow(id) {
-            if (!confirm(`Delete memory row ${id}?`)) return;
-            const resp = await fetch(
-                `/api/memory/${encodeURIComponent(memCurrentChar)}/row/${id}${memScopeQuery()}`,
-                {method: 'DELETE'}
-            );
-            if (resp.ok) {
-                await memReloadCurrentScope();
-            }
-        }
-
-        // Reload the rows for whatever entity is currently scoped, plus the
-        // top-level summary numbers and the NPCs sub-tab. Cheaper than
-        // memLoadChar because it skips the needs / seed / errors panels.
-        async function memReloadCurrentScope() {
-            if (!memCurrentChar) return;
-            // Refresh main-char data (counts + main rows + NPC list) then re-scope.
-            const resp = await fetch('/api/memory/' + encodeURIComponent(memCurrentChar));
-            if (resp.ok) {
-                memCurrentData = await resp.json();
-                const npcCount = (memCurrentData.npcs || []).length;
-                const seedFlag = memCurrentData.card_seed ? ' · seeded' : '';
-                document.getElementById('memCharSummary').textContent =
-                    `${memCurrentData.memories.length} memories · ${npcCount} NPCs · turn ${memCurrentData.latest_turn}${seedFlag}`;
-                memRenderEntityPills();
-                // Re-render the NPCs sub-tab too — it shows the same list,
-                // so a deletion / card-save needs to be reflected here.
-                memRenderNpcs(memCurrentData.npcs);
-            }
-            await memScopeToEntity(memCurrentEntity);
-        }
-
-        // ----- Edit / Insert modal -----
-        // memModalRowId is null when adding a new entry, otherwise the id
-        // of the row being patched. Determines whether Save fires PATCH or POST.
-        let memModalRowId = null;
-
-        function memOpenEditModal(rowId) {
-            const row = memEntityRows.find(r => r.id === rowId);
-            if (!row) return;
-            memModalRowId = rowId;
-            document.getElementById('memModalTitle').textContent = `Edit row ${rowId}`;
-            const scopeLabel = memCurrentEntity ? `NPC[${memCurrentEntity}]` : 'main character';
-            document.getElementById('memModalScope').textContent =
-                `Scope: ${scopeLabel} · created turn ${row.created_turn}`;
-            document.getElementById('memEditType').value = row.type || 'fact';
-            document.getElementById('memEditSubject').value = row.subject || '';
-            document.getElementById('memEditIntensity').value = row.intensity == null ? '' : row.intensity;
-            document.getElementById('memEditImportance').value = row.importance ?? 3;
-            document.getElementById('memEditStatus').value = row.status || 'active';
-            document.getElementById('memEditContent').value = row.content || '';
-            document.getElementById('memEditTags').value = row.tags || '';
-            document.getElementById('memEditMetadata').value =
-                row.metadata == null ? '' : JSON.stringify(row.metadata, null, 2);
-            document.getElementById('memModalError').style.display = 'none';
-            document.getElementById('memRowModal').style.display = 'flex';
-        }
-
-        function memOpenInsertModal() {
-            if (!memCurrentChar) {
-                alert('Select a character first.');
-                return;
-            }
-            memModalRowId = null;
-            document.getElementById('memModalTitle').textContent = 'New memory row';
-            const scopeLabel = memCurrentEntity ? `NPC[${memCurrentEntity}]` : 'main character';
-            document.getElementById('memModalScope').textContent = `Scope: ${scopeLabel}`;
-            document.getElementById('memEditType').value = 'fact';
-            document.getElementById('memEditSubject').value = '';
-            document.getElementById('memEditIntensity').value = '';
-            document.getElementById('memEditImportance').value = 3;
-            document.getElementById('memEditStatus').value = 'active';
-            document.getElementById('memEditContent').value = '';
-            document.getElementById('memEditTags').value = '';
-            document.getElementById('memEditMetadata').value = '';
-            document.getElementById('memModalError').style.display = 'none';
-            document.getElementById('memRowModal').style.display = 'flex';
-        }
-
-        function memCloseModal() {
-            document.getElementById('memRowModal').style.display = 'none';
-            memModalRowId = null;
-        }
-
-        // Pull values out of the modal form into a payload dict suitable for
-        // PATCH or POST. Returns null and surfaces the error in the modal
-        // when the metadata JSON is malformed.
-        function memBuildPayloadFromModal() {
-            const errEl = document.getElementById('memModalError');
-            errEl.style.display = 'none';
-
-            const intensityRaw = document.getElementById('memEditIntensity').value.trim();
-            const subjectRaw = document.getElementById('memEditSubject').value.trim();
-            const tagsRaw = document.getElementById('memEditTags').value.trim();
-            const metadataRaw = document.getElementById('memEditMetadata').value.trim();
-
-            let metadata = null;
-            if (metadataRaw) {
-                try { metadata = JSON.parse(metadataRaw); }
-                catch (e) {
-                    errEl.textContent = 'metadata is not valid JSON: ' + e.message;
-                    errEl.style.display = 'block';
-                    return null;
-                }
-            }
-
-            const payload = {
-                type: document.getElementById('memEditType').value,
-                content: document.getElementById('memEditContent').value,
-                importance: parseInt(document.getElementById('memEditImportance').value, 10) || 3,
-                status: document.getElementById('memEditStatus').value,
-            };
-            if (subjectRaw) payload.subject = subjectRaw; else payload.subject = null;
-            if (intensityRaw) payload.intensity = parseInt(intensityRaw, 10);
-            if (tagsRaw) payload.tags = tagsRaw;
-            if (metadata !== null) payload.metadata = metadata;
-            return payload;
-        }
-
-        async function memSaveModal() {
-            if (!memCurrentChar) return;
-            const payload = memBuildPayloadFromModal();
-            if (!payload) return;
-            const errEl = document.getElementById('memModalError');
-            const url = memModalRowId == null
-                ? `/api/memory/${encodeURIComponent(memCurrentChar)}/row${memScopeQuery()}`
-                : `/api/memory/${encodeURIComponent(memCurrentChar)}/row/${memModalRowId}${memScopeQuery()}`;
-            const method = memModalRowId == null ? 'POST' : 'PATCH';
-            const resp = await fetch(url, {
-                method,
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify(payload),
-            });
-            if (!resp.ok) {
-                let msg = `${method} failed: HTTP ${resp.status}`;
-                try { const d = await resp.json(); if (d.error) msg = d.error; } catch (_) {}
-                errEl.textContent = msg;
-                errEl.style.display = 'block';
-                return;
-            }
-            memCloseModal();
-            await memReloadCurrentScope();
-        }
-
-        // ----- Move row dropdown -----
-        // Anchors a tiny menu next to the clicked button listing every entity
-        // OTHER than the row's current scope. Click an entry → POST move.
-        function memShowMoveMenu(anchor, rowId) {
-            // Tear down any prior menu.
-            const prior = document.getElementById('memMoveMenu');
-            if (prior) prior.remove();
-
-            const npcs = (memCurrentData && memCurrentData.npcs) || [];
-            const targets = [{key: null, label: 'Main character'}].concat(
-                npcs.map(n => ({key: n.npc_key, label: `NPC: ${n.name || n.npc_key}`}))
-            ).filter(t => (t.key || null) !== (memCurrentEntity || null));
-
-            const menu = document.createElement('div');
-            menu.id = 'memMoveMenu';
-            menu.className = 'menu';
-            const rect = anchor.getBoundingClientRect();
-            menu.style.top = (rect.bottom + window.scrollY + 2) + 'px';
-            menu.style.left = (rect.left + window.scrollX) + 'px';
-
-            if (targets.length === 0) {
-                const empty = document.createElement('div');
-                empty.className = 'menu-item';
-                empty.style.cssText = 'color:var(--paper-faint);cursor:default;';
-                empty.textContent = '(no other entities to move to)';
-                menu.appendChild(empty);
-            } else {
-                targets.forEach(t => {
-                    const item = document.createElement('div');
-                    item.className = 'menu-item';
-                    item.textContent = t.label;
-                    item.onclick = () => { menu.remove(); memMoveRow(rowId, t.key); };
-                    menu.appendChild(item);
-                });
-            }
-
-            document.body.appendChild(menu);
-
-            // Click-away dismisses. Defer until next tick so the spawning click
-            // doesn't immediately close it.
-            setTimeout(() => {
-                const dismiss = (ev) => {
-                    if (!menu.contains(ev.target)) {
-                        menu.remove();
-                        document.removeEventListener('click', dismiss);
+                    memOpenRecaps.add(key);
+                    box.innerHTML = '<div class="mem-recap"><div class="mem-empty">Loading...</div></div>';
+                    try {
+                        const r = await memApi(`/api/memory/recap?character=${encodeURIComponent(memCharId)}&chat=${encodeURIComponent(id)}`);
+                        box.innerHTML = `<div class="mem-recap">${memRecapHtml(r)}</div>`;
+                    } catch (e) {
+                        box.innerHTML = `<div class="mem-recap"><div class="mem-empty">${memEsc(e.message)}</div></div>`;
                     }
                 };
-                document.addEventListener('click', dismiss);
+                btn.addEventListener('click', e => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    show(box.style.display === 'none');
+                });
+                if (memOpenRecaps.has(key)) show(true);
+            });
+        }
+
+        function memBindingRow(c, how) {
+            const checked = how === 'chosen' || how === 'auto';
+            const note = how === 'auto' ? ' · joined by itself' : '';
+            return `<div class="mem-row-wrap"><label class="mem-row"><input type="checkbox" data-chat="${memEsc(c.chat_id)}"${checked ? ' checked' : ''}>`
+                + `<div class="mem-chat-main">${memChatSummary(c, note)}</div><div class="mem-chat-side">${memRecapTag(c)}`
+                + (c.recap?.done ? `<div style="margin-top:6px;">${memRecapBtn(c.chat_id)}</div>` : '')
+                + `</div></label>${memRecapBox(c.chat_id)}</div>`;
+        }
+
+        // A persona's name and title, then the start of its description.
+        function memPersonaHead(p, avatar, name) {
+            return `<div class="mem-chat-title">${memEsc(p?.name || name || avatar)}${p?.title ? `<span class="mem-chat-label"> · ${memEsc(p.title)}</span>` : ''}</div>`
+                + `<div class="mem-clip">${p?.description ? memEsc(p.description) : '<i>No description.</i>'}</div>`;
+        }
+
+        function memRenderBindings(data) {
+            const box = document.getElementById('memBindings');
+            box.innerHTML = data.bindings.length ? '' : '<div class="mem-empty">Not bound to any persona.</div>';
+            data.bindings.forEach(b => {
+                const withP = data.chats.filter(c => c.personas.some(p => p.avatar === b.persona));
+                const others = data.chats.filter(c => !withP.includes(c));
+                const n = Object.values(b.chats).filter(h => h !== 'removed').length;
+                const item = document.createElement('div');
+                item.className = 'list-item';
+                item.innerHTML = `
+                    <div class="list-item-head" style="align-items:flex-start;">
+                        <div style="min-width:0;">
+                            ${memPersonaHead(memPersonaMap.get(b.persona), b.persona, b.persona_name)}
+                            <div class="list-item-meta" style="margin-top:4px;">bound ${memEsc(b.created)} · remembers ${n} chat${n === 1 ? '' : 's'}</div>
+                        </div>
+                        <span class="caret">▼</span>
+                    </div>
+                    <div class="list-item-body" style="display:${memOpenBindings.has(b.persona) ? 'block' : 'none'};">
+                        <div class="mem-inline" style="margin:2px 0 10px;">
+                            <button class="toggle-btn sm" data-act="all">Select all</button>
+                            <button class="toggle-btn sm" data-act="none">Select none</button>
+                            <button class="toggle-btn sm primary" data-act="save">Save</button>
+                            <button class="toggle-btn sm danger" data-act="unbind">Unbind</button>
+                        </div>
+                        <div class="mem-sub">Chats with ${memEsc(memPersonaLabel(b.persona, b.persona_name))} (${withP.length})</div>
+                        ${withP.map(c => memBindingRow(c, b.chats[c.chat_id])).join('') || '<div class="mem-empty">None yet.</div>'}
+                        ${others.length ? `<details class="mem-more"><summary>Other chats of this character (${others.length})</summary>${others.map(c => memBindingRow(c, b.chats[c.chat_id])).join('')}</details>` : ''}
+                    </div>`;
+                const body = item.querySelector('.list-item-body');
+                item.querySelector('.list-item-head').addEventListener('click', () => {
+                    const open = body.style.display === 'none';
+                    body.style.display = open ? 'block' : 'none';
+                    if (open) memOpenBindings.add(b.persona); else memOpenBindings.delete(b.persona);
+                });
+                body.addEventListener('change', () => memDirtyBindings.add(b.persona));
+                memWireRecaps(body, `binding:${b.persona}`);
+                const withIds = new Set(withP.map(c => c.chat_id));
+                body.querySelector('[data-act="all"]').addEventListener('click', () => {
+                    body.querySelectorAll('input[data-chat]').forEach(i => { if (withIds.has(i.dataset.chat)) i.checked = true; });
+                    memDirtyBindings.add(b.persona);
+                });
+                body.querySelector('[data-act="none"]').addEventListener('click', () => {
+                    body.querySelectorAll('input[data-chat]').forEach(i => { i.checked = false; });
+                    memDirtyBindings.add(b.persona);
+                });
+                body.querySelector('[data-act="save"]').addEventListener('click', () => memSaveBinding(b, body));
+                body.querySelector('[data-act="unbind"]').addEventListener('click', () => {
+                    if (!confirm(`Unbind ${data.name} from ${memPersonaLabel(b.persona, b.persona_name)}? The chats' recaps are kept.`)) return;
+                    memDirtyBindings.delete(b.persona);
+                    memDo('/api/memory/binding', {character: memCharId, persona: b.persona, action: 'remove'}, () => memLoadChar(memCharId));
+                });
+                box.appendChild(item);
+            });
+        }
+
+        async function memSaveBinding(b, body) {
+            const add = [], remove = [];
+            body.querySelectorAll('input[data-chat]').forEach(i => {
+                const was = b.chats[i.dataset.chat] === 'chosen' || b.chats[i.dataset.chat] === 'auto';
+                if (i.checked && !was) add.push(i.dataset.chat);
+                if (!i.checked && was) remove.push(i.dataset.chat);
+            });
+            const byId = new Map(memCharData.chats.map(c => [c.chat_id, c]));
+            const calls = add.reduce((n, id) => {
+                const r = (byId.get(id) || {}).recap || {};
+                return n + (r.missing || 0);
             }, 0);
-        }
-
-        async function memMoveRow(rowId, targetNpcKey) {
-            const resp = await fetch(
-                `/api/memory/${encodeURIComponent(memCurrentChar)}/row/${rowId}/move${memScopeQuery()}`,
-                {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({to_npc: targetNpcKey}),
-                }
-            );
-            if (!resp.ok) {
-                let msg = `move failed: HTTP ${resp.status}`;
-                try { const d = await resp.json(); if (d.error) msg = d.error; } catch (_) {}
-                alert(msg);
-                return;
-            }
-            const data = await resp.json();
-            if (data.warning) alert('Warning: ' + data.warning);
-            await memReloadCurrentScope();
-        }
-
-        function memRenderNeeds(needs) {
-            const body = document.getElementById('memNeedsBody');
-            body.innerHTML = '';
-            if (!needs) {
-                body.textContent = '(no needs.json yet)';
-                return;
-            }
-            ['physical', 'social', 'emotional', 'custom'].forEach(cat => {
-                const slots = needs[cat] || {};
-                if (Object.keys(slots).length === 0 && cat === 'custom') return;
-                const h = document.createElement('div');
-                h.className = 'group-label';
-                h.style.margin = '16px 0 6px';
-                h.textContent = cat;
-                body.appendChild(h);
-                Object.entries(slots).forEach(([k, v]) => {
-                    const wrap = document.createElement('div');
-                    wrap.style.cssText = 'display:flex;align-items:center;gap:12px;margin:4px 0;font-size:12.5px;';
-                    wrap.innerHTML = `
-                        <label style="min-width:140px;color:var(--paper-dim);">${k}</label>
-                        <input type="range" min="0" max="1" step="0.01" value="${v}" data-cat="${cat}" data-key="${k}" style="flex:1;">
-                        <span class="memNeedVal" data-cat="${cat}" data-key="${k}" style="min-width:40px;font-family:var(--font-mono);font-size:12px;color:var(--paper-dim);">${Number(v).toFixed(2)}</span>
-                    `;
-                    body.appendChild(wrap);
-                });
-            });
-            // Live update of the displayed value
-            body.querySelectorAll('input[type=range]').forEach(inp => {
-                inp.addEventListener('input', () => {
-                    const span = body.querySelector(`.memNeedVal[data-cat="${inp.dataset.cat}"][data-key="${inp.dataset.key}"]`);
-                    if (span) span.textContent = Number(inp.value).toFixed(2);
-                });
+            if (calls && !confirm(`Recapping the newly ticked chats takes about ${calls} Sonnet call${calls === 1 ? '' : 's'}, which count against your plan. Go ahead?`)) return;
+            memDirtyBindings.delete(b.persona);
+            await memDo('/api/memory/binding/chats', {character: memCharId, persona: b.persona, add, remove}, async () => {
+                await memLoadChar(memCharId);
+                memPollJobs();
             });
         }
 
-        async function memSaveNeeds() {
-            if (!memCurrentChar || !memCurrentData) return;
-            const needs = JSON.parse(JSON.stringify(memCurrentData.needs || {}));
-            document.querySelectorAll('#memNeedsBody input[type=range]').forEach(inp => {
-                const cat = inp.dataset.cat, k = inp.dataset.key;
-                if (!needs[cat]) needs[cat] = {};
-                needs[cat][k] = Number(inp.value);
-            });
-            const resp = await fetch(`/api/memory/${encodeURIComponent(memCurrentChar)}/needs`, {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify(needs),
-            });
-            if (resp.ok) memLoadChar(memCurrentChar);
+        async function memBind(persona) {
+            if (!persona || !memCharId) return;
+            memTogglePersonaPicker(false);
+            memOpenBindings.add(persona);
+            await memDo('/api/memory/binding', {character: memCharId, persona, action: 'add'}, () => memLoadChar(memCharId));
         }
 
-        function memRenderNpcs(npcs) {
-            const body = document.getElementById('memNpcsBody');
-            body.innerHTML = '';
-            if (!npcs || npcs.length === 0) {
-                body.textContent = 'No NPCs registered yet.';
-                return;
-            }
-            npcs.forEach(n => {
-                const card = document.createElement('div');
-                card.className = 'setting-card';
-                card.style.cssText = 'margin-bottom:10px;';
-                const aliasesStr = (n.aliases || []).join(', ');
-                card.innerHTML = `
-                    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap;">
-                        <div style="flex:1;min-width:240px;">
-                            <div style="display:flex;gap:8px;align-items:baseline;flex-wrap:wrap;">
-                                <strong>${escapeHtml(n.name || n.npc_key)}</strong>
-                                <span style="color:var(--paper-faint);font-size:11.5px;font-family:var(--font-mono);">${n.npc_key}</span>
-                                <span style="color:var(--paper-faint);font-size:12px;">introduced turn ${n.introduced_at_turn ?? '?'}</span>
-                            </div>
-                        </div>
-                        <div class="btn-row" style="gap:6px;">
-                            <button class="toggle-btn sm npcViewMemBtn" data-key="${n.npc_key}">View memories</button>
-                            <button class="toggle-btn sm danger npcDeleteBtn" data-key="${n.npc_key}" data-name="${escapeHtml(n.name || n.npc_key)}">Delete</button>
-                        </div>
-                    </div>
-                    <div class="form-grid" style="grid-template-columns:90px 1fr;gap:8px 12px;margin-top:12px;">
-                        <label>name</label>
-                        <input type="text" class="npcCardName" data-key="${n.npc_key}" value="${escapeHtml(n.name || '')}">
-
-                        <label>status</label>
-                        <select class="npcCardStatus" data-key="${n.npc_key}" style="width:160px;">
-                            <option value="active"${(n.status || 'active') === 'active' ? ' selected' : ''}>active</option>
-                            <option value="dismissed"${n.status === 'dismissed' ? ' selected' : ''}>dismissed</option>
-                            <option value="pending"${n.status === 'pending' ? ' selected' : ''}>pending</option>
-                        </select>
-
-                        <label>aliases</label>
-                        <input type="text" class="npcCardAliases" data-key="${n.npc_key}" value="${escapeHtml(aliasesStr)}" placeholder="comma-separated">
-
-                        <label style="align-self:start;padding-top:8px;">bio</label>
-                        <textarea class="npcCardBio" data-key="${n.npc_key}" rows="3">${escapeHtml(n.bio || '')}</textarea>
-                    </div>
-                    <div class="btn-row" style="margin-top:12px;gap:6px;">
-                        <button class="toggle-btn sm npcCardSaveBtn" data-key="${n.npc_key}">Save card</button>
-                        <span class="npcCardStatusMsg" data-key="${n.npc_key}" style="font-size:12px;color:var(--paper-faint);"></span>
-                    </div>
-                `;
-                body.appendChild(card);
-            });
-            // Wire view-memories deep-link buttons.
-            body.querySelectorAll('.npcViewMemBtn').forEach(b => {
-                b.addEventListener('click', () => memViewNpcMemories(b.dataset.key));
-            });
-            // Wire card-save buttons.
-            body.querySelectorAll('.npcCardSaveBtn').forEach(b => {
-                b.addEventListener('click', () => memSaveNpcCard(b.dataset.key));
-            });
-            // Wire NPC-delete buttons.
-            body.querySelectorAll('.npcDeleteBtn').forEach(b => {
-                b.addEventListener('click', () => memDeleteNpc(b.dataset.key, b.dataset.name));
-            });
+        function memTogglePersonaPicker(open) {
+            const picker = document.getElementById('memPersonaPicker');
+            picker.style.display = open ? 'block' : 'none';
+            document.getElementById('memBindToggle').textContent = open ? 'Close' : 'Bind to a persona';
+            document.getElementById('memPersonaSearch').value = '';
+            if (open) memRenderPersonaPicker();
         }
 
-        // Delete an NPC entirely. Closes the connection, rms the folder
-        // (memory.db + npc_card.json), prunes the pointer row from main.
-        // Two-step confirm because this is destructive — type the NPC's
-        // name to proceed. If the deleted NPC was the currently-scoped
-        // entity in the Memories tab, fall back to main.
-        async function memDeleteNpc(npcKey, displayName) {
-            if (!memCurrentChar) return;
-            const typed = prompt(
-                `Delete NPC "${displayName}" entirely?\n\n` +
-                `This wipes their memory.db, their card, and the pointer row in main. ` +
-                `Cannot be undone.\n\n` +
-                `Type the NPC name (${displayName}) to confirm:`
-            );
-            if (typed === null) return;
-            if (typed.trim() !== displayName) {
-                alert('Name did not match. NPC not deleted.');
-                return;
-            }
-            const resp = await fetch(
-                `/api/memory/${encodeURIComponent(memCurrentChar)}/npc/${encodeURIComponent(npcKey)}`,
-                {method: 'DELETE'}
-            );
-            if (!resp.ok) {
-                let msg = `delete failed: HTTP ${resp.status}`;
-                try { const d = await resp.json(); if (d.error) msg = d.error; } catch (_) {}
-                alert(msg);
-                return;
-            }
-            // If we were scoped to this NPC in the Memories tab, fall back
-            // to main so we don't try to fetch a now-deleted DB.
-            if (memCurrentEntity === npcKey) {
-                memCurrentEntity = null;
-            }
-            await memReloadCurrentScope();
-        }
-
-        // Save the NPC card metadata. Reads the form fields scoped to that
-        // NPC's npc_key (data-key attribute), PATCHes the card endpoint,
-        // refreshes the NPC list to reflect the new state.
-        async function memSaveNpcCard(npcKey) {
-            if (!memCurrentChar) return;
-            const sel = (cls) => document.querySelector(`.${cls}[data-key="${CSS.escape(npcKey)}"]`);
-            const aliasesStr = sel('npcCardAliases').value;
-            const aliases = aliasesStr.split(',').map(s => s.trim()).filter(Boolean);
-            const payload = {
-                name: sel('npcCardName').value.trim(),
-                status: sel('npcCardStatus').value,
-                aliases,
-                bio: sel('npcCardBio').value,
+        // Personas not bound yet: the ones in this character's chats first,
+        // most used first, then the rest. Picking one binds it.
+        function memRenderPersonaPicker() {
+            const data = memCharData;
+            const out = document.getElementById('memPersonaResults');
+            if (!data) return;
+            const q = document.getElementById('memPersonaSearch').value.trim().toLowerCase();
+            const bound = new Set(data.bindings.map(b => b.persona));
+            const used = new Map();
+            data.chats.forEach(c => c.personas.forEach(p => { if (p.avatar) used.set(p.avatar, (used.get(p.avatar) || 0) + 1); }));
+            const hits = (memPersonasCache || []).filter(p => !bound.has(p.avatar)
+                && (!q || [p.name, p.title, p.description].join(' ').toLowerCase().includes(q)));
+            const row = p => {
+                const n = used.get(p.avatar);
+                return `<div class="mem-chat" data-persona="${memEsc(p.avatar)}"><div class="mem-chat-main">${memPersonaHead(p)}</div>`
+                    + (n ? `<div class="mem-chat-side"><span class="mem-tag accent">${n} chat${n === 1 ? '' : 's'}</span></div>` : '') + '</div>';
             };
-            const statusEl = sel('npcCardStatusMsg') || document.querySelector(`.npcCardStatusMsg[data-key="${CSS.escape(npcKey)}"]`);
-            const resp = await fetch(
-                `/api/memory/${encodeURIComponent(memCurrentChar)}/npc/${encodeURIComponent(npcKey)}/card`,
-                {
-                    method: 'PATCH',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify(payload),
-                }
-            );
-            if (!resp.ok) {
-                let msg = `save failed: HTTP ${resp.status}`;
-                try { const d = await resp.json(); if (d.error) msg = d.error; } catch (_) {}
-                if (statusEl) {
-                    statusEl.textContent = msg;
-                    statusEl.style.color = 'var(--error)';
-                }
-                return;
-            }
-            if (statusEl) {
-                statusEl.textContent = 'saved.';
-                statusEl.style.color = 'var(--success,#7a7)';
-                setTimeout(() => { statusEl.textContent = ''; }, 2000);
-            }
-            // Re-fetch char data so the NPC name change propagates to the
-            // Memories sub-tab's entity pills.
-            await memReloadCurrentScope();
+            const inChats = hits.filter(p => used.has(p.avatar)).sort((a, b) => used.get(b.avatar) - used.get(a.avatar));
+            const rest = hits.filter(p => !used.has(p.avatar));
+            out.innerHTML = !hits.length ? `<div class="mem-empty">${memPersonasCache?.length ? 'No persona matches.' : 'No personas found in SillyTavern.'}</div>`
+                : (inChats.length ? `<div class="mem-sub">In ${memEsc(data.name)}'s chats</div>${inChats.map(row).join('')}` : '')
+                + (rest.length ? `<div class="mem-sub">${inChats.length ? 'Other personas' : 'Personas'}</div>${rest.map(row).join('')}` : '');
+            out.querySelectorAll('[data-persona]').forEach(el => el.addEventListener('click', () => memBind(el.dataset.persona)));
         }
 
-        // "View memories" deep-link: switch to the Memories sub-tab and scope
-        // it to the chosen NPC. Mirrors the user clicking the NPC's pill but
-        // saves them the round-trip.
-        async function memViewNpcMemories(npcKey) {
-            // Activate the Memories sub-tab button.
-            document.querySelectorAll('[data-memtab]').forEach(b => b.classList.remove('active'));
-            const memTabBtn = document.querySelector('[data-memtab="memories"]');
-            if (memTabBtn) memTabBtn.classList.add('active');
-            document.querySelectorAll('.memSubPanel').forEach(p => p.style.display = 'none');
-            document.getElementById('memSub_memories').style.display = 'block';
-            await memScopeToEntity(npcKey);
-        }
-
-        function memRenderSeed(seed) {
-            const body = document.getElementById('memSeedBody');
-            body.textContent = seed ? JSON.stringify(seed, null, 2) : '(no card_seed.json — bootstrap may not have run yet)';
-        }
-
-        async function memRenderErrors() {
-            if (!memCurrentChar) return;
-            const resp = await fetch(`/api/memory/${encodeURIComponent(memCurrentChar)}/errors`);
-            if (!resp.ok) return;
-            const data = await resp.json();
-            document.getElementById('memErrorsBody').textContent = data.text || '(no errors logged)';
-        }
-
-        async function memReset() {
-            if (!memCurrentChar) return;
-            if (!confirm(`Wipe ALL memory for "${memCurrentChar}"? This deletes the DB, NPCs, needs, and card seed. Cannot be undone.`)) return;
-            const resp = await fetch(`/api/memory/${encodeURIComponent(memCurrentChar)}/reset`, {method: 'POST'});
-            if (resp.ok) {
-                memCurrentChar = null;
-                document.getElementById('memCharSelect').value = '';
-                memLoadCharList();
-                document.getElementById('memBody').style.display = 'none';
-                document.getElementById('memCharSummary').textContent = 'Reset complete.';
-            }
-        }
-
-        // ===== Memory Import sub-panel =====
-        // Loads file content into the textarea so the user can preview / edit
-        // before submitting. Plain-text read only — server-side parsing
-        // handles the actual format detection.
-        function memImportLoadFile(evt) {
-            const file = evt.target.files && evt.target.files[0];
-            if (!file) return;
-            const reader = new FileReader();
-            reader.onload = () => {
-                document.getElementById('memImportText').value = reader.result;
-                document.getElementById('memImportStatus').textContent =
-                    `Loaded ${file.name} (${reader.result.length} chars).`;
-                // Best-effort format hint from extension — user can still
-                // override via the dropdown.
-                const ext = file.name.toLowerCase().split('.').pop();
-                const fmtSel = document.getElementById('memImportFormat');
-                const guess = ({jsonl: 'jsonl', json: 'json', txt: 'text', csv: 'csv', md: 'markdown', markdown: 'markdown'})[ext];
-                if (guess && fmtSel.value === 'auto') fmtSel.value = guess;
-            };
-            reader.onerror = () => {
-                document.getElementById('memImportStatus').textContent = 'Error reading file.';
-            };
-            reader.readAsText(file);
-            // Reset so re-selecting the same file fires onchange again.
-            evt.target.value = '';
-        }
-
-        // Populate the NPC scope dropdown from memCurrentData.npcs. Called
-        // when the Import sub-tab is shown so the dropdown stays current
-        // with whatever character is loaded.
-        function memImportRefreshScope() {
-            const sel = document.getElementById('memImportNpcScope');
+        function memRenderChatFilters(data) {
+            const sel = document.getElementById('memChatPersona');
             const prev = sel.value;
-            sel.innerHTML = '<option value="">main character DB</option>';
-            const npcs = (memCurrentData && memCurrentData.npcs) || [];
-            npcs.slice().sort((a, b) => {
-                const an = (a.name || a.npc_key || '').toLowerCase();
-                const bn = (b.name || b.npc_key || '').toLowerCase();
-                return an < bn ? -1 : an > bn ? 1 : 0;
-            }).forEach(npc => {
-                const opt = document.createElement('option');
-                opt.value = npc.npc_key;
-                const name = npc.name || npc.npc_key;
-                opt.textContent = name === npc.npc_key ? name : `${name} (${npc.npc_key})`;
-                sel.appendChild(opt);
-            });
-            if (prev) sel.value = prev;
+            const seen = new Map();
+            data.chats.forEach(c => c.personas.forEach(p => { if (!seen.has(p.avatar)) seen.set(p.avatar, p.name); }));
+            sel.innerHTML = '<option value="">All personas</option>' + [...seen].map(([a, n]) =>
+                `<option value="${memEsc(a)}">${memEsc(memPersonaLabel(a, n))}${a ? '' : ' (persona not recorded)'}</option>`).join('');
+            sel.value = seen.has(prev) ? prev : '';
         }
 
-        // Run the import. dryRun=true returns parse preview; dryRun=false
-        // commits to the DB. Disables both buttons during the request so
-        // double-clicks don't double-insert.
-        async function memImportRun(dryRun) {
-            if (!memCurrentChar) {
-                alert('Pick a character first.');
-                return;
-            }
-            const text = document.getElementById('memImportText').value;
-            if (!text.trim()) {
-                alert('Paste or load some content first.');
-                return;
-            }
-            const fmt = document.getElementById('memImportFormat').value;
-            const defaultType = document.getElementById('memImportDefaultType').value;
-            const defaultImportance = parseInt(document.getElementById('memImportDefaultImportance').value, 10) || 3;
-            const npcKey = document.getElementById('memImportNpcScope').value;
+        function memRenderChats() {
+            const data = memCharData;
+            if (!data) return;
+            const q = document.getElementById('memChatFilter').value.trim().toLowerCase();
+            const persona = document.getElementById('memChatPersona').value;
+            const rows = data.chats.filter(c => memChatMatches(c, q)
+                && (!persona || c.personas.some(p => p.avatar === persona)));
+            document.getElementById('memChatCount').textContent = rows.length === data.chats.length
+                ? `${data.chats.length} chats` : `${rows.length} of ${data.chats.length} chats`;
+            const linksIn = new Map();
+            data.links.forEach(l => linksIn.set(l.target_chat, (linksIn.get(l.target_chat) || 0) + 1));
+            const bound = new Set();
+            data.bindings.forEach(b => Object.entries(b.chats).forEach(([id, how]) => { if (how !== 'removed') bound.add(id); }));
+            const box = document.getElementById('memChats');
+            box.innerHTML = rows.length ? rows.map(c => `
+                <div class="mem-chat" data-chat="${memEsc(c.chat_id)}">
+                    <div class="mem-chat-main">${memChatSummary(c)}</div>
+                    <div class="mem-chat-side">
+                        ${memRecapTag(c)}
+                        ${c.check ? '<div style="margin-top:4px;"><span class="mem-tag warn">conflict</span></div>' : ''}
+                        ${linksIn.get(c.chat_id) ? `<div style="margin-top:4px;"><span class="mem-tag accent">${linksIn.get(c.chat_id)} connected</span></div>` : ''}
+                        ${bound.has(c.chat_id) ? '<div style="margin-top:4px;"><span class="mem-tag">in a binding</span></div>' : ''}
+                        ${c.excluded ? '<div style="margin-top:4px;"><span class="mem-tag">kept out of bindings</span></div>' : ''}
+                    </div>
+                </div>`).join('') : '<div class="mem-empty">No chats.</div>';
+            box.querySelectorAll('[data-chat]').forEach(el => el.addEventListener('click', () => memOpenChat(el.dataset.chat)));
+        }
 
-            const previewBtn = document.getElementById('memImportPreviewBtn');
-            const runBtn = document.getElementById('memImportRunBtn');
-            const status = document.getElementById('memImportStatus');
-            const out = document.getElementById('memImportOutput');
-            previewBtn.disabled = true;
-            runBtn.disabled = true;
-            status.textContent = dryRun ? 'Parsing...' : 'Importing...';
+        async function memOpenChat(chatId) {
+            if (memChatId && memChatDirty && !confirm('Discard your unsaved recap edits?')) return;
+            memChatId = chatId;
+            memChatDirty = false;
+            memConnectOpen = false;
+            memRecapEdit = false;
+            document.getElementById('memChatTitle').textContent = 'Loading...';
+            document.getElementById('memChatBody').innerHTML = '';
+            document.getElementById('memChatModal').style.display = 'flex';
+            await memRenderChatDetail();
+        }
 
-            const url = `/api/memory/${encodeURIComponent(memCurrentChar)}/import` +
-                (npcKey ? `?npc=${encodeURIComponent(npcKey)}` : '');
+        function memCloseChat() {
+            if (memChatDirty && !confirm('Discard your unsaved recap edits?')) return;
+            document.getElementById('memChatModal').style.display = 'none';
+            memChatId = null;
+            memChatDirty = false;
+            memConnectOpen = false;
+        }
+
+        function memPersonaName(avatar) {
+            const b = (memCharData?.bindings || []).find(x => x.persona === avatar);
+            return memPersonaLabel(avatar, b?.persona_name);
+        }
+
+        // A chat the open chat brings in: the same summary as in the lists
+        // (or its file name if it isn't one of this character's chats any
+        // more), its recap to open under it, and `button`.
+        function memSourceRow(id, title, how, button) {
+            const c = memChatById(id);
+            const main = c ? memChatSummary(c, ` · ${how}`)
+                : `<div class="mem-chat-title">${memEsc(title || id)}</div><div class="mem-chat-meta">${how}</div>`;
+            return `<div class="mem-source-wrap"><div class="mem-source"><div class="mem-chat-main">${main}</div>`
+                + `<div class="mem-source-acts">${c ? `<button type="button" class="toggle-btn sm" data-open="${memEsc(id)}">Open</button>` : ''}`
+                + `${memRecapBtn(id)}${button}</div></div>${memRecapBox(id)}</div>`;
+        }
+
+        function memRenderConnectPicker(options) {
+            const out = document.getElementById('memConnectResults');
+            if (!out) return;
+            const q = document.getElementById('memConnectSearch').value.trim().toLowerCase();
+            const hits = options.filter(c => memChatMatches(c, q));
+            out.innerHTML = hits.map(c => `<div class="mem-chat" data-connect="${memEsc(c.chat_id)}">
+                    <div class="mem-chat-main">${memChatSummary(c)}</div>
+                    <div class="mem-chat-side">${memRecapTag(c)}</div></div>`).join('')
+                || '<div class="mem-empty">No chat matches.</div>';
+            out.querySelectorAll('[data-connect]').forEach(el => el.addEventListener('click', () => memConnect(el.dataset.connect)));
+        }
+
+        function memConnect(source) {
+            const c = memChatById(source);
+            const calls = (c?.recap?.missing) || 0;
+            if (calls && !confirm(`Recapping ${c ? memChatPlain(c) : 'that chat'} takes about ${calls} Sonnet call${calls === 1 ? '' : 's'}, which count against your plan. Go ahead?`)) return;
+            memConnectOpen = false;
+            const target = memChatId;
+            memDo('/api/memory/link', {character: memCharId, target, source, on: true}, async () => {
+                await memRenderChatDetail();
+                await memLoadChar(memCharId);
+                memPollJobs();
+            });
+        }
+
+        async function memRenderChatDetail() {
+            if (!memChatId) return;
+            const chatId = memChatId;
+            const body = document.getElementById('memChatBody');
+            let d;
             try {
-                const resp = await fetch(url, {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({
-                        text,
-                        format: fmt,
-                        default_type: defaultType,
-                        default_importance: defaultImportance,
-                        dry_run: dryRun,
-                    }),
+                d = await memApi(`/api/memory/chat?character=${encodeURIComponent(memCharId)}&chat=${encodeURIComponent(chatId)}`);
+            } catch (e) {
+                body.innerHTML = `<div class="notice warn">${memEsc(e.message)}</div>`;
+                return;
+            }
+            if (chatId !== memChatId) return;
+            memChatDirty = false;
+            document.getElementById('memChatTitle').innerHTML = memChatTitle(d);
+            const parts = [];
+            const parent = d.parent ? memChatById(d.parent) : null;
+            const of = d.branch_of ? ` · branch of ${memEsc(parent ? `${memChatPlain(parent)} (created ${memCreated(parent)})` : d.branch_of)}` : '';
+            parts.push(`<div class="list-item-meta">${memChatMeta(d)}${of}</div>`);
+            parts.push(`<div style="margin-bottom:14px;">${memChatLast(d)}</div>`);
+
+            if (d.check && d.check.status === 'open') {
+                parts.push(`<div class="notice warn" style="margin-bottom:14px;">
+                    <div><strong>Conflict:</strong> ${memEsc(d.check.explanation || '')}</div>
+                    <div style="margin-top:6px;">Untick the memories to leave out of this chat:</div>
+                    ${(d.check.sources || []).map(s => {
+                        const c = memChatById(s.chat_id);
+                        const name = c ? `${memChatTitle(c)} <small>created ${memEsc(memCreated(c))}</small>` : memEsc(s.title);
+                        return `<label class="mem-check"><input type="checkbox" data-drop="${memEsc(s.chat_id)}" checked><span>${name}</span></label>`;
+                    }).join('')}
+                    <div class="mem-inline" style="margin-top:6px;">
+                        <button class="toggle-btn sm primary" id="memCheckApply">Apply</button>
+                        <button class="toggle-btn sm" id="memCheckKeep">Keep them all</button>
+                    </div></div>`);
+            } else if (d.check && d.check.status === 'failed') {
+                parts.push(`<div class="notice" style="margin-bottom:14px;">${memEsc(d.check.explanation || 'The conflict check failed.')} It runs again when the memories or the chat's opening change.</div>`);
+            }
+
+            // What the character remembers of this chat: read it, or edit it part by part.
+            const r = d.recap || {};
+            const hasRecap = r.done || d.short;
+            parts.push(`<div class="mem-sub mem-sub-row"><span>What ${memEsc(memCharData?.name || 'the character')} remembers of this chat</span>`
+                + (hasRecap ? `<button type="button" class="toggle-btn sm${memRecapEdit ? ' active' : ''}" id="memRecapEditBtn">${memRecapEdit ? 'Done editing' : 'Edit'}</button>` : '') + '</div>');
+            const status = d.building ? `Recapping: ${d.building.done ?? 0} of ${d.building.total ?? '?'} parts done.`
+                : !r.available ? 'The chat file wasn\'t found.'
+                : !r.parts ? 'Nothing to recap.'
+                : !r.done ? `Not recapped yet (${r.parts} part${r.parts === 1 ? '' : 's'}).`
+                : r.missing ? `${r.done} of ${r.parts} parts recapped.` : r.parts === 1 ? 'Recapped.' : `All ${r.parts} parts recapped.`;
+            parts.push(`<div class="mem-inline" style="margin-bottom:8px;"><span style="font-size:13px;color:var(--paper-dim);">${memEsc(status)}</span>
+                ${r.missing && !d.building ? '<button class="toggle-btn sm primary" id="memBuildBtn">Recap missing parts</button>' : ''}
+                ${d.building ? '<button class="toggle-btn sm" id="memStopBtn">Stop</button>' : ''}
+                ${r.done ? '<button class="toggle-btn sm danger" id="memForgetBtn">Forget recap</button>' : ''}</div>`);
+            if (d.error) parts.push(`<div class="notice warn" style="margin-bottom:8px;">${memEsc(d.error)}</div>`);
+            const used = [];
+            if ((d.used_in || []).length) used.push('Connected to ' + d.used_in.map(u => {
+                const c = memChatById(u.chat_id);
+                return memEsc(c ? `${memChatPlain(c)} (created ${memCreated(c)})` : u.title);
+            }).join('; '));
+            const inB = (d.in_bindings || []).filter(b => b.how !== 'removed');
+            if (inB.length) used.push('in the binding with ' + inB.map(b => memEsc(memPersonaName(b.persona))).join(', '));
+            if (used.length) parts.push(`<div class="list-item-meta" style="margin:0 0 8px;">${used.join(' · ')}</div>`);
+            if (!memRecapEdit) {
+                if (hasRecap) parts.push(`<div class="mem-recap">${memRecapHtml(d)}</div>`);
+            } else {
+                if (d.short || (d.parts || []).filter(p => p.recap).length > 1) {
+                    parts.push(`<div class="mem-part"><div class="mem-part-head"><span>Short recap${d.short_edited ? ' · edited' : ''}${d.short_stale ? ' · the chat changed since' : ''}</span>
+                        <span><button class="toggle-btn sm" id="memShortSave">Save</button>${d.short_edited ? ' <button class="toggle-btn sm" id="memShortReset">Use generated</button>' : ''}</span></div>
+                        <textarea id="memShortText" rows="4" placeholder="Written when the whole chat is recapped and its recap is long.">${memEsc(d.short || '')}</textarea>
+                        <div class="list-item-meta">Used instead of the full recap when the full one doesn't fit.</div></div>`);
+                }
+                (d.parts || []).forEach(p => {
+                    parts.push(`<div class="mem-part"><div class="mem-part-head"><span>Messages #${p.from}–#${p.to}${p.edited ? ' · edited' : ''}</span>
+                        <span>${p.recap ? `<button class="toggle-btn sm" data-save="${memEsc(p.key)}">Save</button> <button class="toggle-btn sm" data-redo="${memEsc(p.key)}">Redo</button>` : ''}</span></div>
+                        <textarea rows="5" data-key="${memEsc(p.key)}"${p.recap ? '' : ' readonly placeholder="Not recapped yet."'}>${memEsc(p.recap || '')}</textarea></div>`);
                 });
-                const data = await resp.json();
-                out.style.display = 'block';
-                if (!resp.ok) {
-                    status.textContent = `Error: ${resp.status}`;
-                    out.textContent = JSON.stringify(data, null, 2);
+            }
+            parts.push(`<label class="mem-check" style="margin-top:6px;"><input type="checkbox" id="memExcludedBox"${d.excluded ? ' checked' : ''}><span>Don't bring this chat in through persona bindings (connections still can)</span></label>`);
+
+            parts.push('<div class="mem-sub">Memories this chat brings in</div>');
+            const rows = [];
+            (d.sources || []).forEach(s => {
+                const how = s.how === 'link' ? 'connected' : `binding with ${memEsc(memPersonaName(s.persona))}`;
+                const act = s.how === 'link'
+                    ? `<button class="toggle-btn sm" data-unlink="${memEsc(s.chat_id)}">Disconnect</button>`
+                    : `<button class="toggle-btn sm" data-exclude="${memEsc(s.chat_id)}">Leave out here</button>`;
+                rows.push(memSourceRow(s.chat_id, s.title, how, act));
+            });
+            (d.excluded_sources || []).forEach(s => rows.push(memSourceRow(s.chat_id, s.title, 'left out here',
+                `<button class="toggle-btn sm" data-include="${memEsc(s.chat_id)}">Let back in</button>`)));
+            parts.push(rows.length ? `<div class="mem-sources">${rows.join('')}</div>` : '<div class="mem-empty">Nothing from other chats.</div>');
+            const taken = new Set([chatId, ...(d.sources || []).map(s => s.chat_id)]);
+            const options = (memCharData?.chats || []).filter(c => !taken.has(c.chat_id));
+            if (options.length) {
+                parts.push(`<button class="toggle-btn sm primary" id="memConnectToggle" style="margin-top:10px;">${memConnectOpen ? 'Close' : 'Connect another chat'}</button>
+                    <div id="memConnectPicker" class="mem-picker" style="display:${memConnectOpen ? 'block' : 'none'};">
+                        <input id="memConnectSearch" type="text" class="w-full" placeholder="Search name, branch, persona or last message..." autocomplete="off">
+                        <div id="memConnectResults" class="mem-pick-list"></div>
+                    </div>`);
+            }
+
+            body.innerHTML = parts.join('');
+            memWireChatDetail(d, options);
+        }
+
+        function memWireChatDetail(d, options) {
+            const body = document.getElementById('memChatBody');
+            const reload = async () => {
+                await memRenderChatDetail();
+                await memLoadChar(memCharId);
+            };
+            const on = (id, fn) => { const el = document.getElementById(id); if (el) el.addEventListener('click', fn); };
+            body.querySelectorAll('textarea').forEach(t => t.addEventListener('input', () => { memChatDirty = true; }));
+            on('memRecapEditBtn', () => {
+                if (memRecapEdit && memChatDirty && !confirm('Discard your unsaved recap edits?')) return;
+                memRecapEdit = !memRecapEdit;
+                memChatDirty = false;
+                memRenderChatDetail();
+            });
+            memWireRecaps(body, `chat:${d.chat_id}`);
+            body.querySelectorAll('[data-open]').forEach(b => b.addEventListener('click', () => memOpenChat(b.dataset.open)));
+            on('memCheckApply', () => {
+                const drop = [...body.querySelectorAll('input[data-drop]')].filter(i => !i.checked).map(i => i.dataset.drop);
+                memDo(`/api/memory/check/${d.check.id}`, {action: drop.length ? 'drop' : 'keep', drop}, reload);
+            });
+            on('memCheckKeep', () => memDo(`/api/memory/check/${d.check.id}`, {action: 'keep'}, reload));
+            body.querySelectorAll('[data-unlink]').forEach(b => b.addEventListener('click', () =>
+                memDo('/api/memory/link', {character: memCharId, target: d.chat_id, source: b.dataset.unlink, on: false}, reload)));
+            body.querySelectorAll('[data-exclude]').forEach(b => b.addEventListener('click', () =>
+                memDo('/api/memory/exclusion', {character: memCharId, target: d.chat_id, source: b.dataset.exclude, on: true}, reload)));
+            body.querySelectorAll('[data-include]').forEach(b => b.addEventListener('click', () =>
+                memDo('/api/memory/exclusion', {character: memCharId, target: d.chat_id, source: b.dataset.include, on: false}, reload)));
+            on('memConnectToggle', e => {
+                memConnectOpen = !memConnectOpen;
+                e.target.textContent = memConnectOpen ? 'Close' : 'Connect another chat';
+                document.getElementById('memConnectPicker').style.display = memConnectOpen ? 'block' : 'none';
+                if (memConnectOpen) memRenderConnectPicker(options);
+            });
+            if (memConnectOpen) memRenderConnectPicker(options);
+            const search = document.getElementById('memConnectSearch');
+            if (search) search.addEventListener('input', () => memRenderConnectPicker(options));
+            on('memBuildBtn', () => {
+                const calls = d.recap?.missing || 0;
+                if (calls > 3 && !confirm(`That's about ${calls} Sonnet calls, which count against your plan. Go ahead?`)) return;
+                memDo('/api/memory/recap/build', {character: memCharId, chat: d.chat_id, title: d.title}, async () => { await reload(); memPollJobs(); });
+            });
+            on('memStopBtn', () => memDo('/api/memory/recap/cancel', {character: memCharId, chat: d.chat_id}, reload));
+            on('memForgetBtn', () => {
+                if (!confirm('Forget this chat\'s recap, edits included? It\'s recapped again when a chat needs it.')) return;
+                memDo('/api/memory/recap/clear', {character: memCharId, chat: d.chat_id}, reload);
+            });
+            const ex = document.getElementById('memExcludedBox');
+            if (ex) ex.addEventListener('change', () => memDo('/api/memory/excluded', {character: memCharId, chat: d.chat_id, on: ex.checked}, reload));
+            on('memShortSave', () => memDo('/api/memory/short', {character: memCharId, chat: d.chat_id, text: document.getElementById('memShortText').value}, reload));
+            on('memShortReset', () => memDo('/api/memory/short', {character: memCharId, chat: d.chat_id, text: null}, reload));
+            body.querySelectorAll('[data-save]').forEach(b => b.addEventListener('click', () => {
+                const t = body.querySelector(`textarea[data-key="${b.dataset.save}"]`);
+                memDo('/api/memory/segment', {key: b.dataset.save, recap: t.value}, reload);
+            }));
+            body.querySelectorAll('[data-redo]').forEach(b => b.addEventListener('click', () => {
+                if (!confirm('Recap these messages again (one Sonnet call)? Your edits to this part are lost.')) return;
+                memDo('/api/memory/segment', {key: b.dataset.redo, recap: null}, () =>
+                    memDo('/api/memory/recap/build', {character: memCharId, chat: d.chat_id, title: d.title}, async () => { await reload(); memPollJobs(); }));
+            }));
+        }
+
+        async function memPollJobs() {
+            let j;
+            try {
+                j = await memApi('/api/memory/jobs');
+            } catch (e) {
+                return;
+            }
+            memRenderJobs(j);
+            const sig = JSON.stringify([j.current && [j.current.chat_id, j.current.done], j.queued.length,
+                                        j.recent[0] && [j.recent[0].chat_id, j.recent[0].done, j.recent[0].kind]]);
+            if (sig === memJobsSig) return;
+            memJobsSig = sig;
+            const touched = [j.current, j.recent[0]].some(x => x && x.cid === memCharId);
+            if (!touched) return;
+            await memLoadChar(memCharId);
+            if (memChatId && !memChatDirty && !memConnectOpen) await memRenderChatDetail();
+        }
+
+        function memStartJobsPoll() {
+            if (memJobsTimer) return;
+            memJobsTimer = setInterval(() => {
+                if (!document.getElementById('memory').classList.contains('active')) {
+                    clearInterval(memJobsTimer);
+                    memJobsTimer = null;
                     return;
                 }
-                if (dryRun) {
-                    status.textContent =
-                        `Parsed ${data.count} entries (format: ${data.format}). ` +
-                        (data.count > 0 ? 'Review preview below, then click Import.' : '');
-                    out.textContent =
-                        `=== PREVIEW (first ${Math.min(5, data.count)} of ${data.count}) ===\n` +
-                        `format: ${data.format}\n\n` +
-                        (data.preview || []).map((p, i) =>
-                            `--- entry ${i + 1} ---\n` + JSON.stringify(p, null, 2)
-                        ).join('\n\n');
-                } else {
-                    status.textContent =
-                        `Imported ${data.imported} of ${data.imported + data.skipped} ` +
-                        `(format: ${data.format}, embeddings: ${data.embeddings_generated ? 'on' : 'off'}).`;
-                    out.textContent =
-                        `=== IMPORT RESULT ===\n` +
-                        `format:                ${data.format}\n` +
-                        `inserted:              ${data.imported}\n` +
-                        `skipped (errors):      ${data.skipped}\n` +
-                        `embeddings generated:  ${data.embeddings_generated}\n` +
-                        ((data.errors || []).length
-                            ? `\n--- errors (first ${data.errors.length}) ---\n` + data.errors.join('\n')
-                            : '');
-                    // Refresh the rows view so the user sees what landed.
-                    if (data.imported > 0) await memLoadChar(memCurrentChar);
-                }
-            } catch (e) {
-                status.textContent = 'Network error.';
-                out.style.display = 'block';
-                out.textContent = String(e);
-            } finally {
-                previewBtn.disabled = false;
-                runBtn.disabled = false;
-            }
+                memPollJobs();
+            }, 4000);
         }
 
-        // Wire memory tab events
         document.addEventListener('DOMContentLoaded', () => {
-            const sel = document.getElementById('memCharSelect');
-            if (sel) sel.addEventListener('change', e => memLoadChar(e.target.value));
-            const refresh = document.getElementById('memRefreshBtn');
-            if (refresh) refresh.addEventListener('click', () => memCurrentChar ? memLoadChar(memCurrentChar) : memLoadCharList());
-            const reset = document.getElementById('memResetBtn');
-            if (reset) reset.addEventListener('click', memReset);
-            const pin = document.getElementById('memPinBtn');
-            if (pin) pin.addEventListener('click', memPin);
-            const unpin = document.getElementById('memUnpinBtn');
-            if (unpin) unpin.addEventListener('click', memUnpin);
-            const label = document.getElementById('memLabelBtn');
-            if (label) label.addEventListener('click', memEditLabel);
-            ['memFilterType', 'memFilterStatus', 'memFilterText'].forEach(id => {
-                const el = document.getElementById(id);
-                if (el) el.addEventListener('input', memRenderTable);
+            document.getElementById('memRefreshBtn').addEventListener('click', () => {
+                memCardsCache = null;
+                memPersonasCache = null;
+                memDirtyBindings.clear();
+                memLoad();
             });
-            const saveNeedsBtn = document.getElementById('memNeedsSaveBtn');
-            if (saveNeedsBtn) saveNeedsBtn.addEventListener('click', memSaveNeeds);
-            // "+ New entry" button at top of the Memories sub-tab opens a
-            // blank modal scoped to whatever entity is currently selected.
-            const addBtn = document.getElementById('memAddRowBtn');
-            if (addBtn) addBtn.addEventListener('click', memOpenInsertModal);
-            // Modal close / cancel / save wiring.
-            const modalClose = document.getElementById('memModalCloseBtn');
-            if (modalClose) modalClose.addEventListener('click', memCloseModal);
-            const modalCancel = document.getElementById('memModalCancelBtn');
-            if (modalCancel) modalCancel.addEventListener('click', memCloseModal);
-            const modalSave = document.getElementById('memModalSaveBtn');
-            if (modalSave) modalSave.addEventListener('click', memSaveModal);
-            // Click outside modal content to dismiss. We attach to the overlay
-            // and check the target — clicks inside the inner card don't bubble.
-            const modalOverlay = document.getElementById('memRowModal');
-            if (modalOverlay) {
-                modalOverlay.addEventListener('click', e => {
-                    if (e.target === modalOverlay) memCloseModal();
-                });
-            }
-            // Sub-tab switching within Memory panel
-            document.querySelectorAll('[data-memtab]').forEach(btn => {
-                btn.addEventListener('click', () => {
-                    document.querySelectorAll('[data-memtab]').forEach(b => b.classList.remove('active'));
-                    btn.classList.add('active');
-                    document.querySelectorAll('.memSubPanel').forEach(p => p.style.display = 'none');
-                    document.getElementById('memSub_' + btn.dataset.memtab).style.display = 'block';
-                    // Tab-specific lazy refresh: import dropdown stays in
-                    // sync with whatever character / NPCs are currently
-                    // loaded. Errors tab refresh is already handled
-                    // elsewhere; needs/seed/npcs render from cached data.
-                    if (btn.dataset.memtab === 'import') memImportRefreshScope();
-                });
-            });
-
-            // Wire memory import controls
-            const importFile = document.getElementById('memImportFile');
-            if (importFile) importFile.addEventListener('change', memImportLoadFile);
-            const importPreview = document.getElementById('memImportPreviewBtn');
-            if (importPreview) importPreview.addEventListener('click', () => memImportRun(true));
-            const importRun = document.getElementById('memImportRunBtn');
-            if (importRun) importRun.addEventListener('click', () => memImportRun(false));
+            document.getElementById('memCharSearch').addEventListener('input', () =>
+                memCardSearch('memCharSearch', 'memCharResults', card => memLoadChar(card.avatar)));
+            document.getElementById('memCardSearch').addEventListener('input', () =>
+                memCardSearch('memCardSearch', 'memCardResults', memAddCard, (memCharData?.cards || []).map(c => c.avatar)));
+            document.getElementById('memBindToggle').addEventListener('click', () =>
+                memTogglePersonaPicker(document.getElementById('memPersonaPicker').style.display === 'none'));
+            document.getElementById('memPersonaSearch').addEventListener('input', memRenderPersonaPicker);
+            document.getElementById('memChatFilter').addEventListener('input', memRenderChats);
+            document.getElementById('memChatPersona').addEventListener('change', memRenderChats);
+            document.getElementById('memChatCloseBtn').addEventListener('click', memCloseChat);
+            const overlay = document.getElementById('memChatModal');
+            overlay.addEventListener('click', e => { if (e.target === overlay) memCloseChat(); });
         });
 
         // Sonnet 4.x produces thinking-only (or no) output at effort >= high.
@@ -3352,8 +3083,8 @@ Common subject fields: subject, character, npc, entity, name.'></textarea>
             document.getElementById('cliSessionReuseStatus').textContent = this.checked ? 'Enabled' : 'Disabled';
             saveSettings();
         });
-        document.getElementById('characterMemoryV2').addEventListener('change', function() {
-            document.getElementById('characterMemoryV2Status').textContent = this.checked ? 'Enabled' : 'Disabled';
+        document.getElementById('characterMemory').addEventListener('change', function() {
+            document.getElementById('characterMemoryStatus').textContent = this.checked ? 'Enabled' : 'Disabled';
             saveSettings();
         });
         document.getElementById('updateCheck').addEventListener('change', function() {
@@ -3414,7 +3145,7 @@ Common subject fields: subject, character, npc, entity, name.'></textarea>
                 debug_output: document.getElementById('debugOutput').checked,
                 tool_calling_enabled: document.getElementById('toolCalling').checked,
                 cli_session_reuse: document.getElementById('cliSessionReuse').checked,
-                character_memory_v2_enabled: document.getElementById('characterMemoryV2').checked,
+                character_memory_enabled: document.getElementById('characterMemory').checked,
                 update_check_enabled: document.getElementById('updateCheck').checked,
                 bridge_port: parseInt(document.getElementById('bridgePort').value, 10) || 5001,
             };
@@ -3522,9 +3253,9 @@ Common subject fields: subject, character, npc, entity, name.'></textarea>
                 document.getElementById('cliSessionReuseStatus').textContent = cliSessionReuseEnabled ? 'Enabled' : 'Disabled';
 
                 // Character memory (default false — opt-in)
-                const characterMemoryV2Enabled = settings.character_memory_v2_enabled === true;
-                document.getElementById('characterMemoryV2').checked = characterMemoryV2Enabled;
-                document.getElementById('characterMemoryV2Status').textContent = characterMemoryV2Enabled ? 'Enabled' : 'Disabled';
+                const characterMemoryEnabled = settings.character_memory_enabled === true;
+                document.getElementById('characterMemory').checked = characterMemoryEnabled;
+                document.getElementById('characterMemoryStatus').textContent = characterMemoryEnabled ? 'Enabled' : 'Disabled';
 
                 // Update check (default true — new setting)
                 const updateCheckEnabled = settings.update_check_enabled !== false;
@@ -3874,10 +3605,16 @@ Common subject fields: subject, character, npc, entity, name.'></textarea>
             const msg = [];
             const images = pvBlock({kind: 'bridge ph', name: 'Scene images', when: 'on turns with images',
                 desc: 'Descriptions of the images attached to this turn, written beforehand by a separate Claude call.'});
-            const memory = s.character_memory_v2_enabled
-                ? pvBlock({kind: 'bridge ph', name: 'Character memory', when: 'when memories are relevant',
-                    desc: "Memories Sonnet picked for this turn from the character's memory database."})
-                : pvOff('Character memory', 'Character Memory is off');
+            const memory = s.character_memory_enabled
+                ? pvWrap('character_memory', pvBlock({kind: 'bridge ph', name: 'Character memory',
+                    desc: "Recaps of what the character whose reply it is remembers: this chat's messages from before the transcript, and the chats connected to it or in a persona binding."}),
+                    'when the character remembers something')
+                : pvOff('<character_memory>', 'Character Memory is off');
+            const memoryUpdate = s.character_memory_enabled
+                ? pvWrap('character_memory_update', pvBlock({kind: 'bridge ph', name: 'Changed memories',
+                    desc: "Recaps that are new or changed since the session's last turn, and a note for any that no longer apply."}),
+                    'when something changed')
+                : '';
             const afterHistory = (when) => {
                 if (!st.found) {
                     return pvWrap('sillytavern_after_history', pvBlock({kind: 'st ph', name: 'Post-History Instructions',
@@ -3888,6 +3625,7 @@ Common subject fields: subject, character, npc, entity, name.'></textarea>
                     : pvOff('<sillytavern_after_history>', 'nothing after Chat History');
             };
             if (!resumed) {
+                msg.push(memory);
                 msg.push('<div class="pv-sublabel">The chat so far, as a transcript</div>');
                 msg.push(...inChat.map(m => pvStItem(m, pvTranscriptPrefix(m))));
                 msg.push(afterHistory(''));
@@ -3895,12 +3633,13 @@ Common subject fields: subject, character, npc, entity, name.'></textarea>
                 msg.push(pvWrap('sillytavern_update', pvBlock({kind: 'st ph', name: 'New or changed SillyTavern blocks',
                     desc: "Lore that triggered, or a note or summary that changed, since the session started. Blocks the session already has aren't repeated."}),
                     'when something changed'));
+                if (memoryUpdate) msg.push(memoryUpdate);
                 const lastReply = inChat.findIndex(m => m.lastReply);
                 msg.push('<div class="pv-sublabel">Everything after Claude\'s last reply</div>');
                 msg.push(...inChat.slice(lastReply + 1).map(m => pvStItem(m, pvTranscriptPrefix(m))));
                 msg.push(afterHistory('when it changed'));
             }
-            msg.push(images, memory);
+            msg.push(images);
 
             // --- Command ---
             const model = s.model === MODEL_FROM_REQUEST ? "<SillyTavern's model>" : (s.model || 'opus');

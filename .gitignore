@@ -17,6 +17,7 @@ prompt_history.db*
 # They tend to contain personal content and are not part of the bridge itself.
 *.json
 !requirements.json
+!st-extension/manifest.json
 
 # Python
 __pycache__/

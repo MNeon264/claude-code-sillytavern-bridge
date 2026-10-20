@@ -69,10 +69,13 @@ SPEAKER_LABEL = re.compile(r"^(?:Alice|Bob|Carol|Mira): ")
 class FakeAPI:
     """Records each /v1/messages body and answers with a short streamed reply
     naming the speaker the *system prompt* asks for. A request whose last
-    two messages contain "SLOW" is answered after 6 seconds."""
+    two messages contain "SLOW" is answered after 6 seconds. `reply(body)`,
+    when given, can answer instead: it returns the text, or None for the
+    default."""
 
-    def __init__(self):
+    def __init__(self, reply=None):
         self.calls = []
+        self.reply = reply
         self.lock = threading.Lock()
         api = self
 
@@ -99,7 +102,7 @@ class FakeAPI:
                 with api.lock:
                     api.calls.append(body)
                     n = len(api.calls)
-                text = f"{m.group(1) if m else '?'} reply #{n}: the scene moves on."
+                text = (api.reply(body) if api.reply else None) or f"{m.group(1) if m else '?'} reply #{n}: the scene moves on."
                 if any("SLOW" in _text(x.get("content", "")) for x in body.get("messages", [])[-2:]):
                     time.sleep(6)
                 if not body.get("stream"):
@@ -158,11 +161,11 @@ def _text(content):
 # --- scratch bridge -----------------------------------------------------------
 
 class Bridge:
-    def __init__(self, src, work, api_port, python):
+    def __init__(self, src, work, api_port, python, settings=None):
         self.work = work
         d = os.path.join(work, "bridge")
         os.makedirs(d)
-        for name in ("claude_bridge.py", "memory_v2.py", "prompt_history.py"):
+        for name in ("claude_bridge.py", "memory.py", "prompt_history.py"):
             shutil.copy(os.path.join(src, name), d)
         for name in ("templates", "prompts"):
             shutil.copytree(os.path.join(src, name), os.path.join(d, name))
@@ -170,7 +173,7 @@ class Bridge:
             json.dump({"update_check_enabled": False, "debug_output": True, "cli_session_reuse": True,
                        "include_thinking": False, "show_thinking_console": False,
                        "model": "claude-opus-5-5", "effort_level": "low",
-                       "auto_summary_enabled": False, "character_memory_v2_enabled": False}, f)
+                       "auto_summary_enabled": False, "character_memory_enabled": False, **(settings or {})}, f)
         with socket.socket() as s:
             s.bind(("127.0.0.1", 0))
             self.port = s.getsockname()[1]
@@ -206,8 +209,8 @@ class Bridge:
                 self.proc.kill()
         self.log.close()
 
-    def send(self, msgs):
-        body = json.dumps({"model": "claude-opus-5-5", "stream": True, "messages": msgs}).encode()
+    def send(self, msgs, extra=None):
+        body = json.dumps({"model": "claude-opus-5-5", "stream": True, "messages": msgs, **(extra or {})}).encode()
         req = urllib.request.Request(f"http://127.0.0.1:{self.port}/v1/chat/completions", data=body, headers={
             "Authorization": f"Bearer {API_KEY}", "Content-Type": "application/json"})
         out = []

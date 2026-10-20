@@ -7,7 +7,7 @@ This fork of [MissSinful/claude-code-sillytavern-bridge](https://github.com/Miss
 - **Listens on `127.0.0.1` by default** instead of `0.0.0.0`. Override with `BRIDGE_HOST`; `BRIDGE_PORT` overrides the GUI port setting.
 - **Optional auth**: `BRIDGE_API_KEY` requires `Authorization: Bearer <key>` on `/v1/*`, and `BRIDGE_DASHBOARD_PASSWORD` puts HTTP Basic auth on the dashboard and `/api/*`. Both are off unless set.
 - **CORS is no longer allow-all.** Only origins listed in `BRIDGE_CORS_ORIGINS` get CORS headers. Allow-all is kept only when bound to `0.0.0.0`, and SillyTavern doesn't need CORS either way.
-- **Split requirements**: `requirements.txt` is core only (flask, flask-cors); `requirements-memory.txt` adds sentence-transformers and numpy for Character Memory. `run_bridge.bat` still installs both.
+- **Core requirements only**: `requirements.txt` (flask, flask-cors) is all the bridge needs. Upstream's optional `requirements-memory.txt` (sentence-transformers, numpy) is gone with the memory that used it.
 - **Linux run support**: `run_bridge.sh`, a hardened systemd unit in `deploy/`, and an env file template. See [Linux / VPS deployment](#linux--vps-deployment).
 - **`claude` calls load user settings only** (`--setting-sources user`), so a `CLAUDE.md` in the bridge directory or a parent directory is never sent to the model. Background Sonnet calls (memory, lorebook) also run with no tools (`--tools ""`) instead of Claude Code's full toolset.
 - **SillyTavern's prompt is the system prompt.** SillyTavern's system messages before the chat (preset, card, persona, lore) go into Claude's real system prompt, after a short bridge frame that explains the message layout. Post-History Instructions stay after the chat and in-chat notes stay in place, instead of everything being moved to the top of the first message. The upstream roleplay prompt is no longer sent by default; the Prompts tab can load it as optional style notes.
@@ -17,12 +17,13 @@ This fork of [MissSinful/claude-code-sillytavern-bridge](https://github.com/Miss
 - **Offline session tests.** `tests/session_scenarios.py` replays solo and group chats (swipes, edits, deletions, moves, branches, added members, cancelled turns) against a scratch bridge that runs the real `claude` CLI against a fake Messages API, and checks on every turn what the model received. It uses no quota.
 - **Thinking goes to SillyTavern's reasoning block.** No prompt asks Claude to write `<think>` reasoning into the reply. With Include Thinking on, the bridge requests the CLI's summarized thinking (`--thinking-display summarized`) and returns it as `reasoning_content`, which SillyTavern shows when "Request model reasoning" is on. Effort controls how much Claude thinks.
 - **Replies stream.** When SillyTavern requests a stream, the roleplay turn runs with `--include-partial-messages` and the bridge forwards each token delta as the CLI writes it: the thinking summary as `reasoning_content` chunks, then the reply as `content` chunks. Upstream sent the whole reply as one chunk once Claude had finished.
-- **Character Memory is keyed on the character's name.** SillyTavern sends the name when its Custom endpoint's Include Body Parameters hold `character_name: "{{char}}"`; it fills in the macro for every generation, so in a group chat it names the member whose turn it is. A `[Name's personality: …]` card wrapper still works without it. Upstream fell back to a hash of the first assistant message in the request, which changes every time SillyTavern trims the oldest message from the context, and which a group chat's members all share, so memory started over every few turns in long chats and mixed group members together. A turn without a name now skips memory and says so in the log and on the Memory tab. The name labels the character on the Memory tab, is used in the memory block and the bootstrap and maintenance prompts (so maintenance doesn't register the character as their own NPC), and labels roleplay turns on the History tab.
-- **Character Memory commits the replies you kept.** A staged reply is committed when the character's next request still contains it (compared like session reuse: whitespace-normalized, with SillyTavern's `Name: ` label on one side allowed). Upstream compared user-message counts instead, which stop growing once a chat is at the context limit, so every reply after that was discarded as a swipe; it also committed one group member's reply when another spoke. Ranking and maintenance read the last chat messages instead of the request's last messages, which with Post-History Instructions were SillyTavern's system blocks rather than the scene. The bootstrap reads up to 40,000 characters of SillyTavern's system prompt instead of 12,000, which cut long cards off after the preset.
-- **Character Memory doesn't repeat the card.** The rows the bootstrap takes from the character card (traits, facts, secrets, the starting relationship…) are no longer injected or ranked while they still say what the card says, since SillyTavern sends the card with every turn; upstream injected the card's secrets and the relationship with the user on every turn and offered its traits for ranking, so a new character's memory block was mostly a summary of the card. They stay active as the maintenance pass's record of the card, listed in their own section of its prompt, with a rule not to re-record the card. An update that changes one's content or closeness/trust, or a content edit on the Memory tab, makes it an ordinary memory. Relationship rows show the closeness and trust from their metadata, which updates patch, instead of the numbers the bootstrap wrote into the text.
-- **Character Memory only adds what the chat doesn't show.** Each kept reply's hash is in the memory's turn log from the moment it's committed, and a turn's request is matched against it: rows written from the card or from replies still in the context (after any auto-summary rebuild), and last changed there, are left out of the turn and count as seen, so they don't go dormant in plain view. What's injected is what has scrolled out of the context, what happened in other chats with the character, and what was added or rewritten on the Memory tab; the block says so, and events are labeled EARLIER EVENTS instead of RECENT EVENTS. Sonnet ranks the candidates only when there are more than fit in the turn's 20 places; upstream ran the ranking call before every reply. An NPC in the scene gets a section only if they have entries from outside the chat.
-- **Memory tab explains itself.** It shows whether memory is on, whether SillyTavern sends the character's name, and what memory did on the latest turn, and describes the whole pipeline. Opening a character that has no memory no longer creates an empty one.
-- **Character Memory keeps its must-keep rows itself.** Among a turn's candidate memories, desires with intensity 4 or higher, secrets, and relationships with characters in the scene are injected first, without going through Sonnet's ranking; upstream asked Sonnet to keep them. Sonnet ranks only the other candidates for the remaining slots, and its answer is checked against a JSON schema (`--json-schema`).
+- **Character Memory recaps chats, and brings them only where you ask.** It replaces upstream's per-character database of desires, needs, relationships, body state, secrets and NPCs, which a Sonnet bootstrap seeded from the card, a ranking call filtered before each reply and a maintenance call updated after each kept reply. That database belonged to the character as a whole, so a scene's body state, a desire marked "inevitable" or the relationship with "the user" carried into every other chat and every persona, and its card entries repeated what SillyTavern already sends. Now a memory belongs to the chat it happened in. A character remembers another chat only through a **connection** (that chat's memory in one chat, for one character: in a group chat only that member has it) or a **persona binding** (in every chat with that persona, the chats you tick for it, and each new chat with it from the day you bind). A chat can be kept out of bindings everywhere, or left out of one chat. Chats of the same lineage (a chat and its branches) never come in through a binding, as they're alternate timelines. Personas are told apart by avatar, not name. Memory says what happened; it doesn't track needs or tell the character how to feel.
+- **Recaps come from SillyTavern's chat files.** The bridge reads chats from SillyTavern's data folder and Sonnet recaps them from the character's point of view, 40 messages per part, with the previous part's recap for context, leaving hidden messages out; a chat with a long recap also gets a short one. So chats from before memory was switched on can be remembered too. Parts are cached by their text: only an edited part is recapped again, and a branch shares its parent's recaps up to the branch point. Recaps are built in the background when a chat that needs them is used or opened, or when you ask on the Memory tab. Nothing runs per reply. When SillyTavern drops a chat's oldest messages to fit the context, the recap of those messages comes in instead (not with auto-summary on).
+- **The Bridge Memory extension.** `st-extension/` is a small SillyTavern extension (`st-extension/install.sh` copies it into SillyTavern's user data folder). It adds a `bridge_memory` field to every request to the Custom endpoint, through Include Body Parameters, with the chat's integrity id and file, the speaking card's avatar, the persona's avatar, the first message SillyTavern included and the generation type; nothing else in a request says which chat or persona it's for. Quiet and impersonate generations get no memory. It also shows conflict alerts and lists a chat's memories. It authenticates to the bridge's `/ext/memory/*` routes with a random token it sends in that field, which the bridge accepts once it has arrived on an authenticated `/v1` request, as the browser can't send the API key or the dashboard password.
+- **Memory goes to a CLI session once.** A new session gets a `<character_memory>` block before the transcript; later turns carry only recaps that are new or changed, in `<character_memory_update>`, and a note when one no longer applies. A recap still being rebuilt after its chat grew stays as the session has it until it's done. Upstream appended its whole memory block to every turn, so a resumed session collected a copy per turn. Of other chats, the newest get their full recap while 24,000 characters last, then their short one. The block tells the model the memories count over the card's description and scenario about the character's history and relationships.
+- **Conflict alerts.** Once a chat with memories from other chats has your first message, Sonnet compares its opening (greeting, first message, Author's Note) with those memories. If they clash, the extension shows it in SillyTavern after a reply: keep the memories, or untick the ones to leave out of that chat. After a decision, only chats added later are checked again.
+- **Memory tab rewritten.** Pick any character card, add other cards of the same person, bind personas and tick their chats (with Select all and a cost estimate), and open any chat to read or rewrite its recap part by part, connect other chats to it, or leave a binding's chat out of it. It shows whether the extension has been heard from, what memory did on the latest turn, and the recap jobs running. Chats are listed by their card's or group's name (not the file name), their branch ("Branch #3") or own title, the day they were made and their last message, and can be searched by any of those; personas by name, title and description, with the ones in the character's chats first. A chat's recap reads as text when the chat is opened, and opens in place under it wherever it's remembered (another chat's memories, a binding).
+- **Offline memory tests.** `tests/memory_scenarios.py` runs connections, bindings, group privacy, conflicts, the in-chat recap, the budget and the Memory tab's endpoints against a scratch bridge, a fake SillyTavern data folder and the fake Messages API, and uses no quota.
 - **Restyled dashboard with a prompt preview.** The dashboard uses a plain sans-serif layout instead of the serif/italic editorial styling. The Prompts tab previews what a roleplay turn sends to the CLI, for a new session and for a resumed turn: the bridge's own text placed around SillyTavern's prompt order, which `GET /api/prompt_preview` reads from SillyTavern's `settings.json` (found next to the bridge's folder, or via the Lorebook tab's worlds path). Card, lore and chat-history entries show as placeholders.
 - **History and Usage tabs.** Every `claude -p` call the bridge makes (roleplay turns, Character Memory, lorebook, image and summary calls) is recorded in `prompt_history.db` with its argv, system prompt, stdin text, reply, thinking summary, and the token counts from the CLI's `result` event. The History tab lists them. For each roleplay turn the bridge also reads the account's 5-hour and weekly usage just before the turn and a few seconds after it, and shows the change. It reads them from the endpoint behind Claude Code's `/usage` (`GET https://api.anthropic.com/api/oauth/usage`) with the CLI's own login token from `~/.claude/.credentials.json`; the bridge never refreshes that token itself, and the reads use no quota. The endpoint reports whole percents and counts everything that used the account meanwhile, so per-turn figures are approximate. The Usage tab shows the current limits and the bridge's token totals for the current windows. Text is kept for the last 500 calls and token counts for 30 days.
 
@@ -47,7 +48,7 @@ Uses your **Claude Code subscription**. No API keys, no per-token billing, no cr
 SillyTavern is an excellent frontend for creative writing and roleplay, but it speaks OpenAI's API format. Claude Code CLI is how you access Claude's best models on a subscription plan — but it's designed for coding, not long-form fiction. This bridge makes them talk to each other, and adds the things you actually want for long RPs that coding assistants don't care about:
 
 - **Per-character running summaries** so 200-message conversations don't re-send the whole backlog every turn
-- **Persistent Character Memory** — structured per-character DB so characters actually remember desires, relationships, and recurring NPCs across sessions
+- **Character Memory** — characters remember the chats you connect, and the chats of a persona you bind them to, as recaps from their point of view
 - **SillyTavern's prompt as the system prompt**, replacing Claude Code's built-in "you are a coding assistant" framing
 - **Image handling** via Claude Code's native `Read` tool — share reference images in SillyTavern and Claude actually sees them
 - **Auto-lorebook** generation that builds World Info entries from your roleplay in the background
@@ -59,7 +60,7 @@ SillyTavern is an excellent frontend for creative writing and roleplay, but it s
 - GUI dashboard at `http://localhost:5001/` with tabs for Settings, System Prompt, Tools, Lorebook, Memory, and Test
 - **Model picker** — every current Claude model (Fable, Opus, Sonnet and Haiku, pinned versions or "latest" aliases), selected in the bridge GUI; or set it to "Use SillyTavern's model" to pick per connection in SillyTavern
 - **Effort levels** — Low / Medium / High / xHigh / Max for the Claude CLI's reasoning budget. xHigh and Max require Opus; Sonnet 4.6 and 4.5 are clamped to Medium as they produce no meaningful narrative above that level.
-- **Character Memory** — structured per-character SQLite + sentence-transformers embeddings + Sonnet librarian. Tracks desires, events, facts, rules, relationships, traits, places, possessions, body state, and secrets across sessions. Sonnet curates relevant memories before each Opus turn (in-band) and updates the DB after (background). Persistent NPCs introduced mid-RP get their own sub-DBs. Inspect/edit everything in the Memory tab. See `MEMORY_DESIGN.md` for the architecture.
+- **Character Memory** — Sonnet recaps chats from SillyTavern's folder from a character's point of view. Connect a chat's memory to another chat for one character, or bind a character to a persona so they remember the chats with it you pick, and every new one. A small SillyTavern extension (`st-extension/`) says which chat and persona each request is for, shows when a chat's opening contradicts what the character remembers, and lets you read the recaps a chat brings in. Read and edit every recap on the Memory tab.
 - **Per-character auto-summary** — each character's narrative digest lives in its own cache slot, keyed by a hash of the greeting. Switching characters auto-swaps summaries; no manual cache clearing.
 - **CLI session reuse** — captures the Claude CLI's session and resumes via `--resume` on follow-up turns, sending only what came after the session's last reply (plus any lore SillyTavern added or changed) with the session's original system prompt. Big input-token savings on long RPs. Group chats get a session per character. Starts a new session on swipes, edits, deletions, or changes to the bridge's own prompt settings.
 - **Chunking mode** — one-shot reset that rebuilds a character's summary from an imported chat file
@@ -68,7 +69,6 @@ SillyTavern is an excellent frontend for creative writing and roleplay, but it s
 - **Auto-lorebook** generation after each response using Sonnet for efficiency, plus a Deep Analysis mode that scans a full chat file, and a manual entry editor
 - **Creativity modes** (Precise / Balanced / Creative / Wild) — prompt-based style control since Claude Code CLI doesn't expose temperature
 - **Thinking summaries** — when `include_thinking` is on, Claude's summarized thinking is returned as `reasoning_content` for SillyTavern's reasoning block; nothing asks the model to write its reasoning into the reply
-- **`char_key` pinning** — pin a character's key from the Memory tab so small card edits don't change the auto-derived hash and orphan the existing memory DB or CLI session
 - **Test tab** — fire a quick test message at the bridge from the GUI without going through SillyTavern, useful for sanity checks
 - **Settings persistence** — model, effort, creativity, thresholds, and port all survive bridge restarts via `bridge_settings.json`
 - **Configurable port** from the GUI (default `:5001`)
@@ -105,10 +105,9 @@ This is what the bridge is *for*. The features in the list above all exist to ma
 git clone https://github.com/MissSinful/claude-code-sillytavern-bridge.git
 cd claude-code-sillytavern-bridge
 pip install -r requirements.txt
-pip install -r requirements-memory.txt   # optional, for Character Memory
 ```
 
-`requirements.txt` is all the bridge needs to run. `requirements-memory.txt` adds `sentence-transformers` and `numpy` for Character Memory's semantic retrieval (`run_bridge.bat` installs both). Without them, the bridge runs normally and Character Memory logs "sentence-transformers not installed" and skips semantic search. The first time the model is needed (when you enable Character Memory in the GUI), it downloads `all-MiniLM-L6-v2` (~80MB) into `~/.cache/huggingface`. If you don't enable Character Memory, the model never loads.
+For Character Memory, also install the SillyTavern extension: `st-extension/install.sh` (or copy `st-extension/` to `SillyTavern/data/<user>/extensions/bridge-memory/`), then reload SillyTavern.
 
 Start the bridge:
 
@@ -149,18 +148,8 @@ cd ~
 git clone <this repo> claude-code-sillytavern-bridge
 cd claude-code-sillytavern-bridge
 python3 -m venv .venv
-.venv/bin/pip install -r requirements.txt         # core: enough to run the bridge
+.venv/bin/pip install -r requirements.txt
 ```
-
-Optional, for Character Memory: install CPU-only PyTorch **first**, so pip doesn't pull in ~2GB of CUDA wheels a VPS can't use. Then install the memory extras:
-
-```bash
-.venv/bin/pip install torch --index-url https://download.pytorch.org/whl/cpu
-.venv/bin/pip install -r requirements-memory.txt
-mkdir -p ~/.cache/huggingface                     # model download location (must exist for the systemd sandbox)
-```
-
-Without them, the bridge runs normally and Character Memory logs `sentence-transformers not installed` and skips semantic search.
 
 ### 2. Configure
 
@@ -218,7 +207,7 @@ Most features work automatically once the bridge is running and configured. High
 
 **Enable auto-summary** early in a new chat. Tools tab → toggle Auto-Summary on. The default threshold updates the summary every 20 new messages, which is a reasonable balance for Opus-effort-high usage caps. Without it, SillyTavern re-sends your entire message history on every turn, which eats through usage limits fast on long RPs.
 
-**Enable Character Memory** in the Settings tab if you want characters to actually remember things across sessions — desires, relationships, learned rules about you, recurring NPCs. Memory is per character name, so also add `character_name: "{{char}}"` to SillyTavern's API Connections → Additional Parameters → Include Body Parameters; without it, memory skips the turn. The first turn for a new character runs a one-time Sonnet bootstrap that seeds the DB from the card. After that, every turn is enriched with a curated memory block in the prompt, and a background Sonnet pass updates the DB after the response. Inspect everything in the Memory tab. If you've got old `state.md` / `diary.md` / `rules.md` files from earlier versions of the bridge, they auto-migrate to the new DB on first use.
+**Enable Character Memory** in the Settings tab, and install the Bridge Memory extension (`st-extension/install.sh`, then reload SillyTavern), if you want characters to remember other chats. On the Memory tab, open a chat to connect another chat's memory to it, or bind a character to a persona and tick the chats they should remember; new chats with that persona join by themselves. The bridge recaps those chats in the background with Sonnet, and each CLI session gets the recaps once, then only what changed. If a chat's opening contradicts what the character remembers, SillyTavern shows it after a reply, and you keep the memories or drop some from that chat.
 
 **Editing prompts.** The bridge's internal prompts live as markdown files in `prompts/`:
 
@@ -249,17 +238,19 @@ If any of these become dealbreakers for you, the right move is an alternative ba
 ```
 claude-code-sillytavern-bridge/
 ├── claude_bridge.py           # Main Flask server and subprocess wrapper
-├── memory_v2.py               # Character Memory: SQLite + embeddings + Sonnet librarian
+├── memory.py                  # Character Memory: chat recaps, connections, persona bindings
 ├── prompt_history.py          # History and Usage tabs: recorded calls + plan usage reads
 ├── requirements.txt           # Core Python dependencies
-├── requirements-memory.txt    # Optional: Character Memory embeddings
 ├── run_bridge.bat             # Windows launcher
 ├── run_bridge.sh              # Linux / macOS launcher (uses ./.venv if present)
 ├── deploy/
 │   ├── claude-bridge.service  # Hardened systemd unit
 │   └── claude-bridge.env.example  # Env vars for the unit (copy to /etc/claude-bridge.env)
+├── st-extension/              # Bridge Memory, the SillyTavern extension Character Memory needs
+│   └── install.sh             # Copies it into SillyTavern's user data folder
 ├── tests/
-│   └── session_scenarios.py   # Offline CLI session-reuse tests (real CLI, fake Messages API)
+│   ├── session_scenarios.py   # Offline CLI session-reuse tests (real CLI, fake Messages API)
+│   └── memory_scenarios.py    # Offline Character Memory tests (fake SillyTavern folder too)
 ├── templates/
 │   └── index.html             # GUI dashboard (single-page, vanilla JS)
 ├── prompts/                   # Editable prompt templates (hot-reloaded)
@@ -268,7 +259,7 @@ claude-code-sillytavern-bridge/
 │   ├── summarize_chunk.md
 │   └── condense_chronological.md
 ├── cache/                     # Per-character summary cache (gitignored)
-├── character_memory/          # Per-character memory DBs + needs + NPCs (gitignored)
+├── character_memory/          # memory.db: recaps, connections, bindings (gitignored)
 ├── temp_images/               # SillyTavern base64 image dumps (gitignored)
 ├── bridge_settings.json       # Persisted runtime settings (gitignored)
 ├── bridge_sessions.json       # Captured CLI session IDs for --resume (gitignored)

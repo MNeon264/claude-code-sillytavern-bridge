@@ -23,7 +23,7 @@ import urllib.request
 import urllib.parse
 import urllib.error
 from datetime import datetime
-from flask import Flask, request, jsonify, Response, render_template
+from flask import Flask, request, jsonify, Response, render_template, abort
 from flask_cors import CORS
 
 # This fork is versioned on its own, by date: YEAR.MONTH.BUILD, where BUILD
@@ -34,7 +34,7 @@ from flask_cors import CORS
 # Keeping it in the source file (rather than deriving from git) means it Just
 # Works for users who download a zip instead of cloning — no git metadata
 # required at runtime.
-__version__ = "2026.10.2"
+__version__ = "2026.10.3"
 
 # =============================================================================
 # CLAUDE CLI RESOLUTION
@@ -94,10 +94,10 @@ def _find_claude_exe():
 
 CLAUDE_EXE = _find_claude_exe()
 
-# Character Memory v2 (see memory_v2.py + MEMORY_DESIGN.md). Imported
-# unconditionally — the toggle in runtime_settings gates the *behavior*.
-# Logger and exe path are injected after both are defined further below.
-import memory_v2
+# Character Memory (see memory.py). Imported unconditionally — the toggle in
+# runtime_settings gates the behavior. Logger, exe path and SillyTavern's
+# folder are injected after they're defined further below.
+import memory
 # Records every claude call and the account's usage for the History and
 # Usage tabs (see prompt_history.py). Set up after log() is defined.
 import prompt_history
@@ -673,43 +673,6 @@ def get_character_key(messages):
 
     return key
 
-
-# What Character Memory did on the latest roleplay turn, for the Memory tab:
-# the character it ran for, or why it didn't run.
-memory_last_turn = {}
-
-
-def memory_identity(messages, character_name=None):
-    """(char_key, name) of the character whose memory a turn uses, or
-    (None, None) when the request doesn't say who that is.
-
-    The name is the request's `character_name` field, which SillyTavern
-    sends when the Custom endpoint's Include Body Parameters hold
-    `character_name: "{{char}}"`. ST fills in the macro for every
-    generation, so in a group chat it names the member whose turn it is.
-    Without the field, a "[Name's personality: ...]" card wrapper is used.
-    The key is the one get_character_key derives from a name. A key pinned
-    on the Memory tab overrides it.
-
-    get_character_key's other strategies (hashing the first assistant
-    message or the whole system prompt) are not used here: the hash changes
-    whenever the oldest message in the context does, and a group chat's
-    members all share it, so memory would start over every few turns.
-    """
-    name = character_name.strip()[:100] if isinstance(character_name, str) else ""
-    if name.startswith("{{"):
-        name = ""  # macro left unsubstituted
-    if not name:
-        system_text = "\n\n".join(
-            _stringify_content(m.get("content", "")) for m in messages if m.get("role") == "system"
-        )
-        name = _extract_character_name(system_text) or ""
-    pinned = (runtime_settings.get("pinned_char_key") or "").strip()
-    if pinned:
-        return pinned, name or memory_v2.load_label(pinned) or None
-    if not name:
-        return None, None
-    return hashlib.md5(name.encode("utf-8")).hexdigest()[:16], name
 
 def get_cached_summary(conv_hash):
     """Get cached summary if it exists."""
@@ -1895,6 +1858,8 @@ def _require_auth():
     """Gate every request in one place so routes added later are covered too."""
     if request.method == "OPTIONS":
         return None  # CORS preflights never carry credentials
+    if request.path.startswith("/ext/"):
+        return None  # the extension's routes check its token themselves (_ext_auth)
     if request.path == "/v1" or request.path.startswith("/v1/"):
         if not BRIDGE_API_KEY:
             return None
@@ -1981,7 +1946,9 @@ The first user message holds the chat so far as a transcript, with "Human:" befo
 SillyTavern can also send:
 - <sillytavern_note>: a note it placed at that point in the chat.
 - <sillytavern_after_history>: instructions it sends after the chat history. The most recent one applies to your next reply.
-- <sillytavern_update>: lore or notes added or changed since the chat started. They add to or replace the matching parts of <sillytavern_prompt>."""
+- <sillytavern_update>: lore or notes added or changed since the chat started. They add to or replace the matching parts of <sillytavern_prompt>.
+
+The bridge can put <character_memory> before the transcript: what the character whose reply you write remembers from earlier in this chat and from other chats. Those memories are theirs alone; the other characters know only what they were there for or were told. <character_memory_update> later adds to it or replaces its sections."""
 
 # Added to the frame when the GUI's style notes are set.
 BRIDGE_STYLE_NOTES_LINE = (
@@ -2125,16 +2092,11 @@ runtime_settings = {
     # background thread so it never blocks startup. No auto-update — just
     # a log line and a banner in the GUI.
     "update_check_enabled": True,
-    # Character Memory — structured per-character SQLite + embeddings +
-    # Sonnet librarian. See MEMORY_DESIGN.md and memory_v2.py. Adds a Sonnet
-    # retrieval call before each Opus turn (~3-8s) and a non-blocking Sonnet
-    # maintenance pass after.
-    "character_memory_v2_enabled": False,
-    # Pinned char_key for memory. When non-empty, every turn uses this exact
-    # key for memory instead of the one derived from the character's name
-    # (memory_identity), e.g. to keep a memory after renaming a character.
-    # Set/cleared from the GUI Memory tab. Empty = by name (default).
-    "pinned_char_key": "",
+    # Character Memory: recaps of chats, brought into other chats through
+    # connections and persona bindings (see memory.py). Needs the SillyTavern
+    # extension in st-extension/, which says which chat and persona a
+    # request is from.
+    "character_memory_enabled": False,
 }
 
 # ============================================================================
@@ -2153,7 +2115,7 @@ PERSISTED_SETTING_KEYS = {
     "system_prompt_override",
     "creativity", "bridge_port",
     "cli_session_reuse", "update_check_enabled",
-    "character_memory_v2_enabled", "pinned_char_key",
+    "character_memory_enabled",
 }
 
 
@@ -2167,6 +2129,9 @@ def load_persisted_settings():
     except (json.JSONDecodeError, OSError) as e:
         log(f"Failed to load {SETTINGS_FILE}: {e}", "ERROR")
         return
+    # The setting of the old Character Memory (memory_v2) turns on its successor.
+    if "character_memory_enabled" not in saved and "character_memory_v2_enabled" in saved:
+        saved["character_memory_enabled"] = saved["character_memory_v2_enabled"]
     applied = 0
     for key, value in saved.items():
         if key in PERSISTED_SETTING_KEYS:
@@ -2246,12 +2211,11 @@ def log(message: str, level: str = "INFO"):
         sys.stdout.flush()
 
 
-# Wire memory_v2 to the bridge log + claude exe path now that both exist.
-# Done here (not at import time) because log() and CLAUDE_EXE both have to
-# be defined first.
-memory_v2.set_logger(log)
-memory_v2.set_claude_exe(CLAUDE_EXE)
-memory_v2.set_call_recorder(prompt_history.start_call)
+# Wire memory to the bridge log, the claude exe and SillyTavern's folder now
+# that they exist (_sillytavern_user_dir is defined further down, so it's
+# looked up when called).
+memory.configure(log=log, claude_exe=CLAUDE_EXE, call_recorder=prompt_history.start_call,
+                 st_user_dir=lambda: _sillytavern_user_dir())
 
 prompt_history.set_logger(log)
 prompt_history.init(os.path.join(os.path.dirname(os.path.abspath(__file__)), "prompt_history.db"))
@@ -2310,14 +2274,6 @@ def log_box(title: str, stats: dict):
 
 # log() is now defined — safe to load persisted settings from disk.
 load_persisted_settings()
-
-# Warm up the embedding model in the background when memory v2 is enabled.
-# Without this, the first user-facing prepare_turn pays a 5-30s blocking
-# wait while sentence-transformers loads (and possibly downloads ~80MB on
-# first run). Gated on the v2 toggle so users who don't use the feature
-# don't pay the disk + memory cost.
-if runtime_settings.get("character_memory_v2_enabled", False):
-    memory_v2.warmup_embeddings_async()
 
 
 # =============================================================================
@@ -2470,7 +2426,7 @@ def _render_transcript(conversation_messages: list) -> str:
 
 
 # Per-session prompt state stored next to the session id (see call_claude_code).
-_SESSION_STATE_KEYS = ("system_prompt", "bridge_sig", "prompt_blocks", "delivered", "after_history_hash")
+_SESSION_STATE_KEYS = ("system_prompt", "bridge_sig", "prompt_blocks", "delivered", "after_history_hash", "memory")
 _DELIVERED_CAP = 300
 # Chat messages remembered per session for the edit/delete/reorder check:
 # all of them, up to a cap far above what fits in a context window.
@@ -2643,6 +2599,21 @@ def _decide_resume(messages: list, bridge_sig: str, prompt_blocks: list) -> tupl
     return None, 0, "no session's last reply is in this chat (new chat, swipe, or that reply was edited or deleted)"
 
 
+# What Character Memory did on the latest roleplay turn, for the Memory tab.
+memory_last_turn = {}
+
+
+def _memory_state(mem_turn, floor, pieces) -> dict:
+    """The memory a session has received: the card it's for, the chat
+    message its recap of this chat stops at, and each section's hash and
+    title (so a dropped one can be named)."""
+    return {
+        "pov": mem_turn.pov,
+        "floor": floor,
+        "delivered": {p[0]: [memory.piece_hash(p), p[1]] for p in pieces},
+    }
+
+
 def _update_session(session_id: str, char_key: str, messages: list, reply: str, state: dict,
                     resumed_from: str = None, added: int = 0):
     """Record a session after a successful call: its prompt state, the chat
@@ -2669,7 +2640,7 @@ def _update_session(session_id: str, char_key: str, messages: list, reply: str, 
 _load_sessions()
 
 
-def call_claude_code(messages: list, tools: list = None, process_holder: dict = None, char_key: str = None, json_schema: dict = None, skip_memory: bool = False, tracking_messages: list = None, requested_model: str = None, history_kind: str = None, history_label: str = None, on_delta=None, character_name: str = None) -> dict:
+def call_claude_code(messages: list, tools: list = None, process_holder: dict = None, char_key: str = None, json_schema: dict = None, skip_memory: bool = False, tracking_messages: list = None, requested_model: str = None, history_kind: str = None, history_label: str = None, on_delta=None, character_name: str = None, memory_info: dict = None) -> dict:
     """
     Call Claude Code CLI with the given messages.
     Converts OpenAI message format to a prompt for Claude.
@@ -2685,11 +2656,14 @@ def call_claude_code(messages: list, tools: list = None, process_holder: dict = 
     from the key originally saved under. Callers that have access to the
     original (pre-rebuild) messages should compute char_key there and pass
     it in so sessions and the History tab use the same key as prior turns.
-    Character Memory keys on the character's name instead (memory_identity).
 
     character_name: the request's `character_name` field, which SillyTavern
     sends when its Include Body Parameters hold `character_name: "{{char}}"`.
-    Names whose memory the turn uses.
+    Labels the turn on the History tab.
+
+    memory_info: the request's `bridge_memory` field, parsed by
+    memory.parse_request_field: the chat, persona and card the turn is for,
+    sent by the bridge's SillyTavern extension. Character Memory needs it.
 
     json_schema: optional JSON Schema dict. When supplied, forwarded to the
     CLI as `--json-schema <serialized>` so the model's output is validated
@@ -2944,57 +2918,35 @@ Weave the visual details into your scene as if you'd always known them, without 
 Use the Read tool to view each, then weave the visual details into your scene without mentioning that an image was shared. Keep the styling and length of a non-image turn.
 === END SCENE IMAGES (FALLBACK) ==="""
 
-    # Character Memory: out-of-band Sonnet librarian curates the injection
-    # before each turn and stages the response for post-turn maintenance.
-    # Opus reads the curated block but does NOT write to the DB itself, so
-    # no extra tools or permission-mode flags are required.
-    memory_v2_char_key = None
-    memory_v2_char_name = None
-    memory_block = ""
-    # skip_memory short-circuits the memory v2 pipeline. Set by utility
-    # callers (chunking summary, condense, lorebook generation, etc.)
-    # where we're using call_claude_code as a generic Sonnet/Opus wrapper
-    # and not for an actual roleplay turn. Without this guard, every
-    # utility call ran prepare_turn, fired Sonnet ranking + semantic
-    # search on the utility prompt, injected character memory into the
-    # summarization context, and then staged the utility response as if
-    # it were the character's narrative — contaminating the memory DB.
-    if not skip_memory and runtime_settings.get("character_memory_v2_enabled", False):
-        mem_key, mem_name = memory_identity(messages, character_name)
-        if mem_key is None:
-            log("[memv2] skipped: the request doesn't name the character. In SillyTavern's "
-                "API Connections, add  character_name: \"{{char}}\"  to Include Body Parameters.", "WARN")
-            memory_last_turn.clear()
-            memory_last_turn.update({"at": time.time(), "skipped": "no_name"})
+    # Character Memory (memory.py): recaps of this chat's earlier part and of
+    # the other chats the character remembers here. A new CLI session gets
+    # them as a <character_memory> block before the transcript, a resumed
+    # one only what changed (see the resume block). skip_memory: utility
+    # calls (summaries, chunking, lorebook) aren't roleplay turns.
+    mem_turn = None
+    if not skip_memory and runtime_settings.get("character_memory_enabled", False):
+        memory_last_turn.clear()
+        memory_last_turn["at"] = time.time()
+        if not memory_info:
+            log("[memory] skipped: the request doesn't say which chat it's from. Install the bridge's "
+                "SillyTavern extension (st-extension/install.sh) and reload SillyTavern.", "WARN")
+            memory_last_turn["skipped"] = "no_extension"
         else:
-            if runtime_settings.get("pinned_char_key"):
-                log(f"[memv2] using pinned char_key: {mem_key}", "INFO")
-            # The name labels the character on the Memory tab and tells
-            # maintenance not to register them as an NPC of their own.
-            if mem_name and not memory_v2.load_label(mem_key):
-                memory_v2.save_label(mem_key, mem_name)
-            memory_last_turn.clear()
-            memory_last_turn.update({"at": time.time(), "char_key": mem_key, "name": mem_name})
+            # Auto-summary replaced the older messages with its summary, so
+            # the chat's own earlier part isn't recapped again.
+            summarized = tracking_messages is not None and (
+                len(tracking_messages) != len(messages)
+                or any(a is not b for a, b in zip(tracking_messages, messages)))
             try:
-                injection_text, _used_ids = memory_v2.prepare_turn(
-                    char_key=mem_key,
-                    messages=messages,
-                    char_name=mem_name or "character",
-                    chat_messages=tracking_messages,
-                )
-                memory_v2_char_key = mem_key
-                memory_v2_char_name = mem_name or "character"
-                memory_last_turn["injected"] = len(_used_ids)
+                mem_turn = memory.prepare_turn(memory_info, summarized=summarized)
             except Exception as e:
-                log(f"[memv2] prepare_turn failed: {e}", "ERROR")
+                log(f"[memory] prepare_turn failed: {e}", "ERROR")
                 memory_last_turn["error"] = str(e)
-                injection_text = ""
-            if injection_text:
-                # Last in the turn, after the chat and any images, so it's
-                # the freshest context before the reply. A resumed turn adds
-                # it again (see the resume block).
-                memory_block = injection_text
-                prompt += "\n\n" + injection_text
+            if mem_turn is None and "error" not in memory_last_turn:
+                memory_last_turn["skipped"] = memory_info.get("type") or "no_memory"
+            elif mem_turn is not None:
+                memory_last_turn.update(name=mem_turn.name, chat=mem_turn.chat_row.get("title"),
+                                        sources=len(mem_turn.sources))
 
     # Determine which tools to enable. Images are pre-described out of band
     # so the main turn doesn't need Read — this prevents the format-stripping
@@ -3025,8 +2977,8 @@ Use the Read tool to view each, then weave the visual details into your scene wi
     # Gated on cli_session_reuse so users who see unexpected behavior can
     # opt out from the GUI without a code change.
     #
-    # Resume + staging continuity decisions (here, _update_session below,
-    # memory_v2.stage_turn) all use `tracking_messages` — the ORIGINAL
+    # Resume decisions (here and _update_session below) use
+    # `tracking_messages` — the ORIGINAL
     # pre-rebuild message list. The model still sees `messages` (which may
     # have been rebuilt by auto-summary), but the rebuilt list has a fixed
     # shape (system + summary + last 15) whose messages shift every turn.
@@ -3096,6 +3048,28 @@ Use the Read tool to view each, then weave the visual details into your scene wi
                 if fresh:
                     parts.append("<sillytavern_update>\n" + "\n\n".join(fresh) + "\n</sillytavern_update>")
                     log(f"Adding {len(fresh)} SillyTavern block(s) the session hasn't seen", "INFO")
+                # Memory the session hasn't got: recaps that are new or
+                # changed since its last turn, and notice of ones dropped.
+                memory_state = stored.get("memory")
+                if mem_turn is not None:
+                    prev = memory_state if (memory_state or {}).get("pov") == mem_turn.pov else {}
+                    pieces = mem_turn.pieces(prev.get("floor"))
+                    had = prev.get("delivered") or {}
+                    # A section still being recapped stays as the session has it.
+                    kept = {p[0] for p in pieces if p[0] in had and p[0] in mem_turn.incomplete}
+                    changed = [p for p in pieces if p[0] not in kept
+                               and (had.get(p[0]) or [None])[0] != memory.piece_hash(p)]
+                    ids = {p[0] for p in pieces}
+                    removed = [v[1] for k, v in had.items() if k not in ids]
+                    update = memory.render_update(mem_turn.name, changed, removed)
+                    if update:
+                        parts.append(update)
+                        log(f"[memory] {mem_turn.name}: {len(changed)} memory section(s) new or changed, "
+                            f"{len(removed)} dropped", "INFO")
+                    memory_state = _memory_state(mem_turn, prev.get("floor"), pieces)
+                    for pid in kept:
+                        memory_state["delivered"][pid] = had[pid]
+                    memory_last_turn["sections"] = len(pieces)
                 parts.append(new_turn)
                 # Post-History Instructions are sent again only when they
                 # changed; the most recent block applies (see BRIDGE_FRAME).
@@ -3105,8 +3079,6 @@ Use the Read tool to view each, then weave the visual details into your scene wi
                     after_hash = _block_hash(after_history)
                 if scene_images_block:
                     parts.append(scene_images_block)
-                if memory_block:
-                    parts.append(memory_block)
                 prompt = "\n\n".join(parts)
                 core_identity = stored["system_prompt"]
                 session_state = {
@@ -3115,6 +3087,7 @@ Use the Read tool to view each, then weave the visual details into your scene wi
                     "prompt_blocks": stored.get("prompt_blocks") or [],
                     "delivered": (delivered + [_block_hash(b) for b in fresh])[-_DELIVERED_CAP:],
                     "after_history_hash": after_hash,
+                    "memory": memory_state,
                 }
             else:
                 # The new messages are empty, or the session vanished.
@@ -3123,6 +3096,20 @@ Use the Read tool to view each, then weave the visual details into your scene wi
                 resume_reason = "nothing to send after the session's last reply"
         if not resume_session_id and runtime_settings.get("debug_output"):
             log(f"Not resuming [{char_key}]: {resume_reason}", "INFO")
+
+    # A new CLI session (or no session reuse) gets the whole memory, before
+    # the transcript. Its floor is the first chat message SillyTavern sent:
+    # the recap of this chat covers what came before it.
+    if mem_turn is not None and not resume_session_id:
+        floor = mem_turn.first_in_context
+        pieces = mem_turn.pieces(floor)
+        block = memory.render_block(mem_turn.name, pieces)
+        if block:
+            prompt = f"{block}\n\n{prompt}"
+            log(f"[memory] {mem_turn.name}: {len(pieces)} memory section(s) for a new session", "INFO")
+        if session_state is not None:
+            session_state["memory"] = _memory_state(mem_turn, floor, pieces)
+        memory_last_turn["sections"] = len(pieces)
 
     cmd = [
         CLAUDE_EXE,
@@ -3215,7 +3202,8 @@ Use the Read tool to view each, then weave the visual details into your scene wi
             else f"New CLI session: {resume_reason}"
         )
         if not hist.label:
-            hist.label = ((character_name or "").strip() if isinstance(character_name, str) else "") \
+            hist.label = (mem_turn.name if mem_turn is not None else "") \
+                or ((character_name or "").strip() if isinstance(character_name, str) else "") \
                 or _extract_character_name("\n\n".join(str(b) for b in leading_system))
     hist_outcome = {"status": None, "error": None}
     response_text = ""
@@ -3549,26 +3537,6 @@ Use the Read tool to view each, then weave the visual details into your scene wi
                 "INFO",
             )
 
-        # Character Memory v2 — stage this turn for delayed maintenance.
-        # We do NOT fire Sonnet maintenance immediately because that pollutes
-        # the DB on swipes. Instead, the response is buffered and committed
-        # on the character's *next* request if that request still contains
-        # it. Swipe/regen → buffer is discarded and replaced. See stage_turn().
-        #
-        # Pass `track` (the original pre-rebuild messages), not `messages`:
-        # maintenance reads the chat's last turns from it, and the rebuilt
-        # list holds the summary in their place.
-        if memory_v2_char_key and clean_response and clean_response.strip():
-            try:
-                memory_v2.stage_turn(
-                    char_key=memory_v2_char_key,
-                    messages=track,
-                    assistant_response=clean_response,
-                    char_name=memory_v2_char_name,
-                )
-            except Exception as e:
-                log(f"[memv2] stage_turn failed: {e}", "WARN")
-
         return {
             "response": clean_response,
             "thinking": thinking_text.strip() if thinking_text else None,
@@ -3765,9 +3733,17 @@ def chat_completions():
         stream = data.get("stream", False)
         # Only used when the GUI's Model setting is "Use SillyTavern's model"
         requested_model = data.get("model")
-        # Not an OpenAI field: SillyTavern sends it from Include Body
-        # Parameters (see memory_identity).
+        # Not OpenAI fields: SillyTavern sends them from Include Body
+        # Parameters. character_name labels the History tab; bridge_memory,
+        # added by the bridge's SillyTavern extension, says which chat,
+        # persona and card the turn is for (Character Memory).
         character_name = data.get("character_name")
+        memory_info = memory.parse_request_field(data.get("bridge_memory"))
+        if memory_info:
+            try:
+                memory.note_request(memory_info)
+            except Exception as e:
+                log(f"[memory] couldn't record the extension's request: {e}", "WARN")
         # OpenAI-style tool definitions - only use if enabled
         tools = None
         if runtime_settings.get("tool_calling_enabled", True):
@@ -4121,6 +4097,7 @@ Now, based on this context, please respond to the following request:
                     messages, tools=tools, process_holder=process_holder, char_key=original_char_key, json_schema=json_schema,
                     tracking_messages=original_messages, requested_model=requested_model,
                     on_delta=on_delta if live else None, character_name=character_name,
+                    memory_info=memory_info,
                 )
             except Exception as e:
                 log(f"Worker crashed: {e}", "ERROR")
@@ -4536,8 +4513,7 @@ def update_settings():
         runtime_settings["chunking_enabled"] = new_val
         log(f"CHUNKING: {old_val} -> {new_val}")
 
-    memory_v2_was_enabled = runtime_settings.get("character_memory_v2_enabled", False)
-    for key in ["effort_level", "include_thinking", "show_thinking_console", "debug_output", "model", "tool_calling_enabled", "auto_summary_enabled", "auto_summary_threshold", "auto_summary_max_length", "lorebook_enabled", "lorebook_path", "lorebook_name", "system_prompt_override", "creativity", "bridge_port", "cli_session_reuse", "update_check_enabled", "character_memory_v2_enabled", "pinned_char_key"]:
+    for key in ["effort_level", "include_thinking", "show_thinking_console", "debug_output", "model", "tool_calling_enabled", "auto_summary_enabled", "auto_summary_threshold", "auto_summary_max_length", "lorebook_enabled", "lorebook_path", "lorebook_name", "system_prompt_override", "creativity", "bridge_port", "cli_session_reuse", "update_check_enabled", "character_memory_enabled"]:
         if key in data:
             # Coerce bridge_port to int and bounds-check. Invalid values are rejected.
             if key == "bridge_port":
@@ -4552,14 +4528,6 @@ def update_settings():
                 return jsonify({"error": f"unknown model: {data[key]}"}), 400
             else:
                 runtime_settings[key] = data[key]
-
-    # If the user just enabled memory v2, kick off the embedding model load
-    # in the background so the first prepare_turn doesn't pay the latency.
-    if (
-        not memory_v2_was_enabled
-        and runtime_settings.get("character_memory_v2_enabled", False)
-    ):
-        memory_v2.warmup_embeddings_async()
 
     # Persist the updated settings to disk so they survive bridge restarts.
     save_persisted_settings()
@@ -4577,595 +4545,228 @@ def update_settings():
 
 
 # =============================================================================
-# Character Memory v2 — REST endpoints (powers the GUI Memory tab)
+# Character Memory — the Memory tab (/api/memory/*) and the SillyTavern
+# extension (/ext/memory/*). See memory.py.
 # =============================================================================
-# All routes scope to a single character (and optionally a single NPC under
-# them). The endpoints are intentionally narrow: list, read, reset, delete
-# row, save needs. Inline row editing and manual insert are read/write but
-# similarly thin — the GUI does the formatting work, the bridge just persists.
-#
-# Why not extension-style auth: this bridge runs on localhost and is already
-# trusted with the user's Claude session. No extra auth layer.
+
+def _mem_body() -> dict:
+    data = request.get_json(silent=True)
+    return data if isinstance(data, dict) else {}
 
 
-@app.route("/api/memory/list", methods=["GET"])
-def memory_list():
-    """Return summary info for every character with a memory dir, plus
-    whether memory is on and what it did on the latest roleplay turn."""
-    return jsonify({
-        "characters": memory_v2.list_characters(),
-        "enabled": bool(runtime_settings.get("character_memory_v2_enabled", False)),
-        "embeddings": memory_v2.embeddings_installed(),
-        "st_sends_name": _sillytavern_sends_character_name(),
-        "last_turn": memory_last_turn,
-    })
-
-
-def _sillytavern_sends_character_name():
-    """Whether SillyTavern's saved Include Body Parameters send the
-    `character_name` field memory_identity reads; None when its
-    settings.json can't be read."""
-    user_dir = _sillytavern_user_dir()
-    if not user_dir:
-        return None
-    try:
-        with open(os.path.join(user_dir, "settings.json"), encoding="utf-8") as f:
-            body = (json.load(f).get("oai_settings") or {}).get("custom_include_body") or ""
-    except (OSError, ValueError):
-        return None
-    return bool(re.search(r"""(?m)^\s*["']?character_name["']?\s*:""", body))
-
-
-def _memory_row_dict(row: dict) -> dict:
-    """Strip embedding bytes (not JSON-serializable) and normalize for the GUI."""
-    out = dict(row)
-    out.pop("embedding", None)
-    out["card_copy"] = memory_v2.is_card_copy(row)
+def _mem_ids(data: dict, *keys) -> list:
+    """String fields of a request body; a missing or non-string one aborts
+    with 400."""
+    out = []
+    for k in keys:
+        v = data.get(k)
+        if not isinstance(v, str) or not v:
+            abort(Response(json.dumps({"error": f"missing {k}"}), 400, mimetype="application/json"))
+        out.append(v)
     return out
 
 
-@app.route("/api/memory/<char_key>", methods=["GET"])
-def memory_get_char(char_key):
-    """Return all rows + needs + NPC list for one character."""
-    # get_connection and load_needs create the DB and files for a new key.
-    cdir = memory_v2.char_dir(char_key)
-    conn = memory_v2.get_connection(char_key) if cdir and os.path.isdir(cdir) else None
-    if conn is None:
-        return jsonify({"error": "no DB for that char_key"}), 404
-    rows = [_memory_row_dict(r) for r in memory_v2.query_memories(
-        conn,
-        statuses=memory_v2.MEMORY_STATUSES,  # include dormant/resolved/etc for the GUI
-        limit=10000,
-    )]
-    needs = memory_v2.load_needs(char_key)
-    npcs = memory_v2.list_npcs(char_key)
-    seed = None
-    cdir = memory_v2.char_dir(char_key)
-    if cdir:
-        seed_path = os.path.join(cdir, "card_seed.json")
-        if os.path.exists(seed_path):
-            try:
-                with open(seed_path, "r", encoding="utf-8") as f:
-                    seed = json.load(f)
-            except (OSError, json.JSONDecodeError):
-                seed = None
-    return jsonify({
-        "char_key": char_key,
-        "memories": rows,
-        "needs": needs,
-        "npcs": npcs,
-        "card_seed": seed,
-        "latest_turn": memory_v2.latest_turn(conn),
-    })
+def _mem_list(data: dict, key: str) -> list:
+    return [x for x in (data.get(key) or []) if isinstance(x, str) and x]
 
 
-@app.route("/api/memory/<char_key>/npc/<npc_key>", methods=["GET"])
-def memory_get_npc(char_key, npc_key):
-    """Return rows + card for one NPC under a character."""
-    card = memory_v2.load_npc_card(char_key, npc_key)
-    if card is None:
-        return jsonify({"error": "NPC not found"}), 404
-    conn = memory_v2.get_connection(char_key, npc_key=npc_key)
-    if conn is None:
-        return jsonify({"card": card, "memories": []})
-    rows = [_memory_row_dict(r) for r in memory_v2.query_memories(
-        conn,
-        statuses=memory_v2.MEMORY_STATUSES,
-        limit=10000,
-    )]
-    return jsonify({"card": card, "memories": rows})
+@app.route("/api/memory/overview", methods=["GET"])
+def memory_overview():
+    """Characters with memory set up, the extension's last contact, recap
+    jobs, and what memory did on the latest roleplay turn."""
+    return jsonify({**memory.overview(),
+                    "enabled": bool(runtime_settings.get("character_memory_enabled", False)),
+                    "last_turn": memory_last_turn})
 
 
-@app.route("/api/memory/<char_key>/reset", methods=["POST"])
-def memory_reset(char_key):
-    """Wipe a character's memory directory. Closes pool entries first."""
-    ok = memory_v2.reset_character(char_key)
-    return jsonify({"status": "ok" if ok else "error", "char_key": char_key}), (200 if ok else 500)
+@app.route("/api/memory/cards", methods=["GET"])
+def memory_cards():
+    return jsonify({"cards": memory.list_cards()})
 
 
-@app.route("/api/memory/<char_key>/row/<int:row_id>", methods=["DELETE"])
-def memory_delete_row(char_key, row_id):
-    """Delete a single memory row."""
-    npc_key = request.args.get("npc")  # ?npc=marcus to target an NPC's DB
-    conn = memory_v2.get_connection(char_key, npc_key=npc_key) if npc_key else memory_v2.get_connection(char_key)
-    if conn is None:
-        return jsonify({"error": "no DB"}), 404
-    cur = conn.execute("DELETE FROM memories WHERE id = ?", (int(row_id),))
-    return jsonify({"status": "ok", "deleted": cur.rowcount})
+@app.route("/api/memory/personas", methods=["GET"])
+def memory_personas():
+    return jsonify({"personas": memory.list_personas()})
 
 
-@app.route("/api/memory/<char_key>/row/<int:row_id>", methods=["PATCH"])
-def memory_update_row(char_key, row_id):
-    """Patch fields on a row. Body is a JSON dict of {field: value}."""
-    npc_key = request.args.get("npc")
-    conn = memory_v2.get_connection(char_key, npc_key=npc_key) if npc_key else memory_v2.get_connection(char_key)
-    if conn is None:
-        return jsonify({"error": "no DB"}), 404
-    data = request.json or {}
-    # Re-embed when content changes — otherwise the embedding still points at
-    # the old text and semantic search ranks the row by the wrong vector.
-    # The op-handler path (_op_update) already does this; keep the GUI path
-    # consistent.
-    if "content" in data and "embedding" not in data:
-        emb = memory_v2.embed(str(data["content"]))
-        if emb:
-            data["embedding"] = emb
-    # A row rewritten here says something the chat and card don't, so it's
-    # injected even while the reply it came from is in context
-    # (memory_v2.is_card_copy, memory_v2.in_visible_chat).
-    existing = memory_v2.get_memory(conn, int(row_id))
-    if existing and "content" in data and data["content"] != existing.get("content"):
-        meta = data.get("metadata") if isinstance(data.get("metadata"), dict) else existing.get("metadata")
-        data["metadata"] = {**(meta if isinstance(meta, dict) else {}), "edited": True}
-    try:
-        ok = memory_v2.update_memory(conn, int(row_id), **data)
-    except ValueError as e:
-        return jsonify({"error": str(e)}), 400
-    return jsonify({"status": "ok" if ok else "no_change"})
+@app.route("/api/memory/character", methods=["GET"])
+def memory_character():
+    view = memory.character_view(request.args.get("id", ""))
+    return (jsonify(view), 200) if view else (jsonify({"error": "no such character"}), 404)
 
 
-@app.route("/api/memory/<char_key>/row/<int:row_id>/move", methods=["POST"])
-def memory_move_row(char_key, row_id):
-    """Move a row from main↔NPC or NPC↔NPC within the same character.
-
-    Body: {"to_npc": "<npc_key>" or null}
-    Query: ?npc=<source_npc_key>  (omit for main as source)
-    """
-    source_npc_key = request.args.get("npc") or None
-    data = request.json or {}
-    target_npc_key = data.get("to_npc") or None
-    new_id, err = memory_v2.move_memory(
-        char_key,
-        int(row_id),
-        source_npc_key=source_npc_key,
-        target_npc_key=target_npc_key,
-    )
-    if err and new_id is None:
-        return jsonify({"error": err}), 400
-    payload = {"status": "ok", "new_id": new_id}
-    if err:
-        # The insert succeeded but delete failed — partial state. Surface it.
-        payload["warning"] = err
-    return jsonify(payload)
+@app.route("/api/memory/chat", methods=["GET"])
+def memory_chat():
+    view = memory.chat_detail(request.args.get("character", ""), request.args.get("chat", ""))
+    return (jsonify(view), 200) if view else (jsonify({"error": "chat not found"}), 404)
 
 
-@app.route("/api/memory/<char_key>/npc/<npc_key>/card", methods=["PATCH"])
-def memory_update_npc_card(char_key, npc_key):
-    """Patch editable NPC card fields: name, bio, aliases, status."""
-    data = request.json or {}
-    ok, err = memory_v2.update_npc_card(char_key, npc_key, data)
-    if not ok:
-        return jsonify({"error": err or "update failed"}), 400 if err else 500
+@app.route("/api/memory/recap", methods=["GET"])
+def memory_recap():
+    """A character's recap of one chat, to read where another chat uses it."""
+    view = memory.recap_view(request.args.get("character", ""), request.args.get("chat", ""))
+    return (jsonify(view), 200) if view else (jsonify({"error": "chat not found"}), 404)
+
+
+@app.route("/api/memory/jobs", methods=["GET"])
+def memory_jobs():
+    return jsonify(memory.jobs_status())
+
+
+@app.route("/api/memory/card", methods=["POST"])
+def memory_card():
+    """Add a card to a character (the same person on another card), or make
+    one a character of its own again."""
+    data = _mem_body()
+    cid, avatar = _mem_ids(data, "character", "avatar")
+    ok, err = memory.add_card(cid, avatar) if data.get("action") == "add" else memory.remove_card(avatar)
+    return (jsonify({"status": "ok"}), 200) if ok else (jsonify({"error": err}), 400)
+
+
+@app.route("/api/memory/binding", methods=["POST"])
+def memory_binding():
+    data = _mem_body()
+    cid, persona = _mem_ids(data, "character", "persona")
+    if data.get("action") == "remove":
+        memory.unbind(cid, persona)
+        return jsonify({"status": "ok"})
+    return jsonify({"status": "ok", "binding": memory.bind(cid, persona)})
+
+
+@app.route("/api/memory/binding/chats", methods=["POST"])
+def memory_binding_chats():
+    """Pick past chats for a binding (their recaps are built), or take them out."""
+    data = _mem_body()
+    cid, persona = _mem_ids(data, "character", "persona")
+    n = memory.set_binding_chats(cid, persona, _mem_list(data, "add"), _mem_list(data, "remove"))
+    return jsonify({"status": "ok", "changed": n})
+
+
+@app.route("/api/memory/link", methods=["POST"])
+def memory_link():
+    """Connect another chat's memory to a chat for a character, or disconnect it."""
+    data = _mem_body()
+    cid, target, source = _mem_ids(data, "character", "target", "source")
+    memory.set_link(cid, target, source, bool(data.get("on", True)))
     return jsonify({"status": "ok"})
 
 
-@app.route("/api/memory/<char_key>/npc/<npc_key>", methods=["DELETE"])
-def memory_delete_npc(char_key, npc_key):
-    """Delete an NPC entirely: closes pool entry, removes sub-folder + DB +
-    card.json, prunes the pointer fact rows from the main DB."""
-    ok, err = memory_v2.delete_npc(char_key, npc_key)
-    if not ok:
-        return jsonify({"error": err or "delete failed"}), 400
+@app.route("/api/memory/exclusion", methods=["POST"])
+def memory_exclusion():
+    """Keep a chat's memory out of one chat (or let it back in)."""
+    data = _mem_body()
+    cid, target, source = _mem_ids(data, "character", "target", "source")
+    memory.set_exclusion(cid, target, source, bool(data.get("on", True)))
     return jsonify({"status": "ok"})
 
 
-@app.route("/api/memory/<char_key>/label", methods=["PATCH"])
-def memory_set_label(char_key):
-    """Set or clear the user-facing display label for a character.
-    Body: {"label": "Ramesses-II"} or {"label": ""} to clear."""
-    data = request.json or {}
-    ok = memory_v2.save_label(char_key, data.get("label", ""))
-    if not ok:
-        return jsonify({"error": "save failed"}), 400
-    return jsonify({"status": "ok", "label": memory_v2.load_label(char_key)})
-
-
-@app.route("/api/memory/<char_key>/row", methods=["POST"])
-def memory_insert_row(char_key):
-    """Manually insert a memory row. Body is a dict with at least type/content."""
-    npc_key = request.args.get("npc")
-    conn = memory_v2.get_connection(char_key, npc_key=npc_key) if npc_key else memory_v2.get_connection(char_key)
-    if conn is None:
-        return jsonify({"error": "no DB"}), 404
-    data = request.json or {}
-    if "content" not in data or "type" not in data:
-        return jsonify({"error": "type and content are required"}), 400
-    data.setdefault("created_turn", memory_v2.latest_turn(conn))
-    # Compute an embedding if available; the GUI has no business doing that.
-    if "embedding" not in data:
-        emb = memory_v2.embed(str(data["content"]))
-        if emb:
-            data["embedding"] = emb
-    try:
-        new_id = memory_v2.insert_memory(conn, **data)
-    except (ValueError, TypeError) as e:
-        return jsonify({"error": str(e)}), 400
-    return jsonify({"status": "ok", "id": new_id})
-
-
-@app.route("/api/memory/<char_key>/needs", methods=["POST"])
-def memory_save_needs(char_key):
-    """Overwrite needs.json. Body should be a complete needs dict."""
-    data = request.json
-    if not isinstance(data, dict):
-        return jsonify({"error": "body must be a JSON object"}), 400
-    memory_v2.save_needs(char_key, data)
+@app.route("/api/memory/excluded", methods=["POST"])
+def memory_excluded():
+    """Leave a chat out of every persona binding (or put it back)."""
+    data = _mem_body()
+    cid, chat = _mem_ids(data, "character", "chat")
+    memory.set_excluded(cid, chat, bool(data.get("on", True)))
     return jsonify({"status": "ok"})
 
 
-@app.route("/api/memory/<char_key>/errors", methods=["GET"])
-def memory_errors(char_key):
-    """Return the tail of the Sonnet error log (last 50KB)."""
-    cdir = memory_v2.char_dir(char_key)
-    if not cdir:
-        return jsonify({"text": ""})
-    path = os.path.join(cdir, "sonnet_errors.log")
-    if not os.path.exists(path):
-        return jsonify({"text": ""})
-    try:
-        with open(path, "r", encoding="utf-8", errors="replace") as f:
-            f.seek(0, 2)
-            size = f.tell()
-            f.seek(max(0, size - 50000))
-            text = f.read()
-        return jsonify({"text": text})
-    except OSError as e:
-        return jsonify({"error": str(e)}), 500
+@app.route("/api/memory/recap/build", methods=["POST"])
+def memory_recap_build():
+    data = _mem_body()
+    cid, chat = _mem_ids(data, "character", "chat")
+    queued = memory.schedule_recap(cid, chat, None, data.get("title") or "")
+    return jsonify({"status": "ok", "queued": queued})
 
 
-# ---------------------------------------------------------------------------
-# Memory bulk-import — parses external memory dumps (RAG exports, plain text,
-# CSV, markdown, JSON) and ingests into memory v2. Vectors from external
-# embedders aren't portable across embedding spaces; we re-embed locally.
-# ---------------------------------------------------------------------------
-
-# Common content-bearing field names across RAG dumps. Order matters — first
-# match wins, so put the most semantically precise names first.
-_IMPORT_CONTENT_KEYS = ("content", "text", "memory", "observation", "page_content", "message", "body", "summary")
-_IMPORT_SUBJECT_KEYS = ("subject", "character", "npc", "entity", "name")
-_IMPORT_TYPE_KEYS = ("type", "memory_type", "category")
+@app.route("/api/memory/recap/cancel", methods=["POST"])
+def memory_recap_cancel():
+    data = _mem_body()
+    n = memory.cancel_jobs(data.get("character") or None, data.get("chat") or None)
+    return jsonify({"status": "ok", "cancelled": n})
 
 
-def _import_normalize(obj, default_type: str, default_importance: int) -> dict:
-    """Map a parsed item (dict or string) to insert_memory kwargs.
-
-    Looks for content/subject/type at the top level first. If not found,
-    falls through to nested `metadata` (LangChain-style: {page_content,
-    metadata: {...}}) and the ST `vectors` extension format
-    ({id, metadata: {text, hash}, vector}). The metadata fallback is what
-    lets us ingest most real RAG dumps as-is.
-    """
-    if isinstance(obj, str):
-        return {"type": default_type, "content": obj.strip(), "importance": default_importance}
-    if not isinstance(obj, dict):
-        raise ValueError(f"expected dict or string, got {type(obj).__name__}")
-
-    # Build a search pool: top-level keys + (if present) keys nested in
-    # `metadata`. Top level wins on conflict so an explicit override always
-    # beats a nested default.
-    nested = obj.get("metadata") if isinstance(obj.get("metadata"), dict) else {}
-
-    def _pick(keys):
-        for k in keys:
-            v = obj.get(k)
-            if isinstance(v, str) and v.strip():
-                return v.strip()
-            if not isinstance(v, str) and v not in (None, "", [], {}):
-                return v
-        for k in keys:
-            v = nested.get(k)
-            if isinstance(v, str) and v.strip():
-                return v.strip()
-            if not isinstance(v, str) and v not in (None, "", [], {}):
-                return v
-        return None
-
-    content = _pick(_IMPORT_CONTENT_KEYS)
-    if content is None:
-        all_keys = list(obj.keys())[:6] + (
-            [f"metadata.{k}" for k in nested.keys()][:6] if nested else []
-        )
-        raise ValueError(
-            f"no content field; tried {_IMPORT_CONTENT_KEYS}; got keys: {all_keys}"
-        )
-    if not isinstance(content, str):
-        content = str(content)
-
-    item = {
-        "type": default_type,
-        "content": content.strip(),
-        "importance": default_importance,
-    }
-
-    # Pull a type if present and valid
-    type_val = _pick(_IMPORT_TYPE_KEYS)
-    if type_val:
-        t = str(type_val).strip().lower()
-        if t in memory_v2.MEMORY_TYPES:
-            item["type"] = t
-
-    # Subject (NPC key / "user" / "self")
-    subj_val = _pick(_IMPORT_SUBJECT_KEYS)
-    if subj_val:
-        item["subject"] = str(subj_val).strip()
-
-    # Direct passthrough of recognized fields (from top level only — nested
-    # metadata stays as the "metadata" passthrough below)
-    for k in ("intensity", "tags", "status"):
-        if k in obj and obj[k] is not None:
-            item[k] = obj[k]
-    # Preserve any user-supplied metadata blob (LangChain shape, ST vectors
-    # extension shape) into our metadata field. Callers can grep on
-    # provenance later (e.g. "this row came from ST vectors export").
-    if nested:
-        item["metadata"] = nested
-    elif obj.get("metadata") is not None:
-        item["metadata"] = obj["metadata"]
-    if "importance" in obj and obj["importance"] is not None:
-        try:
-            item["importance"] = int(obj["importance"])
-        except (TypeError, ValueError):
-            pass
-    return item
+@app.route("/api/memory/recap/clear", methods=["POST"])
+def memory_recap_clear():
+    data = _mem_body()
+    cid, chat = _mem_ids(data, "character", "chat")
+    memory.cancel_jobs(cid, chat)
+    memory.clear_recap(cid, chat)
+    return jsonify({"status": "ok"})
 
 
-def _import_parse_jsonl(text: str, default_type: str, default_importance: int) -> list[dict]:
-    items = []
-    for i, line in enumerate(text.splitlines(), 1):
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            obj = json.loads(line)
-        except json.JSONDecodeError as e:
-            raise ValueError(f"JSONL parse error on line {i}: {e}")
-        items.append(_import_normalize(obj, default_type, default_importance))
-    return items
+@app.route("/api/memory/segment", methods=["POST"])
+def memory_segment():
+    """Rewrite one part's recap, or (recap null) delete it to have it redone."""
+    data = _mem_body()
+    (key,) = _mem_ids(data, "key")
+    recap = data.get("recap")
+    if recap is not None and (not isinstance(recap, str) or not recap.strip()):
+        return jsonify({"error": "recap must be text, or null to redo it"}), 400
+    ok = memory.set_segment_recap(key, recap)
+    return (jsonify({"status": "ok"}), 200) if ok else (jsonify({"error": "no such part"}), 404)
 
 
-def _import_parse_json(text: str, default_type: str, default_importance: int) -> list[dict]:
-    obj = json.loads(text)
-    if isinstance(obj, list):
-        return [_import_normalize(it, default_type, default_importance) for it in obj]
-    if isinstance(obj, dict):
-        # Common wrapper shapes: {memories: [...]}, {data: [...]}, etc.
-        for key in ("memories", "items", "entries", "data", "records", "rows"):
-            inner = obj.get(key)
-            if isinstance(inner, list):
-                return [_import_normalize(it, default_type, default_importance) for it in inner]
-        # Single object — treat as one memory
-        return [_import_normalize(obj, default_type, default_importance)]
-    raise ValueError(f"expected JSON array or object, got {type(obj).__name__}")
+@app.route("/api/memory/short", methods=["POST"])
+def memory_short():
+    """Rewrite a chat's short recap, or (text null) go back to the generated one."""
+    data = _mem_body()
+    cid, chat = _mem_ids(data, "character", "chat")
+    text = data.get("text")
+    memory.set_short_recap(cid, chat, text if isinstance(text, str) else None)
+    return jsonify({"status": "ok"})
 
 
-def _import_parse_text(text: str, default_type: str, default_importance: int) -> list[dict]:
-    """Plain text → one memory per non-empty paragraph (split on blank line)."""
-    items = []
-    for chunk in re.split(r"\n\s*\n", text):
-        chunk = chunk.strip()
-        if chunk:
-            items.append({"type": default_type, "content": chunk, "importance": default_importance})
-    return items
+@app.route("/api/memory/check/<int:check_id>", methods=["POST"])
+def memory_check(check_id):
+    data = _mem_body()
+    ok, err = memory.resolve_check(check_id, data.get("action") or "keep", _mem_list(data, "drop"))
+    return (jsonify({"status": "ok"}), 200) if ok else (jsonify({"error": err}), 404)
 
 
-def _import_parse_csv(text: str, default_type: str, default_importance: int) -> list[dict]:
-    import csv as _csv
-    import io as _io
-    reader = _csv.DictReader(_io.StringIO(text))
-    items = []
-    for i, row in enumerate(reader, 1):
-        # csv.DictReader gives strings; normalize empty-string keys to None
-        cleaned = {k: v for k, v in row.items() if k and v}
-        if not cleaned:
-            continue
-        try:
-            items.append(_import_normalize(cleaned, default_type, default_importance))
-        except ValueError as e:
-            raise ValueError(f"CSV row {i}: {e}")
-    return items
+# The extension calls these from SillyTavern's page in the browser, so they
+# can't use the dashboard password or the API key. It authenticates with a
+# random token it sends in every chat request's bridge_memory field; the
+# bridge accepts a token once it has arrived on an authenticated /v1 request.
+
+_EXT_TOKEN_HEADER = "X-Bridge-Memory-Token"
 
 
-def _import_parse_markdown(text: str, default_type: str, default_importance: int) -> list[dict]:
-    """Split on H2 headers (## ...). If no H2 headers, fall back to paragraph splitting.
-
-    H2 sections turn into one memory each, with the heading prepended to the
-    body so context isn't lost. Use H1 (#) as a doc-level title (skipped).
-    """
-    # Strip a leading H1 title if present
-    body = re.sub(r"\A#\s+[^\n]+\n+", "", text)
-    parts = re.split(r"^##\s+(.+)$", body, flags=re.MULTILINE)
-    # parts: [pre_first_h2, heading1, body1, heading2, body2, ...]
-    items = []
-    if len(parts) > 1:
-        # Discard pre_first_h2 (anything before the first ## header)
-        for i in range(1, len(parts), 2):
-            heading = parts[i].strip()
-            body_text = parts[i + 1].strip() if i + 1 < len(parts) else ""
-            content = f"{heading}\n{body_text}".strip() if body_text else heading
-            if content:
-                items.append({"type": default_type, "content": content, "importance": default_importance})
-        return items
-    # No H2 sections — fall through to paragraph splitting
-    return _import_parse_text(text, default_type, default_importance)
+def _ext_auth():
+    if not memory.token_ok(request.headers.get(_EXT_TOKEN_HEADER, "")):
+        abort(Response(json.dumps({"error": "unknown token: send one message from SillyTavern first"}),
+                       401, mimetype="application/json"))
 
 
-def _import_auto_detect(text: str) -> str:
-    """Best-effort format guess from first non-empty line + global shape."""
-    s = text.lstrip()
-    if not s:
-        return "text"
-    first_line = s.splitlines()[0].strip()
-    # Whole-file JSON (array or object) — must parse cleanly
-    if first_line.startswith(("[", "{")):
-        try:
-            json.loads(s)
-            return "json"
-        except json.JSONDecodeError:
-            pass
-    # JSONL — first line is a JSON object alone
-    if first_line.startswith("{"):
-        try:
-            json.loads(first_line)
-            return "jsonl"
-        except json.JSONDecodeError:
-            pass
-    # Markdown — H2 headers somewhere
-    if re.search(r"^##\s+", s, flags=re.MULTILINE):
-        return "markdown"
-    # CSV — first line looks like a header (commas, no leading punctuation)
-    if "," in first_line and not first_line.startswith(("#", "-", "*")):
-        # Require at least one comma-separated field name that's identifier-ish
-        head = [h.strip() for h in first_line.split(",")]
-        if any(re.match(r"^[A-Za-z_][\w ]*$", h) for h in head):
-            return "csv"
-    return "text"
+@app.after_request
+def _ext_cors(resp):
+    """CORS for the extension's routes: any origin may call them, as each
+    request needs the token."""
+    origin = request.headers.get("Origin")
+    if origin and request.path.startswith("/ext/") and "Access-Control-Allow-Origin" not in resp.headers:
+        resp.headers["Access-Control-Allow-Origin"] = origin
+        resp.headers["Access-Control-Allow-Headers"] = f"Content-Type, {_EXT_TOKEN_HEADER}"
+        resp.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
+        resp.headers["Vary"] = "Origin"
+    return resp
 
 
-_IMPORT_PARSERS = {
-    "jsonl": _import_parse_jsonl,
-    "json": _import_parse_json,
-    "text": _import_parse_text,
-    "csv": _import_parse_csv,
-    "markdown": _import_parse_markdown,
-}
+@app.route("/ext/memory/status", methods=["GET"])
+def ext_memory_status():
+    """The memories a chat uses, per character, and any open conflict
+    (recaps=1: with their recaps). Starts building what's missing."""
+    _ext_auth()
+    a = request.args
+    info = {k: (a.get(k) or "").strip()[:400] for k in
+            ("chat_file", "group_id", "char_avatar", "char_name", "persona", "persona_name")}
+    return jsonify({**memory.extension_status(info, recaps=a.get("recaps") == "1"),
+                    "enabled": bool(runtime_settings.get("character_memory_enabled", False))})
 
 
-@app.route("/api/memory/<char_key>/import", methods=["POST"])
-def memory_import(char_key):
-    """Bulk-import memories into the v2 store.
-
-    Body (JSON):
-      text:               the memory dump as a string (required)
-      format:             "auto" | "jsonl" | "json" | "text" | "csv" | "markdown"
-      default_type:       memory type for items without one (default "fact")
-      default_importance: 1-5 (default 3)
-      dry_run:            bool — if true, parse + return preview but don't insert
-
-    Query params:
-      ?npc=<key>          scope insert into the NPC sub-DB instead of the
-                          character's main DB
-
-    Returns:
-      dry_run=true:  {format, count, preview}
-      dry_run=false: {format, imported, skipped, errors}
-    """
-    data = request.get_json(silent=True) or {}
-    text = data.get("text", "")
-    if not isinstance(text, str) or not text.strip():
-        return jsonify({"error": "text is required and must be non-empty"}), 400
-
-    fmt = (data.get("format") or "auto").strip().lower()
-    default_type = (data.get("default_type") or "fact").strip().lower()
-    if default_type not in memory_v2.MEMORY_TYPES:
-        return jsonify({
-            "error": f"default_type must be one of {list(memory_v2.MEMORY_TYPES)}"
-        }), 400
-    try:
-        default_importance = int(data.get("default_importance", 3))
-    except (TypeError, ValueError):
-        return jsonify({"error": "default_importance must be an integer 1-5"}), 400
-    default_importance = max(1, min(5, default_importance))
-    dry_run = bool(data.get("dry_run", False))
-
-    if fmt == "auto":
-        fmt = _import_auto_detect(text)
-
-    parser = _IMPORT_PARSERS.get(fmt)
-    if not parser:
-        return jsonify({
-            "error": f"unknown format {fmt!r}; expected one of {list(_IMPORT_PARSERS)} or 'auto'"
-        }), 400
-
-    try:
-        items = parser(text, default_type, default_importance)
-    except ValueError as e:
-        return jsonify({"error": f"{fmt} parse error: {e}"}), 400
-    except json.JSONDecodeError as e:
-        return jsonify({"error": f"JSON parse error: {e}"}), 400
-    except Exception as e:
-        log(f"memory_import unexpected parser error ({fmt}): {e}", "ERROR")
-        return jsonify({"error": f"parser failure: {e}"}), 500
-
-    if not items:
-        return jsonify({
-            "format": fmt,
-            "count": 0,
-            "imported": 0,
-            "errors": ["no parseable entries found in the input"],
-        })
-
-    if dry_run:
-        # Preview clamps content for readability — full text comes through on
-        # the actual import.
-        preview = []
-        for it in items[:5]:
-            row = {k: v for k, v in it.items() if k != "embedding"}
-            if isinstance(row.get("content"), str) and len(row["content"]) > 240:
-                row["content"] = row["content"][:240] + "…"
-            preview.append(row)
-        return jsonify({"format": fmt, "count": len(items), "preview": preview})
-
-    # Live insert. Open the right connection (NPC sub-DB if requested).
-    npc_key = (request.args.get("npc") or "").strip() or None
-    conn = (
-        memory_v2.get_connection(char_key, npc_key=npc_key)
-        if npc_key else memory_v2.get_connection(char_key)
-    )
-    if conn is None:
-        return jsonify({"error": "no DB for this character/NPC — bootstrap it first"}), 404
-
-    current_turn = memory_v2.latest_turn(conn)
-    embedder_ready = memory_v2.embeddings_available()
-
-    inserted = 0
-    errors: list[str] = []
-    with memory_v2.transaction(conn):
-        for i, item in enumerate(items, 1):
-            try:
-                if "embedding" not in item and embedder_ready:
-                    emb = memory_v2.embed(str(item["content"]))
-                    if emb:
-                        item["embedding"] = emb
-                item.setdefault("created_turn", current_turn)
-                memory_v2.insert_memory(conn, **item)
-                inserted += 1
-            except (ValueError, TypeError) as e:
-                errors.append(f"item {i}: {e}")
-            except Exception as e:
-                errors.append(f"item {i}: unexpected error: {e}")
-
-    log(
-        f"memory_import [{char_key}{'/'+npc_key if npc_key else ''}] "
-        f"format={fmt} parsed={len(items)} inserted={inserted} errors={len(errors)}",
-        "SUCCESS" if inserted else "WARN",
-    )
-    return jsonify({
-        "format": fmt,
-        "imported": inserted,
-        "skipped": len(items) - inserted,
-        "errors": errors[:20],  # cap to keep payload sane
-        "embeddings_generated": embedder_ready,
-    })
+@app.route("/ext/memory/check/<int:check_id>", methods=["POST"])
+def ext_memory_check(check_id):
+    _ext_auth()
+    data = _mem_body()
+    ok, err = memory.resolve_check(check_id, data.get("action") or "keep", _mem_list(data, "drop"))
+    return (jsonify({"status": "ok"}), 200) if ok else (jsonify({"error": err}), 404)
 
 
 @app.route("/health", methods=["GET"])
