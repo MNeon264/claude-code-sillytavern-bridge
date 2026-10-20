@@ -1,6 +1,6 @@
 # systemd unit for running the bridge on a Linux server.
 #
-# Install (adjust User= and the /home/st paths if yours differ):
+# Install (adjust User= and the /home/box paths if yours differ):
 #   sudo cp deploy/claude-bridge.service /etc/systemd/system/
 #   sudo install -m 600 deploy/claude-bridge.env.example /etc/claude-bridge.env   # then edit
 #   sudo systemctl daemon-reload
@@ -17,12 +17,12 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-User=st
-Group=st
-WorkingDirectory=/home/st/claude-code-sillytavern-bridge
-ExecStart=/home/st/claude-code-sillytavern-bridge/.venv/bin/python claude_bridge.py
+User=box
+Group=box
+WorkingDirectory=/home/box/claude-code-sillytavern-bridge
+ExecStart=/home/box/claude-code-sillytavern-bridge/.venv/bin/python claude_bridge.py
 # ~/.local/bin is where the native claude installer puts the CLI.
-Environment=PATH=/home/st/.local/bin:/usr/local/bin:/usr/bin:/bin
+Environment=PATH=/home/box/.local/bin:/usr/local/bin:/usr/bin:/bin
 Environment=BRIDGE_HOST=127.0.0.1
 # Without this, print() output sits in a buffer instead of reaching the journal.
 Environment=PYTHONUNBUFFERED=1
@@ -50,13 +50,13 @@ LockPersonality=true
 UMask=0077
 # The whole filesystem is read-only except the user's home directory.
 ProtectSystem=strict
-# All of /home/st is writable: besides the bridge's own state (bridge
+# All of /home/box is writable: besides the bridge's own state (bridge
 # directory) and ~/.claude, ~/.cache and ~/.local/state, claude rewrites
 # ~/.claude.json through a lock dir and temp files created directly in
-# /home/st. With only those subdirectories writable it logs "continuing
+# /home/box. With only those subdirectories writable it logs "continuing
 # without persisting" on every call. Also covers ~/.cache/huggingface
 # (Character Memory) and ~/SillyTavern/data (auto-lorebook World Info).
-ReadWritePaths=/home/st
+ReadWritePaths=/home/box
 
 [Install]
 WantedBy=multi-user.target
