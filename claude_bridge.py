@@ -500,35 +500,8 @@ _load_image_desc_cache()
 
 
 # =============================================================================
-# SUMMARY CACHE
+# CHARACTER KEY (labels CLI sessions and History entries)
 # =============================================================================
-CACHE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cache")
-CACHE_FILE = os.path.join(CACHE_DIR, "summary_cache.json")
-
-def get_cache():
-    """Load the summary cache from disk."""
-    if not os.path.exists(CACHE_FILE):
-        return {}
-    try:
-        with open(CACHE_FILE, 'r', encoding='utf-8') as f:
-            return json.load(f)
-    except (json.JSONDecodeError, OSError) as e:
-        log(f"Failed to read summary cache at {CACHE_FILE}: {e}", "ERROR")
-        return {}
-
-def save_cache(cache):
-    """Save the summary cache to disk."""
-    os.makedirs(CACHE_DIR, exist_ok=True)
-    with open(CACHE_FILE, 'w', encoding='utf-8') as f:
-        json.dump(cache, f, ensure_ascii=False, indent=2)
-
-def hash_conversation(messages):
-    """Create a hash of the conversation for cache lookup."""
-    # Hash the content of all messages
-    content = ""
-    for msg in messages:
-        content += f"{msg.get('role', '')}:{msg.get('content', '')}\n"
-    return hashlib.md5(content.encode('utf-8')).hexdigest()
 
 def _stringify_content(content):
     """Normalize OpenAI-style content (str or multipart list) to a plain string."""
@@ -596,7 +569,7 @@ def get_character_key(messages):
        for edge configurations where neither of the above works.
 
     Debug output shows which strategy fired and a preview of the hashed input,
-    so stale-summary issues are easy to diagnose from the terminal.
+    so a key that changes between turns is easy to diagnose from the terminal.
     """
     # Collect system text once — multiple strategies read it.
     sys_parts = []
@@ -673,249 +646,6 @@ def get_character_key(messages):
 
     return key
 
-
-def get_cached_summary(conv_hash):
-    """Get cached summary if it exists."""
-    cache = get_cache()
-    if conv_hash in cache:
-        return cache[conv_hash]
-    return None
-
-def save_summary_to_cache(conv_hash, summary_data, message_count=0):
-    """Save summary to cache."""
-    cache = get_cache()
-    cache[conv_hash] = {
-        "summary": summary_data,
-        "timestamp": datetime.now().isoformat(),
-        "last_message_count": message_count
-    }
-    save_cache(cache)
-    log(f"Summary cached with hash: {conv_hash}")
-    log(f"Cache file: {CACHE_FILE}")
-    log(f"Cache now has {len(cache)} entries")
-
-
-def get_auto_summary_cache(char_key=None):
-    """Get the auto-summary cache entry for a given character.
-
-    Entries live under keys of the form 'auto_<char_key>'. Returns the entry
-    for the given char_key if one exists, otherwise None.
-
-    Legacy 'auto' and 'latest' entries from pre-per-character versions are
-    NOT auto-migrated anymore — that heuristic was dangerous: it assumed the
-    first character seen after upgrade owned the legacy entry, which produced
-    mis-keyed entries if the user had switched characters between upgrade and
-    next request. Orphaned legacy entries are surfaced in the GUI cache panel
-    so users can delete or recover them manually.
-    """
-    cache = get_cache()
-    if char_key:
-        keyed = f"auto_{char_key}"
-        if keyed in cache:
-            return cache.get(keyed)
-        return None
-    # No char_key supplied (shouldn't happen in the normal flow). Fall back
-    # to the legacy keys if present, for read-only inspection purposes.
-    if "auto" in cache:
-        return cache.get("auto")
-    if "latest" in cache:
-        return cache.get("latest")
-    return None
-
-
-def save_auto_summary(summary, total_message_count, summarized_up_to, char_key=None):
-    """Save auto-summary with message tracking for a specific character.
-
-    Args:
-        summary: The summary text
-        total_message_count: Total messages seen (for threshold tracking)
-        summarized_up_to: How many messages are covered by the summary
-        char_key: Stable identifier for the active character (see get_character_key)
-    """
-    cache = get_cache()
-    slot = f"auto_{char_key}" if char_key else "auto"
-    cache[slot] = {
-        "summary": summary,
-        "timestamp": datetime.now().isoformat(),
-        "last_message_count": total_message_count,  # For threshold tracking
-        "summarized_up_to": summarized_up_to,  # What's actually in the summary
-        "char_key": char_key,
-    }
-    save_cache(cache)
-    log(f"Summary saved [{slot}]: {len(summary):,} chars | Covers → msg {summarized_up_to}", "SUCCESS")
-
-
-# Prompt templates live as editable files under ./prompts/*.md. The bridge
-# loads them at call time (no caching) so you can edit a prompt and have the
-# next request pick it up immediately — no server restart required.
-PROMPTS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "prompts")
-
-
-def load_prompt(name, **kwargs):
-    """Load prompts/<name>.md and format it with the given variables.
-
-    The template uses Python str.format placeholders ({var}). If you need a
-    literal brace in a template, double it ({{ or }}).
-    """
-    path = os.path.join(PROMPTS_DIR, f"{name}.md")
-    with open(path, "r", encoding="utf-8") as f:
-        template = f.read()
-    return template.format(**kwargs)
-
-
-def summarize_new_messages(new_messages):
-    """Summarize a batch of new messages using the summarize_incremental prompt."""
-    if not new_messages:
-        return ""
-
-    msg_text = ""
-    for msg in new_messages:
-        role = msg.get("role", "user").upper()
-        content = msg.get("content", "")
-        if role != "SYSTEM":  # Skip system messages
-            msg_text += f"[{role}]: {content}\n\n"
-
-    if not msg_text.strip():
-        return ""
-
-    prompt = load_prompt("summarize_incremental", msg_text=msg_text)
-    result = call_claude_code([{"role": "user", "content": prompt}], skip_memory=True,
-                              history_kind="summary", history_label="Auto-summary update")
-    return result.get("response", "").strip()
-
-
-def condense_summary(long_summary):
-    """Condense a summary that's gotten too long."""
-    prompt = load_prompt("condense", long_summary=long_summary)
-    result = call_claude_code([{"role": "user", "content": prompt}], skip_memory=True,
-                              history_kind="summary", history_label="Condense summary")
-    return result.get("response", "").strip()
-
-
-def process_auto_summary(messages):
-    """
-    Process auto-summary if enabled and threshold reached.
-    Returns (should_use_summary, summary_text, recent_messages)
-    """
-    if not runtime_settings.get("auto_summary_enabled", False):
-        return False, None, messages
-
-    # Identify which character is active so each character gets its own summary
-    # bucket. Switching characters in SillyTavern auto-swaps cache entries — no
-    # manual cache clearing needed.
-    char_key = get_character_key(messages)
-
-    # Get conversation messages only (no system)
-    conv_messages = [m for m in messages if m.get("role") != "system"]
-    current_count = len(conv_messages)
-
-    # How many recent messages to ALWAYS include for context continuity
-    # This ensures Claude has immediate context even if summary is slightly stale
-    RECENT_CONTEXT_COUNT = 15
-
-    if current_count < 5:  # Too few messages to bother
-        return False, None, messages
-
-    # Get existing auto-summary
-    cached = get_auto_summary_cache(char_key)
-    threshold = runtime_settings.get("auto_summary_threshold", 20)
-    max_length = runtime_settings.get("auto_summary_max_length", 50000)
-
-    if cached:
-        last_check_count = cached.get("last_message_count", 0)  # When we last updated
-        summarized_up_to = cached.get("summarized_up_to", cached.get("last_message_count", 0))  # What's in the summary
-        existing_summary = cached.get("summary", "")
-
-        # Handle legacy summaries without proper tracking
-        if last_check_count == 0 and existing_summary:
-            log("Migrating legacy summary - setting counts to current")
-            last_check_count = current_count
-            summarized_up_to = max(0, current_count - RECENT_CONTEXT_COUNT)
-            save_auto_summary(existing_summary, current_count, summarized_up_to, char_key)
-
-        # Sanity check: if the cached entry claims MORE messages than this
-        # request has, it belongs to a different/older conversation. This
-        # happens when a legacy 'auto' entry got migrated to the wrong
-        # character's key in earlier versions, or when a user imports a
-        # fresh chat over an existing cache slot. Refuse to apply a summary
-        # from a bigger conversation to a smaller one — the content almost
-        # certainly doesn't match. Start fresh; the next threshold-sized
-        # summarization will overwrite the stale entry at the same slot.
-        if last_check_count > current_count:
-            log(
-                f"Auto-summary [{char_key}]: stale entry detected "
-                f"(cached last_count={last_check_count} > current={current_count}). "
-                f"Ignoring stale summary — fresh one will overwrite on next threshold.",
-                "WARN",
-            )
-            # Fall through as if there were no cache. Don't delete the entry
-            # here; let the next save_auto_summary overwrite naturally, and
-            # let the user decide via the GUI if they want to remove it now.
-            cached = None
-            existing_summary = ""
-
-    if cached:
-        new_message_count = current_count - last_check_count
-
-        log(f"Auto-summary [{char_key}]: {current_count} msgs total, {new_message_count} new | Summary covers → msg {summarized_up_to}", "INFO")
-
-        if new_message_count >= threshold:
-            # Time to update the summary
-            log(f"Threshold reached ({new_message_count} >= {threshold}) - updating summary...", "SUCCESS")
-
-            # Summarize from where summary left off to current minus recent context
-            new_summarized_up_to = max(summarized_up_to, current_count - RECENT_CONTEXT_COUNT)
-            messages_to_summarize = conv_messages[summarized_up_to:new_summarized_up_to] if new_summarized_up_to > summarized_up_to else []
-
-            log(f"  Summarizing msgs {summarized_up_to} → {new_summarized_up_to} ({len(messages_to_summarize)} msgs)", "INFO")
-
-            if messages_to_summarize:
-                new_summary = summarize_new_messages(messages_to_summarize)
-
-                if new_summary:
-                    # Append to existing summary
-                    combined = existing_summary + "\n\n---\n\n" + new_summary
-
-                    # Check if we need to condense
-                    if len(combined) > max_length:
-                        log(f"Summary too long ({len(combined):,} chars), condensing...")
-                        combined = condense_summary(combined)
-
-                    # Save: total count for threshold, summarized_up_to for content tracking
-                    save_auto_summary(combined, current_count, new_summarized_up_to, char_key)
-                    existing_summary = combined
-                    summarized_up_to = new_summarized_up_to
-            else:
-                # No new messages to summarize, just update the check count
-                save_auto_summary(existing_summary, current_count, summarized_up_to, char_key)
-
-        # Always return the last RECENT_CONTEXT_COUNT messages for continuity
-        # Plus any unsummarized messages on top of that
-        recent_start = max(0, min(summarized_up_to, current_count - RECENT_CONTEXT_COUNT))
-        recent = conv_messages[recent_start:]
-
-        log(f"Sending: summary + {len(recent)} recent msgs (from #{recent_start})", "INFO")
-        return True, existing_summary, recent
-
-    else:
-        # No existing summary - create initial one if we have enough messages
-        if current_count >= threshold:
-            log(f"Creating initial auto-summary [{char_key}] ({current_count} messages)...")
-
-            # Summarize all but the recent context messages
-            summarized_up_to = max(0, current_count - RECENT_CONTEXT_COUNT)
-            to_summarize = conv_messages[:summarized_up_to] if summarized_up_to > 0 else []
-            recent = conv_messages[summarized_up_to:]
-
-            log(f"  Summarizing messages 0 to {summarized_up_to}, keeping {len(recent)} recent")
-
-            if to_summarize:
-                initial_summary = summarize_new_messages(to_summarize)
-                if initial_summary:
-                    save_auto_summary(initial_summary, current_count, summarized_up_to, char_key)
-                    return True, initial_summary, recent
-
-    return False, None, messages
 
 # =============================================================================
 # LOREBOOK / WORLD INFO SUPPORT
@@ -1921,7 +1651,7 @@ AVAILABLE_MODEL_IDS = {model_id for model_id, _ in AVAILABLE_MODELS}
 # request" instead of a fixed model picked in the GUI.
 MODEL_FROM_REQUEST = "from_request"
 # Used in that mode when the request names no known model, and for background
-# calls (summaries, lorebook) that have no request model of their own.
+# calls (lorebook, utility calls) that have no request model of their own.
 FALLBACK_MODEL = "opus"
 
 
@@ -2060,17 +1790,11 @@ runtime_settings = {
     "include_thinking": INCLUDE_THINKING_IN_RESPONSE,
     "show_thinking_console": SHOW_THINKING_IN_CONSOLE,
     "debug_output": DEBUG_RAW_OUTPUT,
-    # Simple chunking toggle (one-shot)
-    "chunking_enabled": False,
     # Model selection: any id in AVAILABLE_MODELS, or MODEL_FROM_REQUEST to
     # use the model SillyTavern sends with each request
     "model": "opus",
     # Tool calling support for extensions like TunnelVision
     "tool_calling_enabled": True,
-    # Auto-summary settings
-    "auto_summary_enabled": False,
-    "auto_summary_threshold": 20,  # New messages before auto-summarizing
-    "auto_summary_max_length": 50000,  # Max summary chars before condensing
     # Lorebook settings
     "lorebook_enabled": False,
     # Path to SillyTavern's worlds directory — set this in the Lorebook tab
@@ -2122,15 +1846,13 @@ runtime_settings = {
 # SETTINGS PERSISTENCE
 # ============================================================================
 # Runtime settings are saved to a JSON file next to claude_bridge.py so they
-# survive restarts. chunking_enabled is intentionally excluded because it's
-# a one-shot arm-and-fire toggle — users don't want it re-arming on restart.
+# survive restarts.
 
 SETTINGS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "bridge_settings.json")
 
 PERSISTED_SETTING_KEYS = {
     "effort_level", "include_thinking", "show_thinking_console", "debug_output",
-    "model", "tool_calling_enabled", "auto_summary_enabled", "auto_summary_threshold",
-    "auto_summary_max_length", "lorebook_enabled", "lorebook_path", "lorebook_name",
+    "model", "tool_calling_enabled", "lorebook_enabled", "lorebook_path", "lorebook_name",
     "system_prompt_override",
     "creativity", "creativity_prompts", "bridge_port",
     "cli_session_reuse", "update_check_enabled",
@@ -2451,7 +2173,8 @@ _DELIVERED_CAP = 300
 # all of them, up to a cap far above what fits in a context window.
 _SEEN_CAP = 2000
 # Chat messages a session may grow by before a fresh one is started, so a
-# long session doesn't keep the raw history auto-summary has replaced.
+# long session doesn't keep older messages SillyTavern no longer sends
+# (Character Memory recaps those for the fresh one).
 SESSION_GROWTH_LIMIT = 50
 # SillyTavern's speaker label at the start of a message in group chats
 # ("Mudrock: ..."), which it also strips from a reply that starts with one.
@@ -2660,7 +2383,7 @@ def _update_session(session_id: str, char_key: str, messages: list, reply: str, 
 _load_sessions()
 
 
-def call_claude_code(messages: list, tools: list = None, process_holder: dict = None, char_key: str = None, json_schema: dict = None, skip_memory: bool = False, tracking_messages: list = None, requested_model: str = None, history_kind: str = None, history_label: str = None, on_delta=None, character_name: str = None, memory_info: dict = None) -> dict:
+def call_claude_code(messages: list, tools: list = None, process_holder: dict = None, char_key: str = None, json_schema: dict = None, skip_memory: bool = False, requested_model: str = None, history_kind: str = None, history_label: str = None, on_delta=None, character_name: str = None, memory_info: dict = None) -> dict:
     """
     Call Claude Code CLI with the given messages.
     Converts OpenAI message format to a prompt for Claude.
@@ -2671,11 +2394,8 @@ def call_claude_code(messages: list, tools: list = None, process_holder: dict = 
     subprocess from outside if the client disconnects mid-response. Passing
     None (default) preserves the prior fire-and-forget behavior.
 
-    char_key: optional pre-computed character key. When auto-summary rebuilds
-    the messages list, the key computed from the rebuilt list will differ
-    from the key originally saved under. Callers that have access to the
-    original (pre-rebuild) messages should compute char_key there and pass
-    it in so sessions and the History tab use the same key as prior turns.
+    char_key: optional pre-computed character key (get_character_key), which
+    labels the CLI session and the History entry.
 
     character_name: the request's `character_name` field, which SillyTavern
     sends when its Include Body Parameters hold `character_name: "{{char}}"`.
@@ -2840,8 +2560,8 @@ def call_claude_code(messages: list, tools: list = None, process_holder: dict = 
 
     # System prompt for a new CLI session. A resumed session re-sends the
     # exact text it started with instead (see the resume block below).
-    # Utility calls (summaries, chunking) carry no SillyTavern system
-    # messages and get no system prompt from the bridge.
+    # Utility calls carry no SillyTavern system messages and get no system
+    # prompt from the bridge.
     core_identity = None
     bridge_parts = None
     if context_blocks or trailing_system:
@@ -2942,7 +2662,7 @@ Use the Read tool to view each, then weave the visual details into your scene wi
     # the other chats the character remembers here. A new CLI session gets
     # them as a <character_memory> block before the transcript, a resumed
     # one only what changed (see the resume block). skip_memory: utility
-    # calls (summaries, chunking, lorebook) aren't roleplay turns.
+    # calls aren't roleplay turns.
     mem_turn = None
     if not skip_memory and runtime_settings.get("character_memory_enabled", False):
         memory_last_turn.clear()
@@ -2952,13 +2672,8 @@ Use the Read tool to view each, then weave the visual details into your scene wi
                 "SillyTavern extension (st-extension/install.sh) and reload SillyTavern.", "WARN")
             memory_last_turn["skipped"] = "no_extension"
         else:
-            # Auto-summary replaced the older messages with its summary, so
-            # the chat's own earlier part isn't recapped again.
-            summarized = tracking_messages is not None and (
-                len(tracking_messages) != len(messages)
-                or any(a is not b for a, b in zip(tracking_messages, messages)))
             try:
-                mem_turn = memory.prepare_turn(memory_info, summarized=summarized)
+                mem_turn = memory.prepare_turn(memory_info)
             except Exception as e:
                 log(f"[memory] prepare_turn failed: {e}", "ERROR")
                 memory_last_turn["error"] = str(e)
@@ -2996,15 +2711,6 @@ Use the Read tool to view each, then weave the visual details into your scene wi
     # prompt; the CLI supplies the earlier turns from its own session.
     # Gated on cli_session_reuse so users who see unexpected behavior can
     # opt out from the GUI without a code change.
-    #
-    # Resume decisions (here and _update_session below) use
-    # `tracking_messages` — the ORIGINAL
-    # pre-rebuild message list. The model still sees `messages` (which may
-    # have been rebuilt by auto-summary), but the rebuilt list has a fixed
-    # shape (system + summary + last 15) whose messages shift every turn.
-    # Tracking against the original messages keeps continuity stable across
-    # auto-summary cycles and across summary-threshold updates.
-    track = tracking_messages if tracking_messages is not None else messages
     resume_session_id = None
     resume_new_count = 0
     resume_reason = "disabled by setting"
@@ -3043,13 +2749,13 @@ Use the Read tool to view each, then weave the visual details into your scene wi
         }
 
     if runtime_settings.get("cli_session_reuse", True) and core_identity is not None:
-        resume_session_id, resume_new_count, resume_reason = _decide_resume(track, bridge_sig, prompt_blocks)
+        resume_session_id, resume_new_count, resume_reason = _decide_resume(messages, bridge_sig, prompt_blocks)
         new_turn = ""
         if resume_session_id:
             with _SESSION_LOCK:
                 stored = dict(SESSION_MAP.get(resume_session_id) or {})
             # The messages after the session's last reply, taken from
-            # conversation_messages (images described, auto-summary applied)
+            # conversation_messages (images described)
             # together with SillyTavern's notes between them.
             chat_idx = [i for i, m in enumerate(conversation_messages) if m["role"] != "system"]
             if len(chat_idx) > resume_new_count:
@@ -3531,12 +3237,11 @@ Use the Read tool to view each, then weave the visual details into your scene wi
         # Only roleplay calls (those with a system prompt) are resumable.
         if captured_session_id and session_state is not None:
             try:
-                # The caller-supplied char_key comes from the original
-                # pre-rebuild messages; it only labels the session.
-                persist_key = char_key or get_character_key(track)
-                # Recorded against the ORIGINAL message list, which the next
+                # The key only labels the session.
+                persist_key = char_key or get_character_key(messages)
+                # Recorded against the message list, which the next
                 # request's messages are compared with (see _decide_resume).
-                _update_session(captured_session_id, persist_key, track, clean_response, session_state,
+                _update_session(captured_session_id, persist_key, messages, clean_response, session_state,
                                 resumed_from=resume_session_id, added=resume_new_count)
             except Exception as e:
                 log(f"Could not persist CLI session: {e}", "WARN")
@@ -3717,34 +3422,6 @@ def consolidate_think_blocks(text: str) -> str:
     return cleaned_text
 
 
-def sse_full_response(response_text: str):
-    """
-    Emit a full text response in OpenAI SSE format as a single content chunk
-    plus a stop chunk and the [DONE] terminator. Used for chunking mode's
-    reply, which comes from several calls and isn't streamed.
-    """
-    response_id = f"chatcmpl-{uuid.uuid4().hex[:8]}"
-    created = int(time.time())
-
-    content_chunk = {
-        "id": response_id,
-        "object": "chat.completion.chunk",
-        "created": created,
-        "model": DEFAULT_MODEL,
-        "choices": [{"index": 0, "delta": {"role": "assistant", "content": response_text}, "finish_reason": None}],
-    }
-    final_chunk = {
-        "id": response_id,
-        "object": "chat.completion.chunk",
-        "created": created,
-        "model": DEFAULT_MODEL,
-        "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
-    }
-    yield f"data: {json.dumps(content_chunk)}\n\n"
-    yield f"data: {json.dumps(final_chunk)}\n\n"
-    yield "data: [DONE]\n\n"
-
-
 @app.route("/v1/chat/completions", methods=["POST"])
 def chat_completions():
     """OpenAI-compatible chat completions endpoint."""
@@ -3822,256 +3499,11 @@ def chat_completions():
         # Store messages for potential deep analysis later
         LAST_MESSAGES_FOR_ANALYSIS["messages"] = messages.copy()
 
-        # Compute the character key ONCE, from the original request messages,
-        # before any auto-summary rebuild. Recomputing from the rebuilt list
-        # would hash a mid-conversation assistant response as the "first
-        # substantive assistant" instead of the character's greeting,
-        # producing a different key than the character's memory and earlier
-        # turns were stored under once summary is active.
+        # Labels the CLI session and the History entry.
         try:
-            original_char_key = get_character_key(messages)
+            char_key = get_character_key(messages)
         except Exception:
-            original_char_key = None
-
-        # Snapshot the ORIGINAL message list before any auto-summary or
-        # chunking rebuild. This gets passed to call_claude_code as
-        # `tracking_messages` so the CLI session-reuse decision and memory
-        # v2 staging compare turn-over-turn against the real conversation,
-        # not the fixed-shape window auto-summary produces. Without this,
-        # sessions were invalidated every turn under auto-summary, and
-        # memory v2 swipe detection mis-classified accepts and swipes.
-        original_messages = list(messages)
-
-        # Auto-summary mode - incremental summarization
-        if runtime_settings.get("auto_summary_enabled", False) and not runtime_settings.get("chunking_enabled", False):
-            use_summary, summary_text, recent_messages = process_auto_summary(messages)
-
-            if use_summary and summary_text:
-                log_box("Auto-Summary Active", {
-                    "Summary size": f"{len(summary_text):,} chars",
-                    "Recent msgs": len(recent_messages),
-                })
-
-                # Debug: Show what we're actually sending
-                if runtime_settings.get("debug_output"):
-                    log(f"Summary preview: {summary_text[:200]}...", "INFO")
-                    log(f"Recent msg roles: {[m.get('role') for m in recent_messages]}", "INFO")
-
-                # Rebuild messages with summary injected. System messages keep
-                # their side of the chat: SillyTavern's prompt before it,
-                # Post-History Instructions after it.
-                chat_idx = [i for i, m in enumerate(messages) if m.get("role") != "system"]
-                first_chat = chat_idx[0] if chat_idx else len(messages)
-                last_chat = chat_idx[-1] if chat_idx else -1
-                system_messages = [m for i, m in enumerate(messages) if m.get("role") == "system" and i < first_chat]
-                post_history = [m for i, m in enumerate(messages) if m.get("role") == "system" and i > last_chat]
-
-                # Create a summary system message
-                summary_msg = {
-                    "role": "system",
-                    "content": f"""<story_summary>
-{summary_text}
-</story_summary>
-This summarizes the story before the first message of the transcript."""
-                }
-
-                # Combine: SillyTavern prompt + summary + recent chat + post-history
-                messages = system_messages + [summary_msg] + recent_messages + post_history
-
-        # Chunking mode - split conversation and process in parts (one-shot)
-        if runtime_settings["chunking_enabled"]:
-            log("=" * 50)
-            log("CHUNKING MODE - Processing in chunks")
-
-            try:
-                # Chunking is a manual "one-shot" reset. Store its output in the
-                # same per-character slot the auto-summary uses, so subsequent
-                # auto-summary runs pick up where chunking left off.
-                chunk_char_key = get_character_key(messages)
-
-                # Get conversation without system messages
-                conv_only = [m for m in messages if m.get("role") != "system"]
-                total_chars = sum(len(m.get("content", "")) for m in conv_only)
-                log(f"Conversation: {len(conv_only)} messages, {total_chars:,} chars")
-                log(f"Chunking for character [{chunk_char_key}]", "INFO")
-
-                # Check cache for this character specifically
-                cached_entry = get_auto_summary_cache(chunk_char_key)
-                combined_summary = None
-
-                if cached_entry and cached_entry.get("summary"):
-                    combined_summary = cached_entry.get("summary", "")
-                    log(f"USING CACHED SUMMARY ({len(combined_summary):,} chars)")
-                    log(f"  Cached on: {cached_entry.get('timestamp', 'unknown')}")
-                    log(f"  To re-summarize, clear this character's cache entry from GUI first")
-                else:
-                    log("No cached summary for this character, processing chunks...")
-
-                    # Get messages to summarize (exclude last user message which is the request)
-                    msgs_to_summarize = conv_only[:-1] if len(conv_only) > 1 else conv_only
-
-                    # Split into chunks of ~80K tokens (~320K chars)
-                    chunk_size = 320000
-                    chunks = []
-                    current_chunk = []
-                    current_size = 0
-
-                    log(f"Chunk size limit: {chunk_size:,} chars")
-
-                    for msg in msgs_to_summarize:
-                        msg_size = len(msg.get("content", ""))
-                        log(f"  Message: {msg.get('role')} - {msg_size:,} chars")
-
-                        # If single message is too big, we need to split it
-                        if msg_size > chunk_size:
-                            # Save current chunk if any
-                            if current_chunk:
-                                chunks.append(current_chunk)
-                                current_chunk = []
-                                current_size = 0
-
-                            # Split the large message into parts
-                            content = msg.get("content", "")
-                            for i in range(0, len(content), chunk_size):
-                                part = content[i:i+chunk_size]
-                                chunks.append([{"role": msg.get("role"), "content": part}])
-                                log(f"    Split large message into part: {len(part):,} chars")
-                        elif current_size + msg_size > chunk_size and current_chunk:
-                            chunks.append(current_chunk)
-                            current_chunk = [msg]
-                            current_size = msg_size
-                        else:
-                            current_chunk.append(msg)
-                            current_size += msg_size
-
-                    if current_chunk:
-                        chunks.append(current_chunk)
-
-                    log(f"Split into {len(chunks)} chunks")
-                    for i, chunk in enumerate(chunks):
-                        chunk_chars = sum(len(m.get("content", "")) for m in chunk)
-                        log(f"  Chunk {i+1}: {len(chunk)} messages, {chunk_chars:,} chars")
-
-                    # Process each chunk for summary. Old images from earlier
-                    # turns aren't relevant to the chunk summary — they were
-                    # already factored into the assistant responses being
-                    # summarized — and passing them through call_claude_code
-                    # would trigger the image describer pre-pass on multi-
-                    # megabyte payloads. Strip embedded base64 from chunk_text
-                    # AFTER the f-string concatenation, because multipart
-                    # messages have list-typed content (with image_url parts)
-                    # that gets stringified by f-string into something like
-                    # `[{'type':'image_url','image_url':{'url':'data:image/...'}}]`
-                    # and the base64 leaks through if we only strip strings.
-                    chunk_results = []
-                    base64_image_pattern = re.compile(
-                        r'data:image/(?:png|jpeg|jpg|gif|webp);base64,[A-Za-z0-9+/=]+',
-                        re.IGNORECASE,
-                    )
-                    for i, chunk in enumerate(chunks, 1):
-                        log(f"Processing chunk {i}/{len(chunks)}...")
-
-                        # Format chunk as text, then strip any base64 (handles
-                        # both string-content and stringified-list-content cases).
-                        chunk_text = ""
-                        for msg in chunk:
-                            role = msg.get("role", "user").upper()
-                            content = msg.get("content", "")
-                            chunk_text += f"[{role}]: {content}\n\n"
-                        before_len = len(chunk_text)
-                        chunk_text = base64_image_pattern.sub("[image]", chunk_text)
-                        if len(chunk_text) != before_len:
-                            log(f"  Stripped embedded base64 image data from chunk {i} ({before_len - len(chunk_text):,} chars)")
-
-                        prompt = load_prompt(
-                            "summarize_chunk",
-                            i=i,
-                            total=len(chunks),
-                            chunk_text=chunk_text,
-                        )
-
-                        result = call_claude_code([{"role": "user", "content": prompt}], skip_memory=True, requested_model=requested_model,
-                                                  history_kind="summary", history_label=f"Chunking, chunk {i}/{len(chunks)}")
-                        chunk_results.append(result.get("response", ""))
-                        log(f"Chunk {i} done: {len(chunk_results[-1])} chars")
-
-                    # Combine summaries into context
-                    if len(chunks) > 1:
-                        log("Combining summaries into context...")
-                        combined_summary = "\n\n---\n\n".join(chunk_results)
-                    else:
-                        combined_summary = chunk_results[0] if chunk_results else ""
-
-                    # Save chunking output to the character's summary slot so
-                    # it seeds subsequent auto-summary updates.
-                    if combined_summary:
-                        save_auto_summary(
-                            combined_summary,
-                            len(conv_only),
-                            len(conv_only),
-                            chunk_char_key,
-                        )
-
-                # Get the user's last message (their actual request)
-                last_user_msg = ""
-                for msg in reversed(messages):
-                    if msg.get("role") == "user":
-                        last_user_msg = msg.get("content", "")
-                        break
-
-                log(f"User request: {last_user_msg[:100]}...")
-
-                # Now send the context + user's request to Claude
-                final_prompt = f"""Here is a summary of the conversation so far:
-
-{combined_summary}
-
----
-
-Now, based on this context, please respond to the following request:
-
-{last_user_msg}"""
-
-                log("Sending final request with context...")
-                final_result = call_claude_code([{"role": "user", "content": final_prompt}], skip_memory=True, requested_model=requested_model,
-                                                 history_label="Chunking, reply")
-                response_text = final_result.get("response", "")
-
-                # Consolidate multiple think blocks into one (ST only supports one)
-                response_text = consolidate_think_blocks(response_text)
-
-                log("Chunking complete!")
-                runtime_settings["chunking_enabled"] = False  # Auto-disable after use
-
-                # Return as SSE if requested, JSON otherwise. Both shapes
-                # carry the full response in one payload at the end.
-                if stream:
-                    return Response(
-                        sse_full_response(response_text),
-                        mimetype="text/event-stream",
-                        headers={"Cache-Control": "no-cache", "Connection": "keep-alive"},
-                    )
-
-                return jsonify({
-                    "id": f"chatcmpl-{uuid.uuid4().hex[:8]}",
-                    "object": "chat.completion",
-                    "created": int(time.time()),
-                    "model": DEFAULT_MODEL,
-                    "choices": [{"index": 0, "message": {"role": "assistant", "content": response_text}, "finish_reason": "stop"}],
-                    "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
-                })
-
-            except Exception as e:
-                log(f"Chunking error: {str(e)}", "ERROR")
-                runtime_settings["chunking_enabled"] = False
-                return jsonify({
-                    "id": f"chatcmpl-{uuid.uuid4().hex[:8]}",
-                    "object": "chat.completion",
-                    "created": int(time.time()),
-                    "model": DEFAULT_MODEL,
-                    "choices": [{"index": 0, "message": {"role": "assistant", "content": f"Chunking error: {str(e)}"}, "finish_reason": "stop"}],
-                    "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
-                })
+            char_key = None
 
         # call_claude_code runs on a worker thread, and the response is a
         # generator that yields at least once a second while Claude works.
@@ -4115,8 +3547,8 @@ Now, based on this context, please respond to the following request:
         def worker():
             try:
                 result_holder["result"] = call_claude_code(
-                    messages, tools=tools, process_holder=process_holder, char_key=original_char_key, json_schema=json_schema,
-                    tracking_messages=original_messages, requested_model=requested_model,
+                    messages, tools=tools, process_holder=process_holder, char_key=char_key, json_schema=json_schema,
+                    requested_model=requested_model,
                     on_delta=on_delta if live else None, character_name=character_name,
                     memory_info=memory_info,
                 )
@@ -4363,7 +3795,6 @@ def index():
             "endpoints": {
                 "chat": "/v1/chat/completions",
                 "models": "/v1/models",
-                "chunked": "/v1/chunked/process",
                 "settings": "/api/settings"
             }
         })
@@ -4529,13 +3960,6 @@ def update_settings():
 
     data = request.json
 
-    # Handle chunking_enabled specially with clear logging
-    if "chunking_enabled" in data:
-        old_val = runtime_settings.get("chunking_enabled", False)
-        new_val = data["chunking_enabled"]
-        runtime_settings["chunking_enabled"] = new_val
-        log(f"CHUNKING: {old_val} -> {new_val}")
-
     # Creativity texts are sent per mode and merged: a string is that mode's
     # text, null (or the default text) restores the default.
     if "creativity_prompts" in data:
@@ -4565,7 +3989,7 @@ def update_settings():
                                          f"to {memory.WORDS_MAX}"}), 400
             data[key] = int(v)
 
-    for key in ["effort_level", "include_thinking", "show_thinking_console", "debug_output", "model", "tool_calling_enabled", "auto_summary_enabled", "auto_summary_threshold", "auto_summary_max_length", "lorebook_enabled", "lorebook_path", "lorebook_name", "system_prompt_override", "creativity", "bridge_port", "cli_session_reuse", "update_check_enabled", "character_memory_enabled", "memory_mode", "memory_synopsis_words", "memory_chapter_words"]:
+    for key in ["effort_level", "include_thinking", "show_thinking_console", "debug_output", "model", "tool_calling_enabled", "lorebook_enabled", "lorebook_path", "lorebook_name", "system_prompt_override", "creativity", "bridge_port", "cli_session_reuse", "update_check_enabled", "character_memory_enabled", "memory_mode", "memory_synopsis_words", "memory_chapter_words"]:
         if key in data:
             # Coerce bridge_port to int and bounds-check. Invalid values are rejected.
             if key == "bridge_port":
@@ -4586,8 +4010,6 @@ def update_settings():
 
     # Log which features are active
     features = []
-    if runtime_settings.get('auto_summary_enabled'):
-        features.append('auto-summary')
     if runtime_settings.get('lorebook_enabled'):
         features.append('lorebook')
     feature_str = f", features=[{', '.join(features)}]" if features else ""
@@ -4698,12 +4120,52 @@ def memory_binding_chats():
     return jsonify({"status": "ok", "changed": n})
 
 
+@app.route("/api/memory/chats", methods=["GET"])
+def memory_chats():
+    """Any chats in SillyTavern matching a search (q), last written first."""
+    try:
+        limit = max(1, min(100, int(request.args.get("limit") or 30)))
+    except ValueError:
+        limit = 30
+    return jsonify(memory.find_chats(request.args.get("q", ""), limit))
+
+
+@app.route("/api/memory/connections", methods=["GET"])
+def memory_connections():
+    return jsonify({"connections": memory.connections()})
+
+
+@app.route("/api/memory/connect/preview", methods=["GET"])
+def memory_connect_preview():
+    """Who would remember `source` in `target`, and about how many calls
+    recapping it takes (who, repeated: those characters; default everyone)."""
+    a = request.args
+    who = [c for c in a.getlist("who") if c] or None
+    view = memory.connect_preview(a.get("target", ""), a.get("source", ""), who)
+    return (jsonify(view), 200) if view else (jsonify({"error": "chat not found"}), 404)
+
+
 @app.route("/api/memory/link", methods=["POST"])
 def memory_link():
-    """Connect another chat's memory to a chat for a character, or disconnect it."""
+    """Connect a chat to another, so it's remembered there, or disconnect it.
+    who: "everyone" there, or a list of characters, which replaces whoever
+    it was for (off: the connection goes for everyone). character instead:
+    that one character's own connection, the others' untouched ("" is the
+    one for everyone)."""
     data = _mem_body()
-    cid, target, source = _mem_ids(data, "character", "target", "source")
-    memory.set_link(cid, target, source, bool(data.get("on", True)))
+    target, source = _mem_ids(data, "target", "source")
+    on = bool(data.get("on", True))
+    who = data.get("who")
+    if isinstance(data.get("character"), str) and who is None:
+        memory.set_link(data["character"], target, source, on)
+    elif not on:
+        memory.disconnect(target, source)
+    elif who in (None, "everyone"):
+        memory.connect(target, source)
+    elif isinstance(who, list) and who and all(isinstance(c, str) and c for c in who):
+        memory.connect(target, source, who)
+    else:
+        return jsonify({"error": 'who is "everyone" or a list of characters'}), 400
     return jsonify({"status": "ok"})
 
 
@@ -4776,16 +4238,20 @@ def memory_condensed():
 
 @app.route("/api/memory/chapters", methods=["POST"])
 def memory_chapters():
-    """Choose which of a chat's chapters a connection (target) or a binding
-    (persona) passes on: `off` lists the starts of those it leaves out."""
+    """Choose which of a chat's chapters a connection (target; who: its
+    character, "" for everyone there) or a binding (character and persona)
+    passes on: `off` lists the starts of those it leaves out."""
     data = _mem_body()
-    cid, chat = _mem_ids(data, "character", "chat")
+    (chat,) = _mem_ids(data, "chat")
     off = data.get("off")
     if not isinstance(off, list) or any(isinstance(x, bool) or not isinstance(x, int) for x in off):
         return jsonify({"error": "off is a list of chapter starts"}), 400
     target, persona = data.get("target"), data.get("persona")
     if not isinstance(target, str) and not isinstance(persona, str):
         return jsonify({"error": "give the connection's target chat or the binding's persona"}), 400
+    cid = data["who"] if isinstance(target, str) and isinstance(data.get("who"), str) else data.get("character")
+    if not isinstance(cid, str) or (not cid and not isinstance(target, str)):
+        return jsonify({"error": "missing character"}), 400
     ok = memory.set_chapters_off(cid, chat, off, target=target if isinstance(target, str) else None,
                                  persona=persona if isinstance(persona, str) else None)
     return (jsonify({"status": "ok"}), 200) if ok else (jsonify({"error": "no such connection or binding"}), 404)
@@ -4853,49 +4319,6 @@ def health():
         "message": "Claude Code Bridge is running",
         "settings": runtime_settings
     })
-
-
-@app.route("/api/cache", methods=["GET"])
-def get_cache_info():
-    """Get cache information with preview."""
-    cache = get_cache()
-    entries = []
-    for key, value in cache.items():
-        summary = value.get("summary", "")
-        entries.append({
-            "key": key,
-            "char_key": value.get("char_key"),
-            "timestamp": value.get("timestamp", "unknown"),
-            "length": len(summary),
-            "last_message_count": value.get("last_message_count", 0),
-            "summarized_up_to": value.get("summarized_up_to", 0),
-            "preview": summary[:1000] + ("..." if len(summary) > 1000 else ""),
-            "full": summary
-        })
-    return jsonify({
-        "count": len(cache),
-        "entries": entries
-    })
-
-
-@app.route("/api/cache/clear", methods=["POST"])
-def clear_cache():
-    """Clear the summary cache."""
-    save_cache({})
-    log("Summary cache cleared")
-    return jsonify({"status": "ok", "message": "Cache cleared"})
-
-
-@app.route("/api/cache/entry/<path:cache_key>", methods=["DELETE"])
-def delete_cache_entry(cache_key):
-    """Delete a single cache entry by key."""
-    cache = get_cache()
-    if cache_key not in cache:
-        return jsonify({"status": "error", "error": f"Entry '{cache_key}' not found"}), 404
-    del cache[cache_key]
-    save_cache(cache)
-    log(f"Deleted cache entry: {cache_key}")
-    return jsonify({"status": "ok", "message": f"Deleted {cache_key}", "remaining": len(cache)})
 
 
 # =============================================================================
@@ -5132,174 +4555,6 @@ def quick_analyze_lorebook_api():
     })
 
 
-@app.route("/api/summary/generate", methods=["POST"])
-def generate_summary_from_file():
-    """Generate a summary from a chat file."""
-    data = request.json or {}
-    chat_file = data.get("chat_file", "")
-    use_opus = data.get("use_opus", False)
-
-    if not chat_file or not os.path.exists(chat_file):
-        return jsonify({"error": "Chat file not found"}), 400
-
-    messages = load_chat_from_file(chat_file)
-    if not messages:
-        return jsonify({"error": "Could not load messages from file"}), 400
-
-    model = "opus" if use_opus else "sonnet"
-
-    def run_summary():
-        try:
-            log_section("Generating Summary from Chat File")
-            log(f"Model: {model.upper()}", "INFO")
-            log(f"Messages: {len(messages)}", "INFO")
-
-            # Filter to conversation only
-            conv_messages = [m for m in messages if m.get("role") != "system"]
-            total_chars = sum(len(m.get("content", "")) for m in conv_messages)
-
-            log(f"Conversation: {len(conv_messages)} messages, {total_chars:,} chars", "INFO")
-
-            # Chunk if needed (100K chars per chunk)
-            CHUNK_SIZE = 100000
-            chunks = []
-            current_chunk = []
-            current_size = 0
-
-            for msg in conv_messages:
-                msg_size = len(msg.get("content", ""))
-                if current_size + msg_size > CHUNK_SIZE and current_chunk:
-                    chunks.append(current_chunk)
-                    current_chunk = []
-                    current_size = 0
-                current_chunk.append(msg)
-                current_size += msg_size
-
-            if current_chunk:
-                chunks.append(current_chunk)
-
-            log(f"Split into {len(chunks)} chunk(s)", "INFO")
-
-            # Summarize each chunk
-            chunk_summaries = []
-            for i, chunk in enumerate(chunks, 1):
-                log(f"Summarizing chunk {i}/{len(chunks)}...", "INFO")
-
-                msg_text = ""
-                for msg in chunk:
-                    role = msg.get("role", "user").upper()
-                    content = msg.get("content", "")
-                    if len(content) > 3000:
-                        content = content[:3000] + "..."
-                    msg_text += f"[{role}]: {content}\n\n"
-
-                prompt = load_prompt(
-                    "summarize_chunk",
-                    i=i,
-                    total=len(chunks),
-                    chunk_text=msg_text,
-                )
-
-                cmd = [CLAUDE_EXE, "-p", "--output-format", "stream-json", "--verbose", "--model", model]
-                with prompt_history.start_call(
-                    "summary", f"Summary from chat file, chunk {i}/{len(chunks)}", argv=cmd, prompt=prompt,
-                ) as hist:
-                    process = subprocess.Popen(
-                        cmd,
-                        stdin=subprocess.PIPE,
-                        stdout=subprocess.PIPE,
-                        stderr=subprocess.PIPE,
-                        text=True,
-                        encoding="utf-8",
-                    )
-
-                    stdout, _ = process.communicate(input=prompt, timeout=300)
-                    hist.observe_stdout(stdout, process.returncode)
-
-                summary = ""
-                for line in stdout.strip().split('\n'):
-                    if not line:
-                        continue
-                    try:
-                        event = json.loads(line)
-                        if event.get("type") == "result":
-                            summary = event.get("result", "")
-                            break
-                        elif event.get("type") == "assistant":
-                            for block in event.get("message", {}).get("content", []):
-                                if block.get("type") == "text":
-                                    summary = block.get("text", "")
-                    except json.JSONDecodeError:
-                        continue
-
-                if summary:
-                    chunk_summaries.append(summary)
-                    log(f"  Chunk {i}: {len(summary)} chars", "SUCCESS")
-
-            # Combine summaries
-            if len(chunk_summaries) > 1:
-                log("Combining chunk summaries...", "INFO")
-                combined = "\n\n---\n\n".join(chunk_summaries)
-
-                # If very long, do a final condensation pass
-                if len(combined) > 50000:
-                    log("Condensing combined summary...", "INFO")
-                    condense_prompt = load_prompt("condense_chronological", combined=combined)
-
-                    cmd = [CLAUDE_EXE, "-p", "--output-format", "stream-json", "--verbose", "--model", model]
-                    with prompt_history.start_call(
-                        "summary", "Summary from chat file, condense", argv=cmd, prompt=condense_prompt,
-                    ) as hist:
-                        process = subprocess.Popen(
-                            cmd,
-                            stdin=subprocess.PIPE,
-                            stdout=subprocess.PIPE,
-                            stderr=subprocess.PIPE,
-                            text=True,
-                            encoding="utf-8",
-                        )
-
-                        stdout, _ = process.communicate(input=condense_prompt, timeout=300)
-                        hist.observe_stdout(stdout, process.returncode)
-
-                    for line in stdout.strip().split('\n'):
-                        if not line:
-                            continue
-                        try:
-                            event = json.loads(line)
-                            if event.get("type") == "result":
-                                combined = event.get("result", "")
-                                break
-                            elif event.get("type") == "assistant":
-                                for block in event.get("message", {}).get("content", []):
-                                    if block.get("type") == "text":
-                                        combined = block.get("text", "")
-                        except json.JSONDecodeError:
-                            continue
-
-                final_summary = combined
-            else:
-                final_summary = chunk_summaries[0] if chunk_summaries else ""
-
-            # Save to cache, keyed to the character whose chat file this is
-            if final_summary:
-                char_key = get_character_key(messages)
-                save_auto_summary(final_summary, len(conv_messages), len(conv_messages), char_key)
-                log_section("Summary Complete")
-                log(f"Summary [{char_key}]: {len(final_summary):,} chars", "SUCCESS")
-
-        except Exception as e:
-            log(f"Summary generation error: {e}", "ERROR")
-
-    thread = threading.Thread(target=run_summary, daemon=True)
-    thread.start()
-
-    return jsonify({
-        "status": "ok",
-        "message": f"Summary generation started ({len(messages)} messages, using {model.capitalize()})"
-    })
-
-
 @app.route("/api/chats/list", methods=["GET"])
 def list_chat_files():
     """List available SillyTavern chat files."""
@@ -5339,262 +4594,6 @@ def list_chat_files():
     chats.sort(key=lambda x: x["modified"], reverse=True)
 
     return jsonify({"chats": chats, "base_path": chats_base})
-
-
-# =============================================================================
-# CHUNKED PROCESSING FOR LONG CONTEXTS
-# =============================================================================
-
-# Rough estimate: 1 token ≈ 4 characters for English
-CHARS_PER_TOKEN = 4
-MAX_CHUNK_TOKENS = 20000  # 20K tokens per chunk (conservative to leave room for overhead)
-MAX_CHUNK_CHARS = MAX_CHUNK_TOKENS * CHARS_PER_TOKEN  # ~80K chars
-
-
-def estimate_tokens(text: str) -> int:
-    """Rough token estimate."""
-    return len(text) // CHARS_PER_TOKEN
-
-
-def chunk_messages(messages: list, max_chars: int = MAX_CHUNK_CHARS, include_system: bool = True) -> list:
-    """
-    Split messages into chunks that fit within token limits.
-
-    Args:
-        messages: List of message dicts
-        max_chars: Max characters per chunk
-        include_system: If False, excludes system messages (for summary/profile operations)
-    """
-    # Separate system messages from conversation
-    system_msgs = [m for m in messages if m.get("role") == "system"]
-    conv_msgs = [m for m in messages if m.get("role") != "system"]
-
-    # For summaries/profiles, we don't need the system prompt
-    if not include_system:
-        system_msgs = []
-
-    # Calculate system overhead
-    system_text = "\n".join(m.get("content", "") for m in system_msgs)
-    system_chars = len(system_text)
-
-    # Available space for conversation in each chunk
-    # Use smaller chunks to be safe with Claude's limits
-    available_chars = min(max_chars - system_chars - 10000, 60000)  # Cap at ~15K tokens per chunk
-
-    if available_chars < 10000:
-        # System prompt is huge, just skip it for chunking
-        system_msgs = []
-        available_chars = 150000
-
-    chunks = []
-    current_chunk = []
-    current_chars = 0
-
-    for msg in conv_msgs:
-        msg_chars = len(msg.get("content", ""))
-
-        if current_chars + msg_chars > available_chars and current_chunk:
-            # Save current chunk and start new one
-            chunks.append(system_msgs + current_chunk)
-            current_chunk = []
-            current_chars = 0
-
-        current_chunk.append(msg)
-        current_chars += msg_chars
-
-    # Don't forget the last chunk
-    if current_chunk:
-        chunks.append(system_msgs + current_chunk)
-
-    return chunks
-
-
-def process_chunk_for_summary(chunk_msgs: list, chunk_num: int, total_chunks: int) -> str:
-    """Process a single chunk to extract a summary."""
-    # Filter out system messages - we use our own prompt for summaries
-    conv_only = [m for m in chunk_msgs if m.get("role") != "system"]
-
-    log(f"    Chunk {chunk_num}: {len(conv_only)} messages (excluding system)")
-
-    # Create a summary extraction prompt
-    summary_prompt = f"""You are summarizing part {chunk_num} of {total_chunks} of a roleplay conversation.
-
-Extract the KEY EVENTS, CHARACTER DEVELOPMENTS, and IMPORTANT DETAILS from this conversation segment.
-Focus on:
-- Major plot points and events
-- Character emotional states and changes
-- Relationship developments
-- Important decisions or revelations
-- Setting/location changes
-
-Be concise but thorough. This will be combined with other chunk summaries.
-
-CONVERSATION:
-"""
-
-    # Format conversation for the prompt
-    conv_text = ""
-    for msg in conv_only:
-        role = msg.get("role", "user").upper()
-        content = msg.get("content", "")
-        conv_text += f"\n[{role}]: {content}\n"
-
-    full_prompt = summary_prompt + conv_text
-    log(f"    Chunk {chunk_num} prompt: {len(full_prompt)} chars")
-
-    result = call_claude_code([{"role": "user", "content": full_prompt}], skip_memory=True,
-                              history_kind="summary", history_label=f"Chunked process, summary {chunk_num}/{total_chunks}")
-    response = result.get("response", "")
-
-    if not response:
-        log(f"    WARNING: Chunk {chunk_num} returned empty response", "ERROR")
-
-    return response
-
-
-def process_chunk_for_character(chunk_msgs: list, character_name: str, chunk_num: int, total_chunks: int) -> str:
-    """Process a single chunk to extract character information."""
-    # Filter out system messages - we use our own prompt
-    conv_only = [m for m in chunk_msgs if m.get("role") != "system"]
-
-    character_prompt = f"""You are analyzing part {chunk_num} of {total_chunks} of a roleplay conversation to build a character profile.
-
-Extract ALL information about the character "{character_name}" from this conversation segment.
-Include:
-- Physical descriptions mentioned
-- Personality traits demonstrated
-- Relationships with other characters
-- Backstory/history revealed
-- Speech patterns and mannerisms
-- Emotional moments and reactions
-- Skills, abilities, or notable actions
-- Kinks, preferences, or intimate details (if any)
-- Any other relevant details
-
-Be thorough - capture everything mentioned about this character.
-
-CONVERSATION:
-"""
-
-    # Format conversation for the prompt
-    conv_text = ""
-    for msg in conv_only:
-        role = msg.get("role", "user").upper()
-        content = msg.get("content", "")
-        conv_text += f"\n[{role}]: {content}\n"
-
-    full_prompt = character_prompt + conv_text
-
-    result = call_claude_code([{"role": "user", "content": full_prompt}], skip_memory=True,
-                              history_label=f"Chunked process, character {chunk_num}/{total_chunks}")
-    return result.get("response", "")
-
-
-@app.route("/v1/chunked/process", methods=["POST"])
-def chunked_process():
-    """
-    Process long conversations in chunks.
-
-    Request body:
-    {
-        "messages": [...],  // Full conversation
-        "mode": "summary" | "character_profile",
-        "character_name": "Name"  // Required for character_profile mode
-    }
-    """
-    try:
-        data = request.json
-        messages = data.get("messages", [])
-        mode = data.get("mode", "summary")
-        character_name = data.get("character_name", "")
-
-        if not messages:
-            return jsonify({"error": "No messages provided"}), 400
-
-        if mode == "character_profile" and not character_name:
-            return jsonify({"error": "character_name required for character_profile mode"}), 400
-
-        # Calculate total size
-        total_chars = sum(len(m.get("content", "")) for m in messages)
-        total_tokens = estimate_tokens(total_chars)
-
-        log("=" * 50)
-        log(f"CHUNKED PROCESSING REQUEST")
-        log(f"  Mode: {mode}")
-        log(f"  Total messages: {len(messages)}")
-        log(f"  Total chars: {total_chars:,}")
-        log(f"  Estimated tokens: {total_tokens:,}")
-
-        # Check if chunking is needed
-        if total_chars < MAX_CHUNK_CHARS:
-            log("  Chunking not needed, processing directly...")
-
-            if mode == "summary":
-                result = process_chunk_for_summary(messages, 1, 1)
-            else:
-                result = process_chunk_for_character(messages, character_name, 1, 1)
-
-            return jsonify({
-                "result": result,
-                "chunks_processed": 1,
-                "total_tokens": total_tokens
-            })
-
-        # Split into chunks - exclude system messages for efficiency
-        chunks = chunk_messages(messages, include_system=False)
-        log(f"  Split into {len(chunks)} chunks")
-
-        # Process each chunk
-        chunk_results = []
-        for i, chunk in enumerate(chunks, 1):
-            log(f"  Processing chunk {i}/{len(chunks)}...")
-
-            if mode == "summary":
-                result = process_chunk_for_summary(chunk, i, len(chunks))
-            else:
-                result = process_chunk_for_character(chunk, character_name, i, len(chunks))
-
-            chunk_results.append(result)
-            log(f"    Chunk {i} result: {len(result)} chars")
-
-        # Combine results
-        log("  Combining chunk results...")
-
-        if mode == "summary":
-            combine_prompt = f"""You have {len(chunks)} partial summaries of a conversation.
-Combine them into a single, cohesive summary that captures the full narrative arc.
-Remove any redundancy and organize chronologically.
-
-PARTIAL SUMMARIES:
-
-""" + "\n\n---\n\n".join(f"[Part {i+1}]\n{r}" for i, r in enumerate(chunk_results))
-
-        else:
-            combine_prompt = f"""You have {len(chunks)} partial character analyses for "{character_name}".
-Combine them into a single, comprehensive character profile.
-Remove redundancy, resolve any contradictions (prefer later information), and organize logically.
-
-PARTIAL ANALYSES:
-
-""" + "\n\n---\n\n".join(f"[Part {i+1}]\n{r}" for i, r in enumerate(chunk_results))
-
-        # Final combination call
-        final_result = call_claude_code([{"role": "user", "content": combine_prompt}], skip_memory=True,
-                                         history_label="Chunked process, combine")
-
-        log("  Done!")
-        log("=" * 50)
-
-        return jsonify({
-            "result": final_result.get("response", ""),
-            "chunks_processed": len(chunks),
-            "total_tokens": total_tokens,
-            "chunk_summaries": chunk_results  # Include intermediate results
-        })
-
-    except Exception as e:
-        log(f"Error in chunked_process: {str(e)}", "ERROR")
-        return jsonify({"error": str(e)}), 500
 
 
 if __name__ == "__main__":

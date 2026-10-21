@@ -3,14 +3,18 @@ into other chats only where the user asks for them.
 
 A memory belongs to the chat it happened in. The bridge reads SillyTavern's
 chat files from its data folder and has Sonnet recap them, part by part, from
-one character's point of view. Nothing is recorded per turn.
+one character's point of view where the character is in that part (has a
+message in it), and as a plain account where they aren't: an account names
+no point of view, so everyone who wasn't there shares it, and nobody is
+written into a scene they weren't in. Nothing is recorded per turn.
 
 What a character remembers in a chat (their "sources"):
   - Earlier in the same chat: recaps of the messages SillyTavern no longer
     sends because they don't fit the context, in whole parts, so the last
     part overlaps the start of the transcript.
-  - Connected chats (links): chats the user connected to this chat for this
-    character on the Memory tab.
+  - Connected chats (links): any chat the user connected to this chat on
+    the Memory tab, for everyone in it (character_id "") or for chosen
+    characters. A chat the character wasn't in comes as background.
   - A persona binding: once a character is bound to a persona, every chat
     the user picks for the binding, plus each new (non-branch) chat with that
     character and persona, is remembered in the other chats with that
@@ -33,14 +37,16 @@ What another chat gets of a remembered chat is written from those part
 recaps (passed_on), in the mode the Memory tab sets: a synopsis of the
 whole chat of about a set number of words, or chapters, one per event,
 each of about a set number of words. Sonnet divides a chat of at least
-CHAPTER_MIN_PARTS parts into chapters by part, and when the chat grows only
-its last chapter is divided again, so earlier chapters keep their place and
-the choices made about them. Each connection and each binding can leave
-chapters out. Part recaps short enough already are passed on as they are.
+CHAPTER_MIN_PARTS parts into chapters by part, once per chat for every
+character, and when the chat grows only its last chapter is divided again,
+so earlier chapters keep their place and the choices made about them. Each
+connection and each binding can leave chapters out. Part recaps short
+enough already are passed on as they are.
 
 When a chat with sources starts, Sonnet compares its opening (and Author's
-Note) with the memories. A conflict becomes an alert the extension shows in
-SillyTavern, where the user keeps the memories or drops some from the chat.
+Note) with the memories of chats the character was in. A conflict becomes
+an alert the extension shows in SillyTavern, where the user keeps the
+memories or drops some from the chat.
 
 The bridge passes the memory to the model as a <character_memory> block once
 per CLI session, then only the parts that changed (see claude_bridge).
@@ -61,7 +67,7 @@ import time
 import urllib.parse
 from collections import OrderedDict, deque
 from datetime import datetime
-from typing import Callable, Optional
+from typing import Callable, NamedTuple, Optional
 
 _THIS_DIR = os.path.dirname(os.path.abspath(__file__))
 MEMORY_ROOT = os.path.join(_THIS_DIR, "character_memory")
@@ -173,24 +179,28 @@ CREATE TABLE IF NOT EXISTS chats (
     title TEXT, first_ts REAL, last_ts REAL, n INTEGER, personas TEXT, speakers TEXT,
     mtime REAL, size INTEGER, live_ts REAL, created_ts REAL, last_msg TEXT);
 CREATE INDEX IF NOT EXISTS chats_rel ON chats(rel);
--- One character's memory of one chat: flags, and its division into
--- chapters (chapters: {"chapters": [{start, title}], "last"}, see
--- _plan_chapters). The recaps of its parts are in segments, keyed by the
--- card and the text. (Older databases also have short, short_key and
--- short_edited, unused since synopses replaced short recaps.)
+-- One character's memory of one chat: flags. The recaps of its parts are
+-- in segments, keyed by the card and the text. (Older databases also have
+-- short, short_key and short_edited, unused since synopses replaced short
+-- recaps, and chapters, moved to plans.)
 CREATE TABLE IF NOT EXISTS encounters (
     character_id TEXT NOT NULL, chat_id TEXT NOT NULL,
     excluded INTEGER NOT NULL DEFAULT 0, chapters TEXT,
     built_ts REAL, error TEXT,
     PRIMARY KEY (character_id, chat_id));
--- pov: the card the chat is recapped from (a recap stays valid when cards
--- are added to or removed from a character).
+-- A chat's division into chapters, the same for every character:
+-- {"chapters": [{start, title}], "last"}, see _plan_chapters.
+CREATE TABLE IF NOT EXISTS plans (chat_id TEXT PRIMARY KEY, chapters TEXT NOT NULL);
+-- pov: the card the part is recapped from (a recap stays valid when cards
+-- are added to or removed from a character), or "" for an account of a
+-- part the character isn't in, shared by all who weren't there.
 CREATE TABLE IF NOT EXISTS segments (
     key TEXT PRIMARY KEY, pov TEXT NOT NULL, recap TEXT NOT NULL,
     edited INTEGER NOT NULL DEFAULT 0, created_ts REAL NOT NULL);
 -- Synopses and chapter recaps (kind), written from part recaps. key: a hash
--- of the kind, the card, the word target and those part recaps, so they're
--- shared like parts and written again when a part changes.
+-- of the kind, the card ("" when the character is in no part), the word
+-- target and those part recaps, so they're shared like parts and written
+-- again when a part changes.
 CREATE TABLE IF NOT EXISTS condensed (
     key TEXT PRIMARY KEY, kind TEXT NOT NULL, pov TEXT NOT NULL, recap TEXT NOT NULL,
     edited INTEGER NOT NULL DEFAULT 0, created_ts REAL NOT NULL);
@@ -205,6 +215,9 @@ CREATE TABLE IF NOT EXISTS binding_chats (
     character_id TEXT NOT NULL, persona TEXT NOT NULL, chat_id TEXT NOT NULL,
     how TEXT NOT NULL, added_ts REAL NOT NULL, chapters_off TEXT,
     PRIMARY KEY (character_id, persona, chat_id));
+-- A connection: target_chat remembers source_chat. character_id: the
+-- character who remembers it, or "" for everyone in the target chat (a
+-- character's own row wins over that one).
 CREATE TABLE IF NOT EXISTS links (
     character_id TEXT NOT NULL, target_chat TEXT NOT NULL, source_chat TEXT NOT NULL, created_ts REAL NOT NULL,
     chapters_off TEXT,
@@ -243,6 +256,10 @@ def _db() -> sqlite3.Connection:
                                  ("binding_chats", "chapters_off", "TEXT")):
             if col not in {r[1] for r in conn.execute(f"PRAGMA table_info({table})")}:
                 conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {kind}")
+        # Chapters used to be divided per character; a chat keeps the first.
+        conn.execute("INSERT OR IGNORE INTO plans (chat_id, chapters) SELECT chat_id, chapters FROM encounters "
+                     "WHERE chapters IS NOT NULL ORDER BY built_ts")
+        conn.execute("UPDATE encounters SET chapters = NULL WHERE chapters IS NOT NULL")
         _conn = conn
     return _conn
 
@@ -360,8 +377,9 @@ def _persona_of(msg: dict) -> str:
 
 class ChatFile:
     """A parsed chat file. messages: dicts with i (index in the chat, as
-    SillyTavern numbers them), name, user, hidden, text, persona, ts. Its
-    chat id is `rel`."""
+    SillyTavern numbers them), name, user, hidden, text, persona, avatar (a
+    character's message: its card; group chats record it per message, a
+    card's own chats are in its folder), ts. Its chat id is `rel`."""
     __slots__ = ("rel", "integrity", "main_chat", "note", "messages", "mtime", "size", "segs")
 
 
@@ -386,6 +404,7 @@ def read_chat(rel: str) -> Optional[ChatFile]:
     cf = ChatFile()
     cf.rel, cf.mtime, cf.size = rel, st.st_mtime, st.st_size
     cf.integrity, cf.main_chat, cf.note, cf.messages, cf.segs = None, None, "", [], {}
+    folder_card = f"{rel.split('/')[1]}.png" if rel.startswith("chats/") else ""
     try:
         with open(path, "r", encoding="utf-8", errors="replace") as f:
             for n, line in enumerate(f):
@@ -413,6 +432,7 @@ def read_chat(rel: str) -> Optional[ChatFile]:
                     "hidden": bool(obj.get("is_system")),
                     "text": str(obj.get("mes") or ""),
                     "persona": _persona_of(obj) if obj.get("is_user") else "",
+                    "avatar": "" if obj.get("is_user") else str(obj.get("original_avatar") or folder_card),
                     "ts": _parse_ts(obj.get("send_date")),
                 })
     except OSError as e:
@@ -550,7 +570,7 @@ def _rename_chat(old: str, new: str):
         conn.execute("BEGIN")
         try:
             conn.execute("DELETE FROM chats WHERE chat_id = ?", (old,))
-            for table, cols in (("encounters", ("chat_id",)), ("binding_chats", ("chat_id",)),
+            for table, cols in (("encounters", ("chat_id",)), ("binding_chats", ("chat_id",)), ("plans", ("chat_id",)),
                                 ("links", ("target_chat", "source_chat")),
                                 ("exclusions", ("target_chat", "source_chat")), ("checks", ("chat_id",))):
                 for col in cols:
@@ -591,14 +611,14 @@ _missing: dict = {}  # chat_id -> when a rescan last failed to find it
 
 
 def get_chat(chat_id: str, rescan_for: Optional[str] = None) -> Optional[dict]:
-    """The chats row for an id, refreshed from its file. When the file has
+    """The chats row for an id, refreshed from its file (read for the first
+    time if need be: a chat's id is its file's path). When the file has
     moved (renamed chat), the character `rescan_for`'s chats are scanned to
     find it again, at most every 10 minutes per chat."""
     row = _q1("SELECT * FROM chats WHERE chat_id = ?", (chat_id,))
-    if row:
-        fresh = scan_chat(row["rel"])
-        if fresh and fresh["chat_id"] == chat_id:
-            return fresh
+    fresh = scan_chat(row["rel"] if row else chat_id)
+    if fresh and fresh["chat_id"] == chat_id:
+        return fresh
     if rescan_for and time.time() - _missing.get(chat_id, 0) > 600:
         chats = character_chats(rescan_for)
         new_id = _renamed.get(chat_id, chat_id)
@@ -906,12 +926,34 @@ def _pov(cid: str, row: dict) -> tuple[str, str]:
     return cards[0]["avatar"], cards[0]["name"]
 
 
-def _segments(cf: ChatFile, pov: str, upto: Optional[int] = None) -> list[dict]:
+class _Who(NamedTuple):
+    """A character as one chat's recaps see them: pov, the card a part they're
+    in is recapped from, and its name; their cards and names, to find their
+    messages (by the card, or the name where a message doesn't record it)."""
+    pov: str
+    name: str
+    avatars: frozenset
+    names: frozenset
+
+
+def _who(cid: str, row: dict) -> _Who:
+    cards = character_cards(cid) or [{"avatar": cid, "name": character_name(cid)}]
+    pov, name = _pov(cid, row)
+    return _Who(pov, name, frozenset(c["avatar"] for c in cards), frozenset(c["name"] for c in cards))
+
+
+def _speaks(who: _Who, msgs: list[dict]) -> bool:
+    return any(not m["user"] and (m["avatar"] in who.avatars or m["name"] in who.names) for m in msgs)
+
+
+def _segments(cf: ChatFile, who: _Who, upto: Optional[int] = None) -> list[dict]:
     """The chat's parts: SEGMENT_SIZE messages each from the start, cut at
-    `upto` (a message index) when given. Hidden messages are left out of the
-    text; a part with no visible message is skipped. Keyed by the card
-    they're recapped from and their text."""
-    cache_key = (pov, upto)
+    `upto` (a message index) when given. Hidden and empty messages are left
+    out of the text; a part with none left is skipped. A part the character
+    has a message in is recapped from their card (pov), any other as a plain
+    account (pov ""), which everyone who isn't in it shares: whoever reads
+    it was in other parts or none. Keyed by pov and text."""
+    cache_key = (who, upto)
     if cache_key in cf.segs:
         return cf.segs[cache_key]
     n = len(cf.messages) if upto is None else max(0, min(upto, len(cf.messages)))
@@ -923,10 +965,17 @@ def _segments(cf: ChatFile, pov: str, upto: Optional[int] = None) -> list[dict]:
             continue
         text = "\n\n".join(f"{m['name'] or ('User' if m['user'] else 'Character')}: {_clean(m['text'])}"
                            for m in part)
-        out.append({"start": start, "end": end, "text": text,
+        pov = who.pov if _speaks(who, part) else ""
+        out.append({"start": start, "end": end, "text": text, "pov": pov,
                     "key": _hash(f"{pov}\n{text}"), "full": end - start == SEGMENT_SIZE})
     cf.segs[cache_key] = out
     return out
+
+
+def _marked(seg: dict, recap: str, name: Optional[str]) -> str:
+    """A part's recap where it's read with the character's others: an
+    account of a part they weren't in says so."""
+    return f"({name} wasn't there.) {recap}" if name and not seg["pov"] else recap
 
 
 def _inchat_upto(cf: ChatFile, floor: int) -> int:
@@ -963,26 +1012,27 @@ _keys_cache: "OrderedDict[tuple, list]" = OrderedDict()
 
 
 def recap_state(cid: str, chat_id: str, upto: Optional[int] = None, row: Optional[dict] = None) -> dict:
-    """How much of a chat is recapped for a character: parts, done, missing.
-    The parts' keys are cached per version of the file, so listing a
-    character's chats doesn't parse every file again."""
+    """How much of a chat is recapped for a character: parts, done, missing,
+    and there (the parts they're in). The parts are cached per version of
+    the file, so listing a character's chats doesn't parse every file again."""
     row = row or get_chat(chat_id, rescan_for=cid)
     if not row:
-        return {"parts": 0, "done": 0, "missing": 0, "available": False}
-    pov = _pov(cid, row)[0]
-    ck = (row["rel"], row.get("mtime"), row.get("size"), pov, upto)
-    keys = _keys_cache.get(ck)
-    if keys is None:
+        return {"parts": 0, "done": 0, "missing": 0, "there": 0, "available": False}
+    who = _who(cid, row)
+    ck = (row["rel"], row.get("mtime"), row.get("size"), who, upto)
+    parts = _keys_cache.get(ck)
+    if parts is None:
         cf = read_chat(row["rel"])
         if not cf:
-            return {"parts": 0, "done": 0, "missing": 0, "available": False}
-        keys = [s["key"] for s in _segments(cf, pov, upto)]
-        _keys_cache[ck] = keys
+            return {"parts": 0, "done": 0, "missing": 0, "there": 0, "available": False}
+        parts = [(s["key"], bool(s["pov"])) for s in _segments(cf, who, upto)]
+        _keys_cache[ck] = parts
         while len(_keys_cache) > 5000:
             _keys_cache.popitem(last=False)
-    have = _segment_recaps(keys)
-    done = sum(1 for k in keys if k in have)
-    return {"parts": len(keys), "done": done, "missing": len(keys) - done, "available": True}
+    have = _segment_recaps([k for k, _ in parts])
+    done = sum(1 for k, _ in parts if k in have)
+    return {"parts": len(parts), "done": done, "missing": len(parts) - done,
+            "there": sum(1 for _, there in parts if there), "available": True}
 
 
 def _chat_people(cf: ChatFile, char_name: str) -> tuple[str, list[str]]:
@@ -996,13 +1046,14 @@ def _chat_people(cf: ChatFile, char_name: str) -> tuple[str, list[str]]:
     return user, others
 
 
+# A part the character is in.
 _RECAP_PROMPT = """You keep {char}'s memory of a roleplay. Below is part {part} of {total} of a chat{where}. {user} is the user's character.{others}
 {before}
 Write a recap of this part as {char} would remember it:
 - What happened, in order: what {char} did, saw and learned; who was there; what was said that matters; promises, revelations, decisions and how things stand at the end of the part.
 - Past tense, third person, plain prose, at most {words} words. Use names, not "the user".
 - Only events. Don't describe anyone's looks or personality, and don't restate the setting or world lore unless something happened to it.
-- Leave out what {char} wasn't there for and couldn't know, when the text makes that clear.
+- {char}'s own messages are the ones under {char}'s name. {char} was only where the text puts {char}: leave out what {char} wasn't there for and couldn't know, and don't place {char} in a scene the text doesn't.
 - Write only the recap: no heading, no preamble, no commentary.
 
 === CHAT PART {part} ===
@@ -1010,10 +1061,29 @@ Write a recap of this part as {char} would remember it:
 === END OF PART ===
 """
 
-_SYNOPSIS_PROMPT = """Below are recaps of the consecutive parts of a roleplay chat{where}, from {char}'s point of view. {user} is the user's character.
+# A part the character isn't in: an account from no one's point of view,
+# shared by everyone who wasn't there.
+_ACCOUNT_PROMPT = """You keep the record of a roleplay. Below is part {part} of {total} of a chat{where}. {user} is the user's character.{others}
+{before}
+Write a recap of this part as a plain account of what happened:
+- What happened, in order: who did what, saw and learned; who was there; what was said that matters; promises, revelations, decisions and how things stand at the end of the part.
+- Past tense, third person, plain prose, at most {words} words. Use names, not "the user".
+- Only events. Don't describe anyone's looks or personality, and don't restate the setting or world lore unless something happened to it.
+- Put people only where the text puts them: don't add anyone to a scene.
+- Write only the recap: no heading, no preamble, no commentary.
 
-Write one synopsis of the whole chat from them, in about {words} words, as {char} would remember it:
-- What happened, in order: the key events, what {char} did, saw and learned, revelations, decisions and promises, and how things stood at the end.
+=== CHAT PART {part} ===
+{text}
+=== END OF PART ===
+"""
+
+# Synopses and chapters are written as the character remembers the chat
+# (whose: from their point of view), or as a plain account of a chat they
+# weren't in at all. absent: the note on the parts they weren't in.
+_SYNOPSIS_PROMPT = """Below are recaps of the consecutive parts of a roleplay chat{where}{whose}. {user} is the user's character.{absent}
+
+Write one synopsis of the whole chat from them, in about {words} words, {as_whom}:
+- What happened, in order: the key events, {deeds}, revelations, decisions and promises, and how things stood at the end.
 - Keep names, places and turning points; drop moment-to-moment detail first.
 - Past tense, third person, plain prose. Use names, not "the user".
 - Write only the synopsis: no heading, no preamble, no commentary.
@@ -1021,7 +1091,7 @@ Write one synopsis of the whole chat from them, in about {words} words, as {char
 {recaps}
 """
 
-_PLAN_PROMPT = """Below are recaps of the consecutive parts of a roleplay chat{where}, from {char}'s point of view, each covering about {size} messages. {user} is the user's character.{earlier}
+_PLAN_PROMPT = """Below are recaps of the consecutive parts of a roleplay chat{where}, each covering about {size} messages. {user} is the user's character.{earlier}
 
 Divide these parts into chapters: stretches of the story that each cover one event or episode, such as a journey, a fight, a festival, a night together or an investigation. Start a new chapter where the story moves on: a new place or day, a new goal or conflict, a time skip. A chapter is one or more whole parts; most span two to five, but follow the story. Give each chapter a short title, at most eight words, naming its event.
 
@@ -1030,10 +1100,10 @@ Answer with only a JSON object: {{"chapters": [{{"first_part": <number of its fi
 {recaps}
 """
 
-_CHAPTER_PROMPT = """Below are recaps of the consecutive parts of one chapter of a roleplay chat{where}, from {char}'s point of view: chapter {number} of {total}, "{title}". {user} is the user's character.{before}
+_CHAPTER_PROMPT = """Below are recaps of the consecutive parts of one chapter of a roleplay chat{where}{whose}: chapter {number} of {total}, "{title}". {user} is the user's character.{before}{absent}
 
-Write one recap of this chapter from them, in about {words} words, as {char} would remember it:
-- What happened, in order: the key events, what {char} did, saw and learned, revelations, decisions and promises, and how things stood at the end of the chapter.
+Write one recap of this chapter from them, in about {words} words, {as_whom}:
+- What happened, in order: the key events, {deeds}, revelations, decisions and promises, and how things stood at the end of the chapter.
 - Keep names, places and turning points; drop moment-to-moment detail first.
 - Past tense, third person, plain prose. Use names, not "the user".
 - Write only the recap: no heading, no preamble, no commentary.
@@ -1042,18 +1112,33 @@ Write one recap of this chapter from them, in about {words} words, as {char} wou
 """
 
 
+def _voice(char: Optional[str], segs: list[dict]) -> dict:
+    """The fields of _SYNOPSIS_PROMPT and _CHAPTER_PROMPT that say whose
+    memory it is: `char`'s, or a plain account (char None: a chat they
+    weren't in at all)."""
+    if not char:
+        return {"whose": "", "absent": "", "as_whom": "as a plain account of what happened", "deeds": "who did what"}
+    absent = (f" {char} wasn't in the parts marked so: they're plain accounts. Keep what happened in them as events "
+              f"{char} wasn't part of, and don't put {char} in them.") if any(not s["pov"] for s in segs) else ""
+    return {"whose": f", from {char}'s point of view", "absent": absent, "as_whom": f"as {char} would remember it",
+            "deeds": f"what {char} did, saw and learned"}
+
+
 def _build_recaps(job: dict) -> None:
-    """Recap every missing part of a chat for a character, then the short
-    recap when the chat is recapped whole."""
+    """Recap every missing part of a chat for a character, then write what
+    other chats get of it when the chat is recapped whole."""
     cid, chat_id, upto = job["cid"], job["chat_id"], job.get("upto")
     row = get_chat(chat_id, rescan_for=cid)
     cf = read_chat(row["rel"]) if row else None
     if not cf:
         job["error"] = "chat file not found"
         return
-    pov, char = _pov(cid, row)
+    who = _who(cid, row)
+    char = who.name
     user, others = _chat_people(cf, char)
-    segs = _segments(cf, pov, upto)
+    _, everyone = _chat_people(cf, "")
+    where = f' ("{row["title"]}")' if row.get("title") else ""
+    segs = _segments(cf, who, upto)
     have = _segment_recaps([s["key"] for s in segs])
     missing = [s for s in segs if s["key"] not in have]
     job["stage"], job["total"], job["done"] = "parts", len(missing), 0
@@ -1066,94 +1151,107 @@ def _build_recaps(job: dict) -> None:
             prev = have[s["key"]]["recap"]
             continue
         before = f"\nWhat happened before this part, as recapped earlier:\n{prev}\n" if prev else ""
-        prompt = _RECAP_PROMPT.format(
-            char=char, part=idx + 1, total=len(segs), user=user,
-            where=f' ("{row["title"]}")' if row.get("title") else "",
-            others=(f" Others in the chat: {', '.join(others[:12])}." if others else ""),
-            before=before, words=250 if s["full"] else 180, text=s["text"])
-        recap = _call_sonnet(prompt, timeout=RECAP_TIMEOUT,
-                             label=f"Character Memory: recap {char} — {row['title']} ({idx + 1}/{len(segs)})")
+        common = dict(part=idx + 1, total=len(segs), user=user, where=where, before=before,
+                      words=250 if s["full"] else 180, text=s["text"])
+        if s["pov"]:
+            prompt = _RECAP_PROMPT.format(char=char, others=(f" Others in the chat: {', '.join(others[:12])}."
+                                                             if others else ""), **common)
+            label = f"Character Memory: recap {char} — {row['title']} ({idx + 1}/{len(segs)})"
+        else:
+            prompt = _ACCOUNT_PROMPT.format(others=(f" Characters in the chat: {', '.join(everyone[:12])}."
+                                                    if everyone else ""), **common)
+            label = f"Character Memory: account (without {char}) — {row['title']} ({idx + 1}/{len(segs)})"
+        recap = _call_sonnet(prompt, timeout=RECAP_TIMEOUT, label=label)
         if not recap or not recap.strip():
             job["error"] = "the recap call failed (see the History tab)"
             _x("UPDATE encounters SET error = ? WHERE character_id = ? AND chat_id = ?", (job["error"], cid, chat_id))
             return
         recap = recap.strip()
         _x("INSERT OR REPLACE INTO segments (key, pov, recap, edited, created_ts) VALUES (?, ?, ?, 0, ?)",
-           (s["key"], pov, recap, time.time()))
+           (s["key"], s["pov"], recap, time.time()))
         have[s["key"]] = {"recap": recap, "edited": 0}
         prev = recap
         job["done"] += 1
     _x("UPDATE encounters SET built_ts = ?, error = NULL WHERE character_id = ? AND chat_id = ?",
        (time.time(), cid, chat_id))
     if upto is None and not job.get("cancel"):
-        _write_passed_on(job, cid, row, cf, pov, char, user)
+        _write_passed_on(job, cid, row, cf, who, user)
 
 
-def _numbered(segs: list[dict], have: dict, number_from: int = 1) -> str:
-    """Part recaps for a prompt: "Part 3 (messages 80–119):" and the recap."""
-    return "\n\n".join(f"Part {number_from + i} (messages {s['start']}–{s['end'] - 1}):\n"
+def _numbered(segs: list[dict], have: dict, number_from: int = 1, char: Optional[str] = None) -> str:
+    """Part recaps for a prompt: "Part 3 (messages 80–119):" and the recap;
+    with `char`, the parts they aren't in are marked."""
+    return "\n\n".join(f"Part {number_from + i} (messages {s['start']}–{s['end'] - 1}"
+                       + (f"; {char} wasn't there" if char and not s["pov"] else "") + "):\n"
                        + (have.get(s["key"]) or {}).get("recap", "(not recapped)") for i, s in enumerate(segs))
 
 
-def _write_passed_on(job: dict, cid: str, row: dict, cf: ChatFile, pov: str, char: str, user: str):
+def _write_passed_on(job: dict, cid: str, row: dict, cf: ChatFile, who: _Who, user: str):
     """Write what another chat gets of this chat in the current mode, once
     every part is recapped: the synopsis, or the chapters (dividing the chat
-    first). What's written already, or short enough as it is, is kept."""
+    first). What's written already, or short enough as it is, is kept. A
+    chat the character isn't in at all is written as a plain account."""
     m = pass_mode()
     target = word_target(m)
     where = f' ("{row["title"]}")' if row.get("title") else ""
-    if m == "chapters" and not _plan_chapters(job, cid, row, cf, pov, char, user):
+    if m == "chapters" and not _plan_chapters(job, row, cf, who, user):
         return
-    secs = passed_on(cid, row, cf, m=m)["sections"]
+    mem = passed_on(cid, row, cf, m=m)
+    secs = mem["sections"]
+    char = who.name if mem["there"] else None
     todo = [s for s in secs if not s["ready"] and not s["parts_missing"]]
     job["stage"], job["total"], job["done"] = ("chapters" if m == "chapters" else "synopsis"), len(todo), 0
     have = _segment_recaps([k for s in secs for k in s["keys"]])
+    whose = who.name if char else f"account (without {who.name})"
     for s in todo:
         if job.get("cancel"):
             return
-        segs = [x for x in _segments(cf, pov) if x["key"] in s["keys"]]
+        segs = [x for x in _segments(cf, who) if x["key"] in s["keys"]]
         if not s["title"]:
             # The synopsis, or the one chapter of a chat too short for more.
-            prompt = _SYNOPSIS_PROMPT.format(where=where, char=char, user=user, words=target,
-                                             recaps=_numbered(segs, have))
-            label = f"Character Memory: synopsis {char} — {row['title']}"
+            prompt = _SYNOPSIS_PROMPT.format(where=where, user=user, words=target,
+                                             recaps=_numbered(segs, have, char=char), **_voice(char, segs))
+            label = f"Character Memory: synopsis {whose} — {row['title']}"
         else:
             n = secs.index(s)
             title = s["title"]
             prev = secs[n - 1]["title"] if n else None
             prompt = _CHAPTER_PROMPT.format(
-                where=where, char=char, user=user, words=target, number=n + 1, total=len(secs), title=title,
-                before=f' The chapter before it was "{prev}".' if prev else "", recaps=_numbered(segs, have))
-            label = f"Character Memory: chapter {char} — {row['title']} ({n + 1}/{len(secs)}: {title})"
+                where=where, user=user, words=target, number=n + 1, total=len(secs), title=title,
+                before=f' The chapter before it was "{prev}".' if prev else "",
+                recaps=_numbered(segs, have, char=char), **_voice(char, segs))
+            label = f"Character Memory: chapter {whose} — {row['title']} ({n + 1}/{len(secs)}: {title})"
         text = _call_sonnet(prompt, timeout=RECAP_TIMEOUT, label=label)
         if not text or not text.strip():
             job["error"] = f"writing the {'synopsis' if m == 'synopsis' else 'chapter'} failed (see the History tab)"
             _x("UPDATE encounters SET error = ? WHERE character_id = ? AND chat_id = ?", (job["error"], cid, row["chat_id"]))
             return
         _x("INSERT OR REPLACE INTO condensed (key, kind, pov, recap, edited, created_ts) VALUES (?, ?, ?, ?, 0, ?)",
-           (s["key"], "synopsis" if m == "synopsis" else "chapter", pov, text.strip(), time.time()))
+           (s["key"], "synopsis" if m == "synopsis" else "chapter", who.pov if char else "", text.strip(), time.time()))
         job["done"] += 1
 
 
-def _plan(cid: str, chat_id: str) -> Optional[dict]:
-    """The chat's division into chapters for the character, if it has one."""
+def _plan(chat_id: str) -> Optional[dict]:
+    """The chat's division into chapters, if it has one."""
+    row = _q1("SELECT chapters FROM plans WHERE chat_id = ?", (chat_id,))
     try:
-        plan = json.loads(_encounter(cid, chat_id).get("chapters") or "null")
+        plan = json.loads(row["chapters"]) if row else None
     except ValueError:
         return None
     return plan if isinstance(plan, dict) and plan.get("chapters") else None
 
 
-def _plan_chapters(job: dict, cid: str, row: dict, cf: ChatFile, pov: str, char: str, user: str) -> bool:
-    """Divide a chat into chapters, by part. A plan records each chapter's
+def _plan_chapters(job: dict, row: dict, cf: ChatFile, who: _Who, user: str) -> bool:
+    """Divide a chat into chapters, by part, from this character's recaps;
+    every character uses the same division. A plan records each chapter's
     start (the message index of its first part) and title, and `last`, the
     start of the chat's last part then. When the chat has grown (or shrunk)
     since, its last chapter is divided again with the parts after it, and
     the earlier chapters stay as they are. False when the call failed."""
-    segs = _segments(cf, pov)
+    segs = _segments(cf, who)
     if len(segs) < CHAPTER_MIN_PARTS:
         return True
-    plan = _plan(cid, row["chat_id"])
+    plan = _plan(row["chat_id"])
     last = segs[-1]["start"]
     if plan and plan.get("last") == last:
         return True
@@ -1173,20 +1271,21 @@ def _plan_chapters(job: dict, cid: str, row: dict, cf: ChatFile, pov: str, char:
                        + "; ".join(f'{i + 1}. "{c["title"]}"' for i, c in enumerate(kept))
                        + ". Divide only the parts below, which come after them.")
         reply = _call_sonnet(_PLAN_PROMPT.format(
-            where=f' ("{row["title"]}")' if row.get("title") else "", char=char, user=user, size=SEGMENT_SIZE,
+            where=f' ("{row["title"]}")' if row.get("title") else "", user=user, size=SEGMENT_SIZE,
             earlier=earlier, first=number_from, recaps=_numbered(todo, have, number_from)),
-            timeout=RECAP_TIMEOUT, label=f"Character Memory: chapters {char} — {row['title']}")
+            timeout=RECAP_TIMEOUT, label=f"Character Memory: chapters — {row['title']}")
         new = _parse_plan(_extract_json(reply or ""), todo, number_from)
         if new is None:
             job["error"] = "dividing the chat into chapters failed (see the History tab)"
-            _x("UPDATE encounters SET error = ? WHERE character_id = ? AND chat_id = ?", (job["error"], cid, row["chat_id"]))
+            _x("UPDATE encounters SET error = ? WHERE character_id = ? AND chat_id = ?",
+               (job["error"], job["cid"], row["chat_id"]))
             return False
         # The chapter divided again keeps its start, and with it the
         # connections' and bindings' choice about it.
         new[0]["start"] = first
         job["done"] = 1
-    _x("UPDATE encounters SET chapters = ? WHERE character_id = ? AND chat_id = ?",
-       (json.dumps({"chapters": kept + new, "last": last}, ensure_ascii=False), cid, row["chat_id"]))
+    _x("INSERT OR REPLACE INTO plans (chat_id, chapters) VALUES (?, ?)",
+       (row["chat_id"], json.dumps({"chapters": kept + new, "last": last}, ensure_ascii=False)))
     return True
 
 
@@ -1221,7 +1320,7 @@ def _condensed(keys: list[str]) -> dict:
 
 def passed_on(cid: str, row: dict, cf: Optional[ChatFile] = None, off=(), m: Optional[str] = None) -> dict:
     """What another chat gets of this chat for the character, in mode `m`
-    (default: the current one): {mode, words, chaptered, complete,
+    (default: the current one): {mode, words, chaptered, complete, there,
     sections}. A section is the synopsis, or a chapter: start (its id: the
     message index it starts at),
     title (None for a synopsis, or a chat too short for chapters), from/to
@@ -1230,21 +1329,26 @@ def passed_on(cid: str, row: dict, cf: Optional[ChatFile] = None, off=(), m: Opt
     then the part recaps there are), as_is (the part recaps, short enough),
     edited, parts_missing, on (not in `off`, a connection's or binding's
     choice). chaptered: the chat is divided into chapters, so they can be
-    chosen. complete: nothing is left to build."""
+    chosen. complete: nothing is left to build. there: the character is in
+    some part of it; if not, it's all plain accounts, which everyone else
+    who wasn't there shares, and if so, those of the parts they aren't in
+    say so."""
     cf = cf or read_chat(row["rel"])
     m = m or pass_mode()
     target = word_target(m)
-    out = {"mode": m, "words": target, "chaptered": False, "complete": True, "sections": []}
+    out = {"mode": m, "words": target, "chaptered": False, "complete": True, "there": False, "sections": []}
     if not cf:
         out["complete"] = False
         return out
-    pov = _pov(cid, row)[0]
-    segs = _segments(cf, pov)
+    who = _who(cid, row)
+    segs = _segments(cf, who)
     if not segs:
         return out
+    out["there"] = any(s["pov"] for s in segs)
+    pov, name = (who.pov, who.name) if out["there"] else ("", None)
     groups = [(segs[0]["start"], None, segs)]
     if m == "chapters" and len(segs) >= CHAPTER_MIN_PARTS:
-        plan = _plan(cid, row["chat_id"])
+        plan = _plan(row["chat_id"])
         if not plan or plan.get("last") != segs[-1]["start"]:
             out["complete"] = False
         if plan:
@@ -1261,7 +1365,7 @@ def passed_on(cid: str, row: dict, cf: Optional[ChatFile] = None, off=(), m: Opt
     have = _segment_recaps([s["key"] for s in segs])
     kind = "synopsis" if m == "synopsis" else "chapter"
     for start, title, part in groups:
-        recaps = [have[s["key"]]["recap"] for s in part if s["key"] in have]
+        recaps = [_marked(s, have[s["key"]]["recap"], name) for s in part if s["key"] in have]
         missing = len(part) - len(recaps)
         full = "\n\n".join(recaps)
         out["sections"].append({
@@ -1288,12 +1392,12 @@ def render_passed_on(sections: list[dict]) -> str:
 
 
 def _uses_off(cid: str, chat_id: str, target: Optional[str] = None, persona: Optional[str] = None) -> Optional[list]:
-    """The chapters a connection to `target` or the binding with `persona`
-    leaves out of this chat; None when there's no such connection or
-    binding chat."""
+    """The chapters a connection to `target` (the character's own, else the
+    one for everyone there) or the binding with `persona` leaves out of
+    this chat; None when there's no such connection or binding chat."""
     if target:
-        row = _q1("SELECT chapters_off FROM links WHERE character_id = ? AND target_chat = ? AND source_chat = ?",
-                  (cid, target, chat_id))
+        row = _q1("SELECT chapters_off FROM links WHERE character_id IN (?, '') AND target_chat = ? AND source_chat = ? "
+                  "ORDER BY character_id = '' LIMIT 1", (cid, target, chat_id))
     else:
         row = _q1("SELECT chapters_off FROM binding_chats WHERE character_id = ? AND persona = ? AND chat_id = ?",
                   (cid, persona or "", chat_id))
@@ -1310,28 +1414,15 @@ def _off_list(raw) -> list:
 
 def set_chapters_off(cid: str, chat_id: str, off: list, target: Optional[str] = None,
                      persona: Optional[str] = None) -> bool:
-    """Which chapters of a chat a connection (to `target`) or a binding (with
-    `persona`) leaves out, by their starts."""
+    """Which chapters of a chat a connection (to `target`; cid: its
+    character, "" for everyone there) or a binding (`cid` with `persona`)
+    leaves out, by their starts."""
     value = json.dumps(sorted({int(x) for x in off})) if off else None
     if target:
         return _x("UPDATE links SET chapters_off = ? WHERE character_id = ? AND target_chat = ? AND source_chat = ?",
                   (value, cid, target, chat_id)) > 0
     return _x("UPDATE binding_chats SET chapters_off = ? WHERE character_id = ? AND persona = ? AND chat_id = ?",
               (value, cid, persona or "", chat_id)) > 0
-
-
-def _full_recap(pov: str, cf: ChatFile, skip_keys: set) -> tuple[str, bool, list[str]]:
-    """(text of the recapped parts not in skip_keys, whether every part is
-    recapped, the keys used)."""
-    segs = _segments(cf, pov)
-    have = _segment_recaps([s["key"] for s in segs])
-    texts, keys = [], []
-    for s in segs:
-        if s["key"] in skip_keys or s["key"] not in have:
-            continue
-        texts.append(have[s["key"]]["recap"])
-        keys.append(s["key"])
-    return "\n\n".join(texts), all(s["key"] in have for s in segs), keys
 
 
 def set_segment_recap(key: str, recap: Optional[str]) -> bool:
@@ -1352,26 +1443,28 @@ def set_condensed(cid: str, chat_id: str, key: str, recap: Optional[str]) -> boo
     if recap is None:
         _x("DELETE FROM condensed WHERE key = ?", (key,))
         return True
+    mem = passed_on(cid, row)
     _x("INSERT OR REPLACE INTO condensed (key, kind, pov, recap, edited, created_ts) VALUES (?, ?, ?, ?, 1, ?)",
-       (key, "synopsis" if pass_mode() == "synopsis" else "chapter", _pov(cid, row)[0], recap.strip(), time.time()))
+       (key, "synopsis" if mem["mode"] == "synopsis" else "chapter", _pov(cid, row)[0] if mem["there"] else "",
+        recap.strip(), time.time()))
     return True
 
 
 def clear_recap(cid: str, chat_id: str):
-    """Forget a chat's recaps for a character: its parts, synopsis or
-    chapters, and its division into chapters (they're built again when
-    needed)."""
+    """Forget a chat's recaps for a character: its parts (the accounts of
+    those they aren't in too, which others who weren't there share) and
+    synopsis or chapters. They're built again when needed. The division
+    into chapters is the chat's, and stays."""
     row = get_chat(chat_id, rescan_for=cid)
     cf = read_chat(row["rel"]) if row else None
     if cf:
         keys = [s["key"] for s in passed_on(cid, row, cf)["sections"] if s["key"]]
-        keys += [s["key"] for s in _segments(cf, _pov(cid, row)[0])]
+        keys += [s["key"] for s in _segments(cf, _who(cid, row))]
         for i in range(0, len(keys), 500):
             chunk = keys[i:i + 500]
             for table in ("segments", "condensed"):
                 _x(f"DELETE FROM {table} WHERE key IN ({','.join('?' * len(chunk))})", chunk)
-    _x("UPDATE encounters SET chapters = NULL, built_ts = NULL, error = NULL "
-       "WHERE character_id = ? AND chat_id = ?", (cid, chat_id))
+    _x("UPDATE encounters SET built_ts = NULL, error = NULL WHERE character_id = ? AND chat_id = ?", (cid, chat_id))
 
 
 # ---------------------------------------------------------------------------
@@ -1580,11 +1673,15 @@ def binding(cid: str, persona: str) -> Optional[dict]:
 
 def sources(cid: str, chat_id: str, persona: str, chat_row: Optional[dict] = None) -> list[dict]:
     """The other chats a character remembers in this chat: [{chat_id, how,
-    off}], how being "link" or "binding", and off the starts of the chapters
-    that connection or binding leaves out."""
-    off = {}
-    for r in _q("SELECT source_chat, chapters_off FROM links WHERE character_id = ? AND target_chat = ?", (cid, chat_id)):
+    off, who}], how being "link" or "binding", off the starts of the
+    chapters that connection or binding leaves out, and who, for a link,
+    the character it's for ("" for everyone in this chat)."""
+    off, whose = {}, {}
+    # A character's own connection wins over the one for everyone.
+    for r in _q("SELECT character_id, source_chat, chapters_off FROM links WHERE character_id IN (?, '') "
+                "AND target_chat = ? ORDER BY character_id = '' DESC", (cid, chat_id)):
         off[("link", r["source_chat"])] = _off_list(r["chapters_off"])
+        whose[r["source_chat"]] = r["character_id"]
     links = {c for how, c in off if how == "link"}
     bound = set()
     if binding(cid, persona):
@@ -1602,7 +1699,8 @@ def sources(cid: str, chat_id: str, persona: str, chat_row: Optional[dict] = Non
                     bound.discard(other)
     excluded = {r["source_chat"] for r in _q(
         "SELECT source_chat FROM exclusions WHERE character_id = ? AND target_chat = ?", (cid, chat_id))}
-    out = [{"chat_id": c, "how": "link", "off": off[("link", c)]} for c in sorted(links - excluded - {chat_id})]
+    out = [{"chat_id": c, "how": "link", "off": off[("link", c)], "who": whose[c]}
+           for c in sorted(links - excluded - {chat_id})]
     out += [{"chat_id": c, "how": "binding", "off": off[("binding", c)]}
             for c in sorted(bound - links - excluded - {chat_id})]
     return out
@@ -1620,7 +1718,8 @@ class TurnMemory:
     """Memory for one character's turn in one chat."""
 
     def __init__(self, cid, pov, name, chat_id, chat_row, persona, persona_name, is_group, first_in_context, srcs):
-        """pov: the speaking card's avatar, name: its name."""
+        """pov: the speaking card's avatar (a session's memory is for it),
+        name: its name."""
         self.cid, self.pov, self.name, self.chat_id, self.chat_row = cid, pov, name, chat_id, chat_row
         self.persona, self.persona_name, self.is_group = persona, persona_name, is_group
         self.first_in_context = first_in_context
@@ -1639,17 +1738,18 @@ class TurnMemory:
         out = []
         self.incomplete = set()
         cf = read_chat(self.chat_row["rel"]) if self.chat_row else None
+        who = _who(self.cid, self.chat_row) if cf else None
         # Parts of this chat aren't repeated from a chat it shares them with
         # (a connected parent of a branch).
-        own_keys = {s["key"] for s in _segments(cf, self.pov)} if cf else set()
+        own_keys = {s["key"] for s in _segments(cf, who)} if cf else set()
         if cf and floor and floor > 0:
             upto = _inchat_upto(cf, floor)
-            segs = _segments(cf, self.pov, upto)
+            segs = _segments(cf, who, upto)
             have = _segment_recaps([s["key"] for s in segs])
             if any(s["key"] not in have for s in segs):
                 schedule_recap(self.cid, self.chat_id, upto, self.chat_row.get("title") or "")
                 self.incomplete.add("inchat")
-            texts = [have[s["key"]]["recap"] for s in segs if s["key"] in have]
+            texts = [_marked(s, have[s["key"]]["recap"], self.name) for s in segs if s["key"] in have]
             own_keys |= {s["key"] for s in segs}
             if texts:
                 overlap = (" Its end can overlap the first messages of the transcript; where the two differ, "
@@ -1687,13 +1787,20 @@ class TurnMemory:
             text = render_passed_on(fit)
             budget -= len(text)
             used_keys |= {k for s in fit for k in s["keys"]}
-            chosen.append((row, src, text, len(fit) < len(secs)))
-        for row, src, text, cut in sorted(chosen, key=lambda c: c[0].get("first_ts") or 0):
+            chosen.append((row, src, text, len(fit) < len(secs), mem["there"]))
+        for row, src, text, cut, there in sorted(chosen, key=lambda c: c[0].get("first_ts") or 0):
             user, others = _chat_people(src, self.name)
-            present = [self.name, user] if not row.get("group_id") else [self.name] + [
-                n for n in json.loads(row.get("speakers") or "[]") if n != self.name]
-            note = f"Present: {', '.join(present[:12])}."
-            if self.is_group:
+            if row.get("group_id"):
+                present = [n for n in json.loads(row.get("speakers") or "[]") if n != self.name]
+            else:
+                present = (others if not there else []) + [user]
+            if there:
+                note = f"Present: {', '.join(([self.name] + present)[:12])}."
+            else:
+                note = (f"{self.name} wasn't there: this is background on what happened. Present: "
+                        f"{', '.join(present[:12])}. {self.name} knows of it only what {self.name} would have heard "
+                        f"or been told.")
+            if self.is_group and there:
                 note += " The others in this chat know about it only if they were there or were told."
             if cut:
                 note += " (Its earlier chapters are left out for length.)"
@@ -1815,10 +1922,8 @@ def _auto_bind(cid: str, persona: str, row: dict):
         log(f"{character_name(cid)}: {row.get('title')} joins the binding with {b.get('persona_name') or persona}")
 
 
-def prepare_turn(info: dict, summarized: bool = False) -> Optional[TurnMemory]:
-    """Memory for a roleplay turn, or None when there's none to give.
-    `summarized`: the bridge's auto-summary replaced the older messages, so
-    the chat's own earlier part isn't recapped here."""
+def prepare_turn(info: dict) -> Optional[TurnMemory]:
+    """Memory for a roleplay turn, or None when there's none to give."""
     if info.get("type") in _SKIP_TYPES or not info.get("chat_file") or not info.get("char_avatar"):
         return None
     if not st_dir():
@@ -1834,7 +1939,7 @@ def prepare_turn(info: dict, summarized: bool = False) -> Optional[TurnMemory]:
     srcs = sources(cid, row["chat_id"], persona, row)
     tm = TurnMemory(cid, info["char_avatar"], (info.get("char_name") or "").strip() or character_name(cid),
                     row["chat_id"], row, persona, info.get("persona_name") or "", bool(info.get("group_id")),
-                    None if summarized else info.get("first_in_context"), srcs)
+                    info.get("first_in_context"), srcs)
     if srcs:
         _maybe_check(tm)
     return tm
@@ -1876,12 +1981,14 @@ def _opening(cf: ChatFile) -> str:
 
 def _check_sig(tm: TurnMemory, cf: ChatFile) -> tuple[str, list[str]]:
     """What the check depends on: a hash of the chat's opening, and the
-    sources that have recaps."""
+    sources that have recaps. Chats the character wasn't in are background,
+    with no history of theirs to clash with, and aren't checked."""
     ready = []
     for s in tm.sources:
         row = _q1("SELECT rel, group_id FROM chats WHERE chat_id = ?", (s["chat_id"],))
         src = read_chat(row["rel"]) if row else None
-        if src and _full_recap(_pov(tm.cid, dict(row))[0], src, set())[0].strip():
+        segs = _segments(src, _who(tm.cid, dict(row))) if src else []
+        if any(x["pov"] for x in segs) and _segment_recaps([x["key"] for x in segs]):
             ready.append(s["chat_id"])
     return _hash(_opening(cf)), sorted(ready)
 
@@ -2029,17 +2136,107 @@ def set_binding_chats(cid: str, persona: str, add: list[str], remove: list[str],
     return n
 
 
+def rememberers(target: str) -> list[dict]:
+    """Who remembers a connection to a chat that's for everyone there: a
+    group chat's members, or a card's own chat's character. [{id, avatar,
+    name}], one per character."""
+    row = get_chat(target)
+    if not row:
+        return []
+    names = _all_card_names()
+    if row.get("group_id"):
+        g = _group(row["group_id"])
+        avatars = list(g["members"]) if g else []
+    else:
+        avatars = [f"{row['rel'].split('/')[1]}.png"] if row["rel"].startswith("chats/") else []
+    out, seen = [], set()
+    for a in avatars:
+        cid = ensure_card(a, names.get(a, ""))
+        if cid not in seen:
+            seen.add(cid)
+            out.append({"id": cid, "avatar": a, "name": names.get(a) or character_name(cid)})
+    return out
+
+
+def _link_cids(target: str, cid: str) -> list[str]:
+    """The characters a connection's row is for: `cid`, or everyone there."""
+    return [r["id"] for r in rememberers(target)] if cid == "" else [cid]
+
+
 def set_link(cid: str, target: str, source: str, on: bool, build: bool = True):
+    """Connect `source` to `target` for one character (cid "": everyone in
+    the target chat), or take that connection away. The others it's for
+    keep theirs."""
     if target == source:
         return
     if on:
         _x("INSERT OR IGNORE INTO links (character_id, target_chat, source_chat, created_ts) VALUES (?, ?, ?, ?)",
            (cid, target, source, time.time()))
-        _x("DELETE FROM exclusions WHERE character_id = ? AND target_chat = ? AND source_chat = ?", (cid, target, source))
+        if cid:
+            _x("DELETE FROM exclusions WHERE character_id = ? AND target_chat = ? AND source_chat = ?",
+               (cid, target, source))
+        else:
+            _x("DELETE FROM exclusions WHERE target_chat = ? AND source_chat = ?", (target, source))
         if build:
-            schedule_recap(cid, source, None, _chat_title(source))
+            for c in _link_cids(target, cid):
+                schedule_recap(c, source, None, _chat_title(source))
     else:
         _x("DELETE FROM links WHERE character_id = ? AND target_chat = ? AND source_chat = ?", (cid, target, source))
+
+
+def connect(target: str, source: str, who: Optional[list] = None, build: bool = True):
+    """Connect `source` to `target`, for everyone there (who None) or the
+    characters in `who`, replacing whoever it was for. Chapters left out of
+    it stay out."""
+    if target == source:
+        return
+    cids = [""] if who is None else list(dict.fromkeys(who))
+    with _db_lock:
+        old = _q1("SELECT chapters_off FROM links WHERE target_chat = ? AND source_chat = ? "
+                  "ORDER BY character_id = '' DESC LIMIT 1", (target, source))
+        _x("DELETE FROM links WHERE target_chat = ? AND source_chat = ?", (target, source))
+        for cid in cids:
+            set_link(cid, target, source, True, build=False)
+        if old and old["chapters_off"]:
+            _x("UPDATE links SET chapters_off = ? WHERE target_chat = ? AND source_chat = ?",
+               (old["chapters_off"], target, source))
+    if build:
+        for cid in dict.fromkeys(c for x in cids for c in _link_cids(target, x)):
+            schedule_recap(cid, source, None, _chat_title(source))
+
+
+def disconnect(target: str, source: str):
+    """Take a connection away, for everyone it was for."""
+    _x("DELETE FROM links WHERE target_chat = ? AND source_chat = ?", (target, source))
+
+
+def estimate(cids: list[str], chat_id: str) -> int:
+    """About how many Sonnet calls recapping a chat for these characters
+    takes: its parts not recapped yet (an account of a part, shared by those
+    not in it, counts once), then for each version of it not written yet a
+    synopsis, or a division into chapters (once per chat) and about one call
+    per three parts."""
+    row = get_chat(chat_id)
+    cf = read_chat(row["rel"]) if row else None
+    if not cf:
+        return 0
+    missing, written, calls = set(), set(), 0
+    m = pass_mode()
+    for cid in cids:
+        segs = _segments(cf, _who(cid, row))
+        have = _segment_recaps([s["key"] for s in segs])
+        missing |= {s["key"] for s in segs if s["key"] not in have}
+        mem = passed_on(cid, row, cf, m=m)
+        version = tuple(s["key"] for s in segs)
+        if mem["complete"] or version in written or len(segs) < 2:
+            continue
+        written.add(version)
+        calls += -(-len(segs) // 3) if m == "chapters" and len(segs) >= CHAPTER_MIN_PARTS else 1
+    if m == "chapters" and written:
+        segs = _segments(cf, _who(cids[0], row))
+        plan = _plan(row["chat_id"])
+        calls += 1 if len(segs) >= CHAPTER_MIN_PARTS and (not plan or plan.get("last") != segs[-1]["start"]) else 0
+    return len(missing) + calls
 
 
 def set_exclusion(cid: str, target: str, source: str, on: bool):
@@ -2066,19 +2263,32 @@ def _norm_name(s: str) -> str:
     return re.sub(r"[\W_]+", "", (s or "").casefold())
 
 
-def _card_names(cid: str) -> dict:
-    """Chat folder -> card name, for the character's cards."""
+_names_cache: dict = {"at": 0.0, "names": {}}
+
+
+def _all_card_names() -> dict:
+    """Card avatar -> name, for every card (re-read every few seconds)."""
+    if time.time() - _names_cache["at"] > 5:
+        _names_cache.update(at=time.time(), names={c["avatar"]: c["name"] for c in list_cards()})
+    return _names_cache["names"]
+
+
+def _card_names(cid: Optional[str] = None) -> dict:
+    """Chat folder -> card name, for the character's cards, or every card."""
+    if not cid:
+        return {_stem(a): n for a, n in _all_card_names().items()}
     return {_stem(c["avatar"]): c["name"] for c in character_cards(cid)}
 
 
-def _chat_view(row: dict, cid: str, recaps: bool = True, names: Optional[dict] = None) -> dict:
+def _chat_view(row: dict, cid: Optional[str], recaps: bool = True, names: Optional[dict] = None) -> dict:
     """A chat for the Memory tab. name: its card's or group's name; label:
     its branch ("Branch #3") or its own title (a checkpoint's name, a renamed
     file). A chat's file name otherwise starts with the card's name when the
     chat began, which may be an old one. created: the day the file was made,
     as its name says it in the user's time, or else created_ts (the
     dashboard shows it in the browser's time zone); parent: the chat id of
-    the chat it's a branch of."""
+    the chat it's a branch of; members: a group chat's cards. With `cid`
+    and `recaps`, how far that character's recap of it is."""
     personas = json.loads(row.get("personas") or "{}")
     names = _card_names(cid) if names is None else names
     folder = os.path.basename(os.path.dirname(row["rel"]))
@@ -2099,8 +2309,13 @@ def _chat_view(row: dict, cid: str, recaps: bool = True, names: Optional[dict] =
         "last_ts": row.get("last_ts") or 0, "messages": row.get("n") or 0,
         "personas": [{"avatar": a, "name": p.get("name") or "", "messages": p.get("n", 0)}
                      for a, p in sorted(personas.items(), key=lambda kv: -kv[1].get("n", 0))],
+        "members": [],
     }
-    if recaps:
+    g = _group(row["group_id"]) if row.get("group_id") else None
+    if g:
+        cards = _all_card_names()
+        out["members"] = [{"avatar": a, "name": cards.get(a) or _stem(a)} for a in g["members"]]
+    if recaps and cid:
         st = recap_state(cid, row["chat_id"], row=row)
         enc = _encounter(cid, row["chat_id"])
         job = _jobs.pending(cid, row["chat_id"])
@@ -2109,10 +2324,11 @@ def _chat_view(row: dict, cid: str, recaps: bool = True, names: Optional[dict] =
     return out
 
 
-_BRIEF_KEYS = ("chat_id", "title", "name", "label", "created", "created_ts", "last_msg", "group", "branch_of")
+_BRIEF_KEYS = ("chat_id", "title", "name", "label", "created", "created_ts", "last_msg", "group", "branch_of",
+               "members", "messages", "last_ts")
 
 
-def _brief(cid: str, chat_id: str, names: Optional[dict] = None) -> dict:
+def _brief(cid: Optional[str], chat_id: str, names: Optional[dict] = None) -> dict:
     """A chat as a list names it (see _chat_view), from what's stored."""
     row = _q1("SELECT * FROM chats WHERE chat_id = ?", (chat_id,))
     if not row:
@@ -2123,13 +2339,14 @@ def _brief(cid: str, chat_id: str, names: Optional[dict] = None) -> dict:
 
 def _recap_parts(cid: str, row: dict) -> list[dict]:
     """A character's recap of a chat, part by part: key, from, to (message
-    numbers), recap (None until recapped), edited."""
+    numbers), there (the character is in it; if not, it's an account),
+    recap (None until recapped), edited."""
     cf = read_chat(row["rel"])
     if not cf:
         return []
-    segs = _segments(cf, _pov(cid, row)[0])
+    segs = _segments(cf, _who(cid, row))
     have = _segment_recaps([s["key"] for s in segs])
-    return [{"key": s["key"], "from": s["start"], "to": s["end"] - 1,
+    return [{"key": s["key"], "from": s["start"], "to": s["end"] - 1, "there": bool(s["pov"]),
              "recap": (have.get(s["key"]) or {}).get("recap"), "edited": bool((have.get(s["key"]) or {}).get("edited"))}
             for s in segs]
 
@@ -2139,7 +2356,7 @@ _SECTION_KEYS = ("start", "title", "from", "to", "key", "text", "ready", "as_is"
 
 def _passed_view(mem: dict) -> dict:
     """passed_on() for the Memory tab and the extension."""
-    return {**{k: mem[k] for k in ("mode", "words", "chaptered", "complete")},
+    return {**{k: mem[k] for k in ("mode", "words", "chaptered", "complete", "there")},
             "sections": [{k: x[k] for k in _SECTION_KEYS} for x in mem["sections"]]}
 
 
@@ -2168,12 +2385,13 @@ def overview() -> dict:
         n_o = _q1("SELECT COUNT(*) AS n FROM checks WHERE character_id = ? AND status = 'open'", (cid,))["n"]
         chars.append({"id": cid, "name": r["name"], "cards": cards,
                       "bindings": n_b, "links": n_l, "recaps": n_s, "alerts": n_o})
+    n_c = _q1("SELECT COUNT(*) AS n FROM (SELECT DISTINCT target_chat, source_chat FROM links)")["n"]
     # Chats remembered somewhere: each is written again (synopsis or
     # chapters) when the mode or word target changes and it's next needed.
     in_use = _q1("SELECT COUNT(*) AS n FROM (SELECT character_id, source_chat FROM links UNION "
                  "SELECT character_id, chat_id FROM binding_chats WHERE how != 'removed')")["n"]
     return {"characters": chars, "extension": _meta_get("extension"), "jobs": jobs_status(),
-            "st_found": bool(st_dir()), "in_use": in_use,
+            "st_found": bool(st_dir()), "in_use": in_use, "connections": n_c,
             "settings": {"mode": pass_mode(), "synopsis_words": word_target("synopsis"),
                          "chapter_words": word_target("chapters")}}
 
@@ -2196,14 +2414,21 @@ def character_view(cid: str) -> dict:
             "SELECT chat_id, how FROM binding_chats WHERE character_id = ? AND persona = ?", (cid, b["persona"]))}
         bindings.append({"persona": b["persona"], "persona_name": b["persona_name"] or _persona_name(b["persona"]),
                          "created": _date(b["created_ts"]), "chats": members})
-    links = [dict(r) for r in _q("SELECT target_chat, source_chat FROM links WHERE character_id = ?", (cid,))]
+    # Connections for this character or everyone, among their chats.
+    links = [{"target_chat": r["target_chat"], "source_chat": r["source_chat"], "who": r["character_id"]}
+             for r in _q("SELECT character_id, target_chat, source_chat FROM links WHERE character_id IN (?, '')", (cid,))
+             if r["character_id"] or r["target_chat"] in by_id or r["source_chat"] in by_id]
     exclusions = [dict(r) for r in _q("SELECT target_chat, source_chat FROM exclusions WHERE character_id = ?", (cid,))]
     checks = {r["chat_id"]: get_check(cid, r["chat_id"]) for r in _q(
         "SELECT chat_id FROM checks WHERE character_id = ? AND status IN ('open', 'failed')", (cid,))}
     for c in by_id.values():
         c["check"] = checks.get(c["chat_id"])
+    # The chats at the other end of those connections, by id, to name them.
+    others = {c for lk in links for c in (lk["target_chat"], lk["source_chat"]) if c not in by_id}
+    all_names = _card_names()
     return {"id": cid, "name": character_name(cid), "cards": character_cards(cid), "bindings": bindings,
-            "links": links, "exclusions": exclusions, "chats": views}
+            "links": links, "link_chats": {c: _brief(None, c, all_names) for c in others},
+            "exclusions": exclusions, "chats": views}
 
 
 def chat_detail(cid: str, chat_id: str) -> dict:
@@ -2216,6 +2441,7 @@ def chat_detail(cid: str, chat_id: str) -> dict:
     parts = _recap_parts(cid, row)
     personas = [p["avatar"] for p in view["personas"] if p["avatar"]]
     used = []
+    names = _card_names()
     for persona in personas or [""]:
         for s in sources(cid, chat_id, persona, row):
             if all(u["chat_id"] != s["chat_id"] for u in used):
@@ -2223,14 +2449,16 @@ def chat_detail(cid: str, chat_id: str) -> dict:
                 mem = passed_on(cid, srow, off=s["off"]) if srow else None
                 chapters = ({"on": sum(x["on"] for x in mem["sections"]), "total": len(mem["sections"])}
                             if mem and mem["chaptered"] else None)
-                used.append({**s, "title": _chat_title(s["chat_id"]), "chapters": chapters,
+                used.append({**_brief(None, s["chat_id"], names), **s, "chapters": chapters,
+                             "there": bool(mem and mem["there"]),
                              "persona": persona if s["how"] == "binding" else None})
     excluded = [{"chat_id": r["source_chat"], "title": _chat_title(r["source_chat"])} for r in _q(
         "SELECT source_chat FROM exclusions WHERE character_id = ? AND target_chat = ?", (cid, chat_id))]
-    # Where this chat is remembered, each with the chapters it leaves out.
-    used_in = [{"chat_id": r["target_chat"], "title": _chat_title(r["target_chat"]), "off": _off_list(r["chapters_off"])}
-               for r in _q("SELECT target_chat, chapters_off FROM links WHERE character_id = ? AND source_chat = ?",
-                           (cid, chat_id))]
+    # Where this chat is remembered (by this character, or everyone there),
+    # each with the chapters it leaves out.
+    used_in = [{**_brief(None, r["target_chat"], names), "who": r["character_id"], "off": _off_list(r["chapters_off"])}
+               for r in _q("SELECT character_id, target_chat, chapters_off FROM links WHERE character_id IN (?, '') "
+                           "AND source_chat = ? ORDER BY created_ts", (cid, chat_id))]
     in_bindings = [{"persona": r["persona"], "how": r["how"], "off": _off_list(r["chapters_off"])} for r in _q(
         "SELECT b.persona, b.how, b.chapters_off FROM binding_chats b JOIN bindings USING (character_id, persona) "
         "WHERE b.character_id = ? AND b.chat_id = ?", (cid, chat_id))]
@@ -2275,9 +2503,10 @@ def extension_status(info: dict, recaps: bool = False) -> dict:
             if not mem["complete"]:
                 schedule_recap(cid, s["chat_id"], None, srow.get("title") or "")
             view = _chat_view(srow, cid, recaps=False, names=card_names)
-            item = {**{k: view[k] for k in _BRIEF_KEYS}, "how": s["how"], "recap": st}
+            item = {**{k: view[k] for k in _BRIEF_KEYS}, "how": s["how"], "who": s.get("who"), "recap": st,
+                    "there": mem["there"]}
             if recaps:
-                item.update(parts=[{k: p[k] for k in ("from", "to", "recap")} for p in _recap_parts(cid, srow)],
+                item.update(parts=[{k: p[k] for k in ("from", "to", "there", "recap")} for p in _recap_parts(cid, srow)],
                             passed=_passed_view(mem))
             items.append(item)
         if srcs:
@@ -2287,5 +2516,153 @@ def extension_status(info: dict, recaps: bool = False) -> dict:
                     "bound": bool(binding(cid, persona)), "sources": items,
                     "check": check if check and check["status"] == "open" else None})
         if recaps:
-            out[-1]["own"] = {"parts": [{k: p[k] for k in ("from", "to", "recap")} for p in _recap_parts(cid, row)]}
+            out[-1]["own"] = {"parts": [{k: p[k] for k in ("from", "to", "there", "recap")} for p in _recap_parts(cid, row)]}
     return {"characters": out, "st_found": True}
+
+
+# ---------------------------------------------------------------------------
+# Any chat, and the connections between chats (the Memory tab)
+# ---------------------------------------------------------------------------
+
+def all_chats() -> list[dict]:
+    """Every chat file in SillyTavern, from the folder listings alone: rel,
+    group (a group chat's group: the chats its group lists), avatar (a
+    card's own chat's card), mtime."""
+    base = st_dir()
+    if not base:
+        return []
+    out = []
+    cdir = os.path.join(base, "chats")
+    try:
+        folders = sorted(os.listdir(cdir))
+    except OSError:
+        folders = []
+    for folder in folders:
+        try:
+            with os.scandir(os.path.join(cdir, folder)) as it:
+                for e in it:
+                    if e.name.endswith(".jsonl") and e.is_file():
+                        out.append({"rel": f"chats/{folder}/{e.name}", "group": None, "avatar": f"{folder}.png",
+                                    "mtime": e.stat().st_mtime})
+        except OSError:
+            continue
+    for g in list_groups():
+        for stem in g["chats"]:
+            rel = _safe_rel(f"group chats/{stem}.jsonl")
+            try:
+                mtime = os.stat(_abs(rel)).st_mtime if rel else None
+            except OSError:
+                continue
+            if mtime is not None:
+                out.append({"rel": rel, "group": g, "avatar": "", "mtime": mtime})
+    return out
+
+
+def find_chats(q: str = "", limit: int = 30) -> dict:
+    """Any chats in SillyTavern matching a search, last written first: by
+    card or group name, group member, file name, and for a chat read before,
+    its last message and personas. Only the ones returned are read.
+    {chats: [view], more: how many others match}."""
+    words = (q or "").casefold().split()
+    cards = _all_card_names()
+    stored = {r["chat_id"]: r for r in _q("SELECT chat_id, last_msg, personas FROM chats")} if words else {}
+    hits = []
+    for f in all_chats():
+        if words:
+            g = f["group"]
+            text = [os.path.basename(f["rel"])[:-len(".jsonl")]]
+            if g:
+                text += [g["name"]] + [cards.get(a) or _stem(a) for a in g["members"]]
+            else:
+                text.append(cards.get(f["avatar"]) or _stem(f["avatar"]))
+            r = stored.get(f["rel"])
+            if r:
+                text += [r["last_msg"] or "", r["personas"] or ""]
+            hay = " ".join(text).casefold()
+            if not all(w in hay for w in words):
+                continue
+        hits.append(f)
+    hits.sort(key=lambda f: f["mtime"], reverse=True)
+    names = _card_names()
+    views = []
+    for f in hits[:limit]:
+        row = scan_chat(f["rel"], f["group"])
+        if row:
+            views.append(_chat_view(row, None, recaps=False, names=names))
+    return {"chats": views, "more": max(0, len(hits) - limit)}
+
+
+def _connection_state(cids: list[str], srow: Optional[dict]) -> dict:
+    """How far the recaps of a connected chat are for the characters who
+    remember it: parts, recapped (characters with every part done), of,
+    absent (the names of those not in it: it's background for them),
+    building."""
+    if not srow:
+        return {"available": False}
+    out = {"available": True, "parts": 0, "recapped": 0, "of": len(cids), "absent": [], "building": False}
+    for cid in cids:
+        st = recap_state(cid, srow["chat_id"], row=srow)
+        if not st["available"]:
+            return {"available": False}
+        out["parts"] = st["parts"]
+        out["recapped"] += not st["missing"]
+        if st["parts"] and not st["there"]:
+            out["absent"].append(character_name(cid))
+        out["building"] = out["building"] or bool(_jobs.pending(cid, srow["chat_id"]))
+    return out
+
+
+def connections() -> list[dict]:
+    """Every connection, by the chat that remembers it, the most recently
+    connected first: [{target (chat view), members (who "everyone" is
+    there: rememberers), sources: [{chat, everyone, who: [{id, name}] the
+    characters with a connection of their own, state}]}]."""
+    targets: "OrderedDict[str, OrderedDict]" = OrderedDict()
+    newest: dict = {}
+    for r in _q("SELECT character_id, target_chat, source_chat, created_ts FROM links ORDER BY created_ts"):
+        src = targets.setdefault(r["target_chat"], OrderedDict()).setdefault(
+            r["source_chat"], {"everyone": False, "who": []})
+        if r["character_id"]:
+            src["who"].append(r["character_id"])
+        else:
+            src["everyone"] = True
+        newest[r["target_chat"]] = r["created_ts"]
+    names = _card_names()
+    out = []
+    for target in sorted(targets, key=lambda t: newest[t], reverse=True):
+        trow = get_chat(target)
+        members = rememberers(target)
+        items = []
+        for source, info in targets[target].items():
+            srow = get_chat(source)
+            cids = ([m["id"] for m in members] if info["everyone"] else []) + info["who"]
+            items.append({"chat": _chat_view(srow, None, recaps=False, names=names) if srow
+                          else {"chat_id": source, "title": source, "name": source},
+                          "everyone": info["everyone"],
+                          "who": [{"id": c, "name": character_name(c)} for c in info["who"]],
+                          "state": _connection_state(list(dict.fromkeys(cids)), srow)})
+        out.append({"target": _chat_view(trow, None, recaps=False, names=names) if trow
+                    else {"chat_id": target, "title": target, "name": target},
+                    "members": members, "sources": items})
+    return out
+
+
+def connect_preview(target: str, source: str, who: Optional[list] = None) -> dict:
+    """Before connecting `source` to `target`: who'd remember it there
+    (members: rememberers, each with there, whether they're in it), the
+    current connection if any (everyone, who), and about how many Sonnet
+    calls recapping it takes for everyone there, or for `who`."""
+    trow, srow = get_chat(target), get_chat(source)
+    if not trow or not srow or target == source:
+        return {}
+    members = rememberers(target)
+    for m in members:
+        m["there"] = bool(recap_state(m["id"], source, row=srow)["there"])
+    rows = _q("SELECT character_id FROM links WHERE target_chat = ? AND source_chat = ?", (target, source))
+    cids = [m["id"] for m in members] if who is None else who
+    names = _card_names()
+    return {"target": _chat_view(trow, None, recaps=False, names=names),
+            "source": _chat_view(srow, None, recaps=False, names=names),
+            "members": members, "everyone": any(r["character_id"] == "" for r in rows),
+            "who": [r["character_id"] for r in rows if r["character_id"]],
+            "calls": estimate(cids, source) if cids else 0}

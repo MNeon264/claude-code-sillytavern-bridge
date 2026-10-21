@@ -167,13 +167,14 @@ class Bridge:
         os.makedirs(d)
         for name in ("claude_bridge.py", "memory.py", "prompt_history.py"):
             shutil.copy(os.path.join(src, name), d)
-        for name in ("templates", "prompts"):
-            shutil.copytree(os.path.join(src, name), os.path.join(d, name))
+        for name in ("templates", "prompts"):  # prompts/: older checkouts' summary prompts
+            if os.path.isdir(os.path.join(src, name)):
+                shutil.copytree(os.path.join(src, name), os.path.join(d, name))
         with open(os.path.join(d, "bridge_settings.json"), "w") as f:
             json.dump({"update_check_enabled": False, "debug_output": True, "cli_session_reuse": True,
                        "include_thinking": False, "show_thinking_console": False,
                        "model": "claude-opus-5-5", "effort_level": "low",
-                       "auto_summary_enabled": False, "character_memory_enabled": False, **(settings or {})}, f)
+                       "character_memory_enabled": False, **(settings or {})}, f)
         with socket.socket() as s:
             s.bind(("127.0.0.1", 0))
             self.port = s.getsockname()[1]

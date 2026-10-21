@@ -102,7 +102,7 @@ function recapHtml(parts, passed) {
         out.push(`<h5>${escapeHtml(what)}, messages #${s.from}–#${s.to}${note}</h5>`
             + (s.on && s.ready ? `<div>${escapeHtml(s.text)}</div>` : ''));
     });
-    const partsHtml = parts.map(p => `<h5>Messages #${p.from}–#${p.to}</h5>`
+    const partsHtml = parts.map(p => `<h5>Messages #${p.from}–#${p.to}${p.there === false ? ' (not in it: a plain account)' : ''}</h5>`
         + (p.recap ? `<div>${escapeHtml(p.recap)}</div>` : '<div><small>Not recapped yet.</small></div>')).join('');
     out.push(sections.length ? `<details><summary><small>Part recaps, 40 messages each</small></summary>${partsHtml}</details>` : partsHtml);
     return `<div class="bridge-memory-recap">${out.join('')}</div>`;
@@ -324,7 +324,7 @@ async function showMemories() {
         const list = ch.sources.length
             ? ch.sources.map(s => `
                 <details class="bridge-memory-item">
-                    <summary>${chatHtml(s, `${s.how === 'link' ? 'connected' : 'persona binding'}; ${recapText(s.recap)}${chaptersText(s.passed)}`)}</summary>
+                    <summary>${chatHtml(s, `${s.how === 'link' ? 'connected' : 'persona binding'}; ${recapText(s.recap)}${chaptersText(s.passed)}${s.there === false ? `; background: ${ch.name} isn't in it` : ''}`)}</summary>
                     ${recapHtml(s.parts, s.passed)}
                 </details>`).join('')
             : '<p><small>Nothing from other chats.</small></p>';

@@ -642,7 +642,7 @@
             color: #e2c07f;
         }
 
-        /* ========== EXPANDABLE LIST ITEMS (summary cache, lorebook) ========== */
+        /* ========== EXPANDABLE LIST ITEMS (lorebook, persona bindings) ========== */
         .list-item {
             background: var(--ink-sunk);
             border: 1px solid var(--rule);
@@ -776,9 +776,6 @@
         @keyframes spin { to { transform: rotate(360deg); } }
 
         .inline-flex { display: flex; align-items: center; }
-
-        #memCharSummary:empty,
-        #cacheEntries:empty { display: none; }
 
         /* ========== SCROLLBAR / SELECTION ========== */
         * { scrollbar-width: thin; scrollbar-color: var(--rule-strong) transparent; }
@@ -1286,7 +1283,7 @@
         .mem-sub:first-child { margin-top: 0; }
         .mem-source { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 0; font-size: 13px; }
         .mem-source-wrap { border-bottom: 1px solid var(--rule-faint); }
-        .mem-source-wrap:last-child { border-bottom: none; }
+        .mem-source-wrap:last-child, .mem-source-wrap.mem-conn-src { border-bottom: none; }
         .mem-source-acts { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; flex: 0 0 auto; }
         .mem-part { margin-bottom: 12px; }
         .mem-part-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 4px; font-size: 12px; color: var(--paper-faint); }
@@ -1351,6 +1348,32 @@
         details.mem-parts { margin-top: 4px; padding-top: 8px; border-top: 1px solid var(--rule-faint); }
         details.mem-parts > summary { cursor: pointer; font-size: 12.5px; color: var(--paper-faint); margin-bottom: 4px; }
         .mem-recap-box .mem-recap { max-height: 40vh; margin: 0 0 8px; }
+        .mem-recap-pick { margin-bottom: 8px; font-size: 12px; color: var(--paper-faint); }
+        .mem-recap-pick select { width: auto; padding: 3px 28px 3px 8px; font-size: 12px; }
+
+        /* Connections: a chat, and joined under it the chats it remembers. */
+        .mem-conn { padding: 10px 12px; margin-bottom: 10px; border: 1px solid var(--rule); border-radius: var(--radius-sm); background: var(--ink-sunk); }
+        .mem-conn-target { padding-top: 0; }
+        .mem-conn-kicker { margin: 6px 0 0 2px; font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--paper-ghost); }
+        .mem-conn-list { margin-left: 8px; padding-left: 18px; border-left: 2px solid var(--accent-dim); }
+        .mem-conn-src { position: relative; }
+        .mem-conn-src::before { content: ''; position: absolute; left: -18px; top: 19px; width: 12px; border-top: 2px solid var(--accent-dim); }
+        .mem-conn-src + .mem-conn-src { border-top: 1px solid var(--rule-faint); }
+        .mem-conn-who { margin-top: 5px; font-size: 12px; color: var(--paper-dim); }
+        .mem-conn-who .mem-tag { margin-left: 6px; }
+        .mem-conn-note { margin-top: 3px; font-size: 12px; color: var(--paper-faint); }
+        .mem-links { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-top: 6px; font-size: 12px; color: var(--paper-faint); }
+        .mem-link b { font-weight: 500; color: var(--paper-dim); }
+        .mem-link-arrow { color: var(--accent-soft); }
+
+        /* The connect form: which chat remembers, which it remembers, who. */
+        .mem-form-slot:empty { display: none; }
+        .mem-form { margin: 10px 0 12px; }
+        .mem-step + .mem-step { margin-top: 14px; }
+        .mem-step-label { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; font-size: 13px; font-weight: 600; color: var(--paper); }
+        .mem-step-n { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; border-radius: 50%; background: var(--accent-tint); color: var(--accent-soft); font-size: 11.5px; font-weight: 600; }
+        .mem-chosen { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; padding: 9px 12px; border: 1px solid rgba(217, 119, 87, 0.45); border-radius: var(--radius-sm); background: var(--accent-tint); }
+        .mem-who-list { margin-left: 24px; }
         .mem-row-wrap > .mem-recap-box .mem-recap { margin-top: -2px; }
 
         /* ========== RESPONSIVE ========== */
@@ -1378,7 +1401,7 @@
             .mem-row > .mem-chat-main { flex: 1 1 0; }
             .mem-row > .mem-chat-side { flex-basis: 100%; padding-left: 23px; }
             .mem-chat-side .mem-tag:first-child { margin-left: 0; }
-            .mem-source { flex-direction: column; align-items: stretch; gap: 8px; }
+            .mem-source, .mem-chosen { flex-direction: column; align-items: stretch; gap: 8px; }
             .mem-source-acts { justify-content: flex-start; }
             .mem-pick-list { max-height: 60vh; }
         }
@@ -1416,7 +1439,6 @@
             <button class="tab" onclick="showTab('system')">Prompts</button>
             <button class="tab" onclick="showTab('history')">History</button>
             <button class="tab" onclick="showTab('usage')">Usage</button>
-            <button class="tab" onclick="showTab('tools')">Tools</button>
             <button class="tab" onclick="showTab('lorebook')">Lorebook</button>
             <button class="tab" onclick="showTab('memory')">Memory</button>
             <button class="tab" onclick="showTab('test')">Test</button>
@@ -1458,61 +1480,20 @@
                 <dd>Optional style notes added to every roleplay's system prompt, the Creativity modes' texts, and a preview of how the bridge assembles a turn from your SillyTavern prompt: where its own text goes, and where SillyTavern's prompts end up.</dd>
 
                 <dt>History</dt>
-                <dd>Every call the bridge made to the Claude CLI (roleplay turns, memory, lorebook, image and summary calls) with the exact command, system prompt and input text it passed, the reply, the tokens it used, and how much of your 5-hour and weekly limits each roleplay turn took.</dd>
+                <dd>Every call the bridge made to the Claude CLI (roleplay turns, memory, lorebook and image calls) with the exact command, system prompt and input text it passed, the reply, the tokens it used, and how much of your 5-hour and weekly limits each roleplay turn took.</dd>
 
                 <dt>Usage</dt>
                 <dd>Your plan's current usage limits (the same numbers as Claude Code's <code>/usage</code>) and the tokens the bridge used in the current 5-hour and weekly windows.</dd>
-
-                <dt>Tools</dt>
-                <dd><strong>Auto-Summary</strong> (the important one): maintains a running narrative digest per character. Cuts per-request usage massively on long RPs — instead of re-sending 200 raw messages every turn, you send <em>summary + last 15</em>. One summarization call pays back over dozens of subsequent turns, and prompt caching makes the stable parts near-free. <strong>Chunking</strong>: one-shot manual reset that rebuilds a character's summary from scratch. <strong>Summary Cache</strong>: inspector for every stored summary, one row per character, with per-entry delete.</dd>
 
                 <dt>Lorebook</dt>
                 <dd>Auto-generates World Info entries in the background after each RP message, using Sonnet for efficiency. Deep Analysis scans a full chat file for a more thorough pass. Manual Entry lets you add lore by hand.</dd>
 
                 <dt>Memory</dt>
-                <dd>Character Memory: whether it's set up, how it works, and per character the persona bindings, the chats connected to each other, and every chat's recap to read and edit.</dd>
+                <dd>Character Memory: whether it's set up, how it works, the chats connected to each other, and per character the persona bindings and every chat's recap to read and edit.</dd>
 
                 <dt>Test</dt>
                 <dd>Send a message directly at the bridge without going through SillyTavern. Useful when debugging or checking that a new system prompt is wired up correctly.</dd>
             </dl>
-
-            <h3>Per-character summaries</h3>
-            <div class="prose">
-                <p>
-                    Every character gets its own summary bucket. The bridge identifies a character by hashing the first assistant message (the character's greeting) and stores summaries under <code>auto_&lt;hash&gt;</code> cache keys. Switching characters in SillyTavern auto-swaps buckets — no manual cache clearing, and two characters can't cross-contaminate each other's narrative.
-                </p>
-                <p>
-                    If you edit a character's greeting mid-chat, the hash changes and a new bucket appears. Rare, but worth knowing. Legacy pre-per-character entries (those with the bare <code>auto</code> key) auto-migrate to the current character on the next auto-summary update — you'll see a ⚠ flag in the Summary Cache panel while they exist.
-                </p>
-            </div>
-
-            <h3>Editing prompts</h3>
-            <div class="prose">
-                <p>
-                    The bridge's internal prompts — summarization, condensation, chunk processing — live as editable Markdown files in the <code>prompts/</code> directory next to <code>claude_bridge.py</code>:
-                </p>
-            </div>
-            <dl class="prose-dl">
-                <dt>summarize_incremental</dt>
-                <dd>Runs each time the auto-summary threshold is hit. Takes new messages, returns a narrative chunk that gets appended to the existing summary.</dd>
-
-                <dt>condense</dt>
-                <dd>Fires when a summary grows past <code>auto_summary_max_length</code> characters. Narrative-preserving condensation targeting ~60% of the original length.</dd>
-
-                <dt>summarize_chunk</dt>
-                <dd>Used by both chunking paths (the live <code>/v1/chat/completions</code> chunking mode and the <code>/api/summary/generate</code> file-based mode) for individual chunk summaries.</dd>
-
-                <dt>condense_chronological</dt>
-                <dd>Final pass in the file-based summary generator when combined chunks exceed 50K characters. Organizes events chronologically across the whole chat.</dd>
-            </dl>
-            <div class="prose" style="margin-top:14px;">
-                <p>
-                    Templates use Python <code>&#123;variable&#125;</code> placeholders. Edits apply on the next request — no server restart needed, because <code>load_prompt()</code> re-reads the file every call. If you need a literal brace in a prompt (rare), double it: <code>&#123;&#123;</code> and <code>&#125;&#125;</code>.
-                </p>
-                <p>
-                    The roleplay framing is <em>not</em> in this folder — it's the <code>BRIDGE_FRAME</code> constant in <code>claude_bridge.py</code>. The Prompts tab shows where it goes.
-                </p>
-            </div>
 
             <h3>Tips &amp; gotchas</h3>
             <dl class="prose-dl">
@@ -1525,11 +1506,8 @@
                 <dt>Streaming</dt>
                 <dd>With streaming on in SillyTavern, the reply streams as Claude writes it: the thinking summary first (shown when "Request model reasoning" is on and Include Thinking is enabled), then the reply. Requests with tool calling or a JSON schema arrive in one piece at the end.</dd>
 
-                <dt>Chunking</dt>
-                <dd>One-shot by design: enable it, send one message, the bridge splits the conversation, summarizes every chunk, seeds the character's auto-summary bucket, and auto-disables. Use it after importing a long chat, not for every turn. The Cancel button disarms it without sending a request.</dd>
-
                 <dt>Character key</dt>
-                <dd>The hash is 16 characters of MD5 over the first 2000 chars of the greeting. Stable across turns. If you use the backup zip to restore state, cache keys remain valid.</dd>
+                <dd>The History tab and the bridge's log label each roleplay turn with a key for its character: 16 characters of MD5 over the character's name as SillyTavern wraps the card's fields, or else over the first 2000 characters of the greeting.</dd>
 
                 <dt>Debug logs</dt>
                 <dd>Enable Debug Output in Settings to see every incoming request structure, image detection passes, and prompt sizes in the bridge terminal. Essential when wiring up new SillyTavern extensions.</dd>
@@ -1843,130 +1821,6 @@
             </div>
         </div>
 
-        <!-- Tools Panel -->
-        <div id="tools" class="panel">
-            <h3>Auto-Summary</h3>
-            <p>
-                <strong>Cuts per-request token usage dramatically on long RPs.</strong> Without it, SillyTavern re-sends your entire message history every turn — at message 200, that's the whole conversation going up the pipe on every single reply. Auto-summary replaces old messages with a condensed narrative digest the bridge keeps per character, so each request sends <em>summary + last 15 messages</em> instead of the full backlog. The one-time cost of generating the summary is paid back many times over the next dozens of turns, and because the summary + system prompt stay stable across requests, Claude's prompt cache kicks in and most of those tokens come back as cheap cache reads instead of full reads. New events get appended without losing old ones, and each character's story lives in its own bucket — switching characters won't cross-contaminate context.
-            </p>
-
-            <div class="setting-card">
-                <div class="card-head">
-                    <h3>Auto-Summary</h3>
-                    <div class="switch-container">
-                        <span id="autoSummaryStatus">Disabled</span>
-                        <label class="switch">
-                            <input type="checkbox" id="autoSummary">
-                            <span class="slider"></span>
-                        </label>
-                    </div>
-                </div>
-                <p>
-                    When enabled, summarizes new messages incrementally and appends to that character's existing summary.
-                </p>
-
-                <div id="autoSummarySettings" style="display:none;">
-                    <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:flex-end;margin-bottom:14px;">
-                        <div>
-                            <label class="field-label" for="autoSummaryThreshold">Update after X new messages</label>
-                            <input type="number" id="autoSummaryThreshold" value="20" min="5" max="100" style="width:110px;">
-                        </div>
-                        <div>
-                            <label class="field-label" for="autoSummaryMaxLength">Condense when longer than (chars)</label>
-                            <input type="number" id="autoSummaryMaxLength" value="50000" min="10000" max="200000" style="width:130px;">
-                        </div>
-                        <button class="btn btn-secondary" onclick="saveAutoSummarySettings()">Save Thresholds</button>
-                    </div>
-                </div>
-
-                <div id="autoSummaryInfo" class="notice">
-                    Loading status...
-                </div>
-            </div>
-
-            <h3>Generate from Chat File</h3>
-            <p>
-                Create a summary directly from a SillyTavern chat file. More accurate than relying on what ST sends.
-            </p>
-
-            <div class="setting-card">
-                <h3>Chat File</h3>
-                <p>
-                    Select a chat file to generate a comprehensive summary. Supports chunking for long conversations.
-                </p>
-
-                <div class="form-group">
-                    <label for="summaryFileSelect">Chat file</label>
-                    <select id="summaryFileSelect" style="margin-bottom:8px;" onchange="updateSummaryFilePath()">
-                        <option value="">-- Select a chat file --</option>
-                    </select>
-                    <input type="text" id="summaryFilePath" placeholder="Or paste full path to .jsonl chat file">
-                </div>
-
-                <div class="form-group">
-                    <label>Model</label>
-                    <div class="toggle-group" style="max-width:360px;">
-                        <button class="toggle-btn active" data-setting="summary-model" data-value="sonnet">Sonnet (Fast)</button>
-                        <button class="toggle-btn" data-setting="summary-model" data-value="opus">Opus (Thorough)</button>
-                    </div>
-                </div>
-
-                <button class="btn" onclick="generateSummaryFromFile()" id="genSummaryBtn">Generate Summary</button>
-            </div>
-
-            <h3>Manual Chunking</h3>
-            <p>
-                Manually trigger a full conversation summary. Useful for initial setup or reset.
-            </p>
-
-            <div class="settings-grid">
-                <div class="setting-card">
-                    <h3>One-Shot Chunking</h3>
-                    <p>
-                        When enabled, the next request will be split into chunks, summarized, and combined. Auto-disables after use.
-                    </p>
-                    <div class="btn-row">
-                        <button class="btn" id="chunkingBtn" onclick="toggleChunking()">Enable Chunking</button>
-                        <button class="btn btn-secondary" id="chunkingCancelBtn" onclick="disableChunking()" style="display:none;">Cancel</button>
-                    </div>
-                    <p id="chunkingStatus" style="color:var(--paper-faint);font-size:12.5px;margin:12px 0 0;">
-                        Status: Disabled
-                    </p>
-                </div>
-
-                <div class="setting-card tool-section">
-                    <h3>How It Works</h3>
-                    <ol class="plain-list" style="margin-top:8px;">
-                        <li>Click <strong>Enable Chunking</strong></li>
-                        <li>Go to SillyTavern and send any message</li>
-                        <li>The conversation is split into ~80K token chunks</li>
-                        <li>Each chunk is summarized (cached for reuse)</li>
-                        <li>Summaries are combined into context</li>
-                        <li>Your request is sent with the summary context</li>
-                    </ol>
-                </div>
-            </div>
-
-            <h3>Summary Cache</h3>
-            <p>
-                Each character gets its own summary bucket — switching characters in SillyTavern auto-swaps entries, no manual cache clearing needed.
-                The bridge identifies a character by hashing its greeting (first assistant message).
-            </p>
-
-            <div class="setting-card">
-                <div class="card-head">
-                    <div id="cacheInfo" style="color:var(--paper-dim);font-size:13px;">
-                        Loading cache info...
-                    </div>
-                    <div class="btn-row">
-                        <button class="btn btn-secondary btn-sm" onclick="refreshCache()">Refresh</button>
-                        <button class="btn btn-danger btn-sm" onclick="clearCache()">Clear All</button>
-                    </div>
-                </div>
-                <div id="cacheEntries" style="margin-top:14px;"></div>
-            </div>
-        </div>
-
         <!-- Lorebook Panel -->
         <div id="lorebook" class="panel">
             <h3>Auto-Lorebook</h3>
@@ -2094,27 +1948,19 @@
         <!-- Memory Panel (Character Memory, memory.py) -->
         <div id="memory" class="panel">
             <h3>Character Memory</h3>
-            <p>A character remembers another chat only where you ask for it: connect that chat to the chat you're in, or bind the character to a persona so they remember the chats with that persona you pick, and every new one. The bridge reads those chats from SillyTavern's folder and Sonnet recaps them from the character's point of view. Memories count over what the card says about the character's history. <a href="#memHowItWorks">How it works</a> is below.</p>
+            <p>A character remembers another chat only where you ask for it: connect that chat to the chat it should be remembered in, or bind the character to a persona so they remember the chats with that persona you pick, and every new one. The bridge reads those chats from SillyTavern's folder, and Sonnet recaps them from each character's point of view where the character is in them, and as a plain account where they aren't. Memories count over what the card says about the character's history. <a href="#memHowItWorks">How it works</a> is below.</p>
 
             <div id="memStatus" class="notice" style="margin-bottom:12px;display:none;"></div>
             <div id="memJobs" class="notice" style="margin-bottom:16px;display:none;"></div>
 
             <div class="setting-card">
-                <div class="card-head"><h3>What other chats get</h3></div>
-                <p class="card-desc">A chat remembered in another chat, through a connection or a binding, comes either as one <strong>synopsis</strong> or as its <strong>chapters</strong>. In chapters mode Sonnet divides a chat of 120 messages or more by event, and each connection or binding can leave chapters out: open the chat below to choose. Both are written from the chat's part recaps, and part recaps already shorter than the target are passed on as they are.</p>
-                <div class="toggle-group" style="margin-bottom:12px;">
-                    <button class="toggle-btn" data-mem-mode="synopsis">Synopsis</button>
-                    <button class="toggle-btn" data-mem-mode="chapters">Chapters</button>
+                <div class="card-head">
+                    <h3>Connections</h3>
+                    <button class="toggle-btn sm primary" id="memConnNewBtn">Connect chats</button>
                 </div>
-                <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:flex-end;">
-                    <div>
-                        <label class="field-label" for="memWords" id="memWordsLabel">Words per synopsis, about</label>
-                        <input type="number" id="memWords" min="50" max="2000" step="10" style="width:110px;">
-                    </div>
-                    <button class="btn btn-secondary" id="memSettingsSave">Save</button>
-                    <span id="memSettingsStatus" class="status-msg" style="display:none;">Saved!</span>
-                </div>
-                <p class="list-item-meta" id="memSettingsNote" style="margin-top:10px;"></p>
+                <p class="card-desc">Each box is a chat, with the chats it remembers joined under it. Any chat in SillyTavern can be connected to any other, a group chat too. A character who wasn't in the remembered chat gets it as background. In a group chat everyone remembers it, unless you pick who.</p>
+                <div id="memConnFormTop" class="mem-form-slot"></div>
+                <div id="memConns"></div>
             </div>
 
             <div class="setting-card">
@@ -2122,6 +1968,7 @@
                     <h3>Character</h3>
                     <button class="toggle-btn sm" id="memRefreshBtn">Refresh</button>
                 </div>
+                <p class="card-desc">Per character: persona bindings, their cards, and every chat of theirs with its recap.</p>
                 <div id="memKnown" class="mem-chips" style="margin-top:8px;"></div>
                 <input id="memCharSearch" type="text" class="w-full" placeholder="Search all characters..." autocomplete="off" style="margin-top:10px;">
                 <div id="memCharResults" class="mem-results"></div>
@@ -2151,7 +1998,7 @@
                         <h3>Chats</h3>
                         <span id="memChatCount" class="list-item-meta"></span>
                     </div>
-                    <p class="card-desc">The character's own chats and their group chats. Open one to read or edit its recap, connect other chats to it, or see what it brings in.</p>
+                    <p class="card-desc">The character's own chats and their group chats, each with the chats it's connected to. Open one to read or edit its recap, or to connect chats to it.</p>
                     <div class="mem-inline" style="margin-bottom:10px;">
                         <input id="memChatFilter" type="text" placeholder="Search name, branch, persona or last message..." style="flex:1;min-width:0;">
                         <select id="memChatPersona" style="flex:0 1 45%;min-width:0;"></select>
@@ -2160,37 +2007,55 @@
                 </div>
             </div>
 
+            <div class="setting-card">
+                <div class="card-head"><h3>What other chats get</h3></div>
+                <p class="card-desc">A chat remembered in another chat, through a connection or a binding, comes either as one <strong>synopsis</strong> or as its <strong>chapters</strong>. In chapters mode Sonnet divides a chat of three parts or more (81 messages and up) by event, and each connection or binding can leave chapters out: open its recap to choose. Both are written from the chat's part recaps, and part recaps already shorter than the target are passed on as they are.</p>
+                <div class="toggle-group" style="margin-bottom:12px;">
+                    <button class="toggle-btn" data-mem-mode="synopsis">Synopsis</button>
+                    <button class="toggle-btn" data-mem-mode="chapters">Chapters</button>
+                </div>
+                <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:flex-end;">
+                    <div>
+                        <label class="field-label" for="memWords" id="memWordsLabel">Words per synopsis, about</label>
+                        <input type="number" id="memWords" min="50" max="2000" step="10" style="width:110px;">
+                    </div>
+                    <button class="btn btn-secondary" id="memSettingsSave">Save</button>
+                    <span id="memSettingsStatus" class="status-msg" style="display:none;">Saved!</span>
+                </div>
+                <p class="list-item-meta" id="memSettingsNote" style="margin-top:10px;"></p>
+            </div>
+
             <h3 id="memHowItWorks">How it works</h3>
             <dl class="prose-dl">
                 <dt>Setup</dt>
                 <dd>Turn on Character Memory in Settings, and install the bridge's SillyTavern extension, Bridge Memory: run <code>st-extension/install.sh</code> from the bridge's folder and reload SillyTavern. The extension adds which chat, persona and character each request is for, which nothing else in a request says. Memory skips turns without it. The status at the top of this tab says whether it has been heard from.</dd>
 
                 <dt>Recaps</dt>
-                <dd>The bridge reads a chat's file from SillyTavern's folder, and Sonnet recaps it from the character's point of view, 40 messages at a time, each part with the previous part's recap for context. Hidden messages are left out. Recaps are built in the background when a chat that needs them is used or opened in SillyTavern, or when you ask here, and a reply uses whatever is ready; the rest arrives on later replies. A part is recapped again only when its messages change, and a branch shares its parent's recaps up to the branch point. Open a chat below to read what the character remembers of it; <strong>Recap</strong> beside a chat in a binding or in another chat's memories shows it in place. <strong>Edit</strong> lets you rewrite any part, the synopsis or a chapter; <strong>Redo</strong> has it written again. An edit of a synopsis or chapter lasts until a part it's written from changes.</dd>
+                <dd>The bridge reads a chat's file from SillyTavern's folder, and Sonnet recaps it 40 messages at a time, each part with the previous part's recap for context. A part the character has a message in is recapped from their point of view. A part they have no message in is recapped as a plain account of what happened, which never puts them in it, and every character who isn't in that part shares the one account. Hidden and empty messages are left out. Recaps are built in the background when a chat that needs them is used or opened in SillyTavern, or when you ask here, and a reply uses whatever is ready; the rest arrives on later replies. A part is recapped again only when its messages change, and a branch shares its parent's recaps up to the branch point. Open a chat below to read what the character remembers of it; <strong>Recap</strong> beside a connected chat, or a chat in a binding, shows it in place. <strong>Edit</strong> lets you rewrite any part, the synopsis or a chapter; <strong>Redo</strong> has it written again. An edit of a synopsis or chapter lasts until a part it's written from changes.</dd>
 
                 <dt>Synopsis or chapters</dt>
-                <dd>Other chats don't get a chat's part recaps but what's written from them, set at the top of this tab. <strong>Synopsis</strong>: one recap of the whole chat in about the number of words you set. <strong>Chapters</strong>: Sonnet divides a chat of three parts or more (81 messages and up) into chapters by event, at part boundaries, titles them, and writes each in about the number of words you set. A chat too short for chapters comes whole. When the chat grows, only its last chapter is divided again, so the earlier ones keep their place and what you chose for them. Open a chat to untick chapters per connection and per binding; a binding's choice holds in all its chats. Part recaps already within the word target go as they are, with no call. Changing the mode or word target has each chat written again the next time it's needed; the division into chapters is kept when only the word target changes.</dd>
+                <dd>Other chats don't get a chat's part recaps but what's written from them, set at the top of this tab. <strong>Synopsis</strong>: one recap of the whole chat in about the number of words you set. <strong>Chapters</strong>: Sonnet divides a chat of three parts or more (81 messages and up) into chapters by event, at part boundaries, once for every character, titles them, and writes each in about the number of words you set. A chat too short for chapters comes whole. When the chat grows, only its last chapter is divided again, so the earlier ones keep their place and what you chose for them. Untick chapters per connection (in its recap under Connections, or in the chat) and per binding; a binding's choice holds in all its chats. Part recaps already within the word target go as they are, with no call. Changing the mode or word target has each chat written again the next time it's needed; the division into chapters is kept when only the word target changes.</dd>
 
                 <dt>Earlier in a chat</dt>
-                <dd>When SillyTavern leaves a chat's oldest messages out to fit the context, the recap of those messages comes in instead. Not with auto-summary on, which already summarizes them.</dd>
+                <dd>When SillyTavern leaves a chat's oldest messages out to fit the context, the recap of those messages comes in instead.</dd>
 
                 <dt>Connections</dt>
-                <dd>Open a chat below and connect another chat to it: the character remembers that chat in this one. Connections are per character, so in a group chat only that member remembers it. Use them for one-off encounters, like a private scene only that character was in.</dd>
+                <dd>Connect any chat to any other under <strong>Connections</strong>, or from a chat's dialog: the chat that remembers, the chat it remembers, and who remembers it. In a one-character chat, that's the character. In a group chat it's everyone in it, members who join later included, or only the members you tick, so a private scene can stay with the one character who was in it. A character who isn't in the remembered chat at all gets it as background: the memory says they weren't there and know only what they'd have heard or been told. In a group chat, <strong>Leave out for</strong> in one member's view of the chat keeps a connection for everyone from that member.</dd>
 
                 <dt>Persona bindings</dt>
                 <dd>Bind a character to a persona, then tick the chats with that persona they should remember; <strong>Select all</strong> ticks every chat with it. From then on each new chat with that character and persona joins by itself. Branches don't, as they're alternate timelines; tick them if you want them. In every chat with the persona, the character remembers all the ticked chats except the chat itself and its own branches. A chat's <strong>Don't bring in through bindings</strong> keeps it out everywhere; <strong>Leave out here</strong> keeps one chat's memory out of one other chat.</dd>
 
                 <dt>What the model gets</dt>
-                <dd>A new CLI session gets a <code>&lt;character_memory&gt;</code> block before the transcript: the recap of this chat's earlier part, then the other chats' synopses or chapters, oldest first, each saying who was there. Newest chats get theirs while 24,000 characters last; a chat whose chapters don't all fit loses its earliest ones, and older chats that don't fit are left out. After that, each reply carries only recaps that are new or changed, and a note when one is dropped. The block says the memories count over the card's description and scenario about the character's history and relationships. Only the character whose reply it is gets their memories; in a group chat each member has their own CLI session.</dd>
+                <dd>A new CLI session gets a <code>&lt;character_memory&gt;</code> block before the transcript: the recap of this chat's earlier part, then the other chats' synopses or chapters, oldest first, each saying who was there, or that the character wasn't and it's background. Newest chats get theirs while 24,000 characters last; a chat whose chapters don't all fit loses its earliest ones, and older chats that don't fit are left out. After that, each reply carries only recaps that are new or changed, and a note when one is dropped. The block says the memories count over the card's description and scenario about the character's history and relationships. Only the character whose reply it is gets their memories; in a group chat each member has their own CLI session.</dd>
 
                 <dt>Conflicts</dt>
-                <dd>Once a chat with memories from other chats has your first message, Sonnet compares how it starts (its greeting, your first message and its Author's Note) with those memories. If they clash, say the chat has them meet as strangers or makes them siblings, SillyTavern shows it after the next reply: keep the memories, or untick the ones to leave out of this chat. The chat here shows it too.</dd>
+                <dd>Once a chat with memories from other chats has your first message, Sonnet compares how it starts (its greeting, your first message and its Author's Note) with the memories of chats the character was in. Background from chats they weren't in isn't checked. If they clash, say the chat has them meet as strangers or makes them siblings, SillyTavern shows it after the next reply: keep the memories, or untick the ones to leave out of this chat. The chat here shows it too.</dd>
 
                 <dt>Cards</dt>
                 <dd>A character can have several cards, such as the same person on cards from different creators. Add the others to the character, and their chats and memories become one character's. Removing a card takes its chats back with it.</dd>
 
                 <dt>Cost</dt>
-                <dd>Nothing runs per reply. Recapping takes one Sonnet call per 40 messages, once. A synopsis takes one more, chapters one to divide the chat plus one per chapter (none for a synopsis or chapter short enough already), and a conflict check one. They count against your plan like any other call and are listed on the History tab under Character Memory.</dd>
+                <dd>Nothing runs per reply. Recapping takes one Sonnet call per 40 messages, once, plus one per 40 messages for the plain account of parts a character isn't in, shared by everyone who isn't. A connection for everyone in a group chat is recapped for each member, so the dashboard asks first with an estimate. A synopsis takes one more, chapters one to divide the chat plus one per chapter (none for a synopsis or chapter short enough already), and a conflict check one. They count against your plan like any other call and are listed on the History tab under Character Memory.</dd>
             </dl>
 
             <div id="memChatModal" class="modal-overlay">
@@ -2240,9 +2105,7 @@
             document.getElementById(tabName).classList.add('active');
 
             // Auto-refresh when switching tabs
-            if (tabName === 'tools') {
-                refreshCache();
-            } else if (tabName === 'system') {
+            if (tabName === 'system') {
                 loadPromptPreview();
             } else if (tabName === 'lorebook') {
                 refreshLorebook();
@@ -2456,8 +2319,10 @@
         function memChatMeta(c) {
             const personas = [...new Set((c.personas || []).map(p => memPersonaLabel(p.avatar, p.name)))].join(', ');
             const created = memCreated(c), last = memDay(c.last_ts);
-            return [created ? `created ${created}` : '', `${c.messages} messages`,
+            const members = (c.members || []).map(m => m.name);
+            return [created ? `created ${created}` : '', c.messages !== undefined ? `${c.messages} messages` : '',
                     last && last !== created ? `last ${last}` : '',
+                    members.length ? `members ${members.length > 6 ? `${members.slice(0, 6).join(', ')} and ${members.length - 6} more` : members.join(', ')}` : '',
                     personas ? `with ${personas}` : ''].filter(Boolean).map(memEsc).join(' · ');
         }
 
@@ -2547,6 +2412,346 @@
             if (stop) stop.addEventListener('click', () => memDo('/api/memory/recap/cancel', {}, memPollJobs));
         }
 
+        // ===== Connections: chats remembered in other chats =====
+        // memConns: /api/memory/connections, one entry per chat that
+        // remembers others. memFormBox: the element the connect form is open
+        // in (one at a time); the list isn't redrawn under it. memConnShown:
+        // the recaps open in the list ("<target>\n<source>" -> the character
+        // shown), opened again when the list is redrawn.
+        let memConns = [];
+        let memFormBox = null;
+        const memConnShown = new Map();
+
+        async function memLoadConns() {
+            try {
+                memConns = (await memApi('/api/memory/connections')).connections || [];
+            } catch (e) {
+                document.getElementById('memConns').innerHTML = `<div class="mem-empty">${memEsc(e.message)}</div>`;
+                return;
+            }
+            if (memFormBox && document.getElementById('memConns').contains(memFormBox)) return;
+            memRenderConns();
+        }
+
+        // After a connection changed: the list, and the character and chat open.
+        async function memAfterConnChange() {
+            await memLoadConns();
+            if (memCharId) await memLoadChar(memCharId);
+            if (memChatId && !memChatDirty) await memRenderChatDetail();
+        }
+
+        // Who remembers a connected chat: everyone in the chat that
+        // remembers it, and those with a connection of their own.
+        function memConnMembers(conn, src) {
+            const out = src.everyone ? [...(conn.members || [])] : [];
+            (src.who || []).forEach(w => { if (!out.some(m => m.id === w.id)) out.push(w); });
+            return out;
+        }
+
+        function memConnWho(conn, src) {
+            const members = conn.members || [];
+            if (src.everyone && members.length === 1) return members[0].name;
+            if (src.everyone) return `everyone in it (${members.length})`;
+            return (src.who || []).map(w => w.name).join(', ');
+        }
+
+        function memConnTag(src) {
+            const st = src.state || {};
+            if (!st.available) return '<span class="mem-tag warn">file missing</span>';
+            if (st.building) return '<span class="mem-tag accent">recapping</span>';
+            if (!st.parts) return '<span class="mem-tag">empty</span>';
+            if (st.recapped >= st.of) return '<span class="mem-tag ok">recapped</span>';
+            return st.recapped ? `<span class="mem-tag warn">recapped for ${st.recapped} of ${st.of}</span>` : '<span class="mem-tag">not recapped</span>';
+        }
+
+        // The characters a connected chat is only background for.
+        function memAbsentNote(names) {
+            if (!names?.length) return '';
+            const shown = names.length > 5 ? `${names.slice(0, 5).join(', ')} and ${names.length - 5} more` : names.join(', ');
+            return `<div class="mem-conn-note">Background for ${memEsc(shown)}, who ${names.length === 1 ? "isn't" : "aren't"} in it.</div>`;
+        }
+
+        function memRenderConns() {
+            const box = document.getElementById('memConns');
+            if (!memConns.length) {
+                box.innerHTML = '<div class="mem-empty">No chat is connected to another yet.</div>';
+                return;
+            }
+            box.innerHTML = memConns.map((conn, k) => {
+                const group = (conn.members || []).length > 1 || !!conn.target.group;
+                const rows = conn.sources.map((src, i) => {
+                    const st = src.state || {};
+                    const acts = ['<button type="button" class="toggle-btn sm" data-act="recap">Recap</button>'];
+                    if (st.available && st.parts && st.recapped < st.of && !st.building) {
+                        acts.push('<button type="button" class="toggle-btn sm" data-act="build">Recap now</button>');
+                    }
+                    if (group) acts.push('<button type="button" class="toggle-btn sm" data-act="who">Who</button>');
+                    acts.push('<button type="button" class="toggle-btn sm danger" data-act="disconnect">Disconnect</button>');
+                    return `<div class="mem-conn-src" data-i="${i}">
+                        <div class="mem-source"><div class="mem-chat-main">${memChatSummary(src.chat)}
+                            <div class="mem-conn-who">Remembered by ${memEsc(memConnWho(conn, src))}${memConnTag(src)}</div>
+                            ${memAbsentNote(st.absent)}</div>
+                            <div class="mem-source-acts">${acts.join('')}</div></div>
+                        <div class="mem-recap-box" style="display:none;"></div></div>`;
+                }).join('');
+                return `<div class="mem-conn" data-k="${k}">
+                    <div class="mem-source mem-conn-target"><div class="mem-chat-main">${memChatSummary(conn.target)}</div>
+                        <div class="mem-source-acts"><button type="button" class="toggle-btn sm" data-act="add">Connect a chat here</button></div></div>
+                    <div class="mem-form-slot"></div>
+                    <div class="mem-conn-kicker">remembers</div>
+                    <div class="mem-conn-list">${rows}</div></div>`;
+            }).join('');
+            box.querySelectorAll('.mem-conn').forEach(el => {
+                const conn = memConns[Number(el.dataset.k)];
+                const slot = el.querySelector('.mem-form-slot');
+                el.querySelector('[data-act="add"]').addEventListener('click', () => memToggleForm(slot, {target: conn.target}));
+                el.querySelectorAll('.mem-conn-src').forEach(row => {
+                    const src = conn.sources[Number(row.dataset.i)];
+                    const key = `${conn.target.chat_id}\n${src.chat.chat_id}`;
+                    const recapBox = row.querySelector('.mem-recap-box');
+                    const recapBtn = row.querySelector('[data-act="recap"]');
+                    const show = (open, cid) => {
+                        recapBtn.textContent = open ? 'Hide recap' : 'Recap';
+                        recapBtn.classList.toggle('active', open);
+                        recapBox.style.display = open ? 'block' : 'none';
+                        if (open) memConnRecap(recapBox, conn, src, cid, key);
+                        else memConnShown.delete(key);
+                    };
+                    recapBtn.addEventListener('click', () => show(recapBox.style.display === 'none'));
+                    if (memConnShown.has(key)) show(true, memConnShown.get(key));
+                    const act = (name, fn) => { const b = row.querySelector(`[data-act="${name}"]`); if (b) b.addEventListener('click', fn); };
+                    act('build', () => memConnBuild(conn, src));
+                    act('who', () => memToggleForm(slot, {target: conn.target, source: src.chat}));
+                    act('disconnect', () => {
+                        if (!confirm(`Disconnect ${memChatPlain(src.chat)} from ${memChatPlain(conn.target)}? It stops being remembered there; its recaps are kept.`)) return;
+                        memDo('/api/memory/link', {target: conn.target.chat_id, source: src.chat.chat_id, on: false}, memAfterConnChange);
+                    });
+                });
+            });
+        }
+
+        // A connected chat's recap, as one character who remembers it has it
+        // (a group's members each have their own), with its chapters to pass
+        // on or leave out of this connection.
+        async function memConnRecap(box, conn, src, cid, key) {
+            const members = memConnMembers(conn, src);
+            if (!members.some(m => m.id === cid)) cid = members[0]?.id;
+            if (!cid) {
+                box.innerHTML = '<div class="mem-recap"><div class="mem-empty">No character is in that chat to remember it.</div></div>';
+                return;
+            }
+            memConnShown.set(key, cid);
+            const absent = new Set(src.state?.absent || []);
+            const pick = members.length > 1 ? `<label class="mem-inline mem-recap-pick">As remembered by <select data-member>${members.map(m =>
+                `<option value="${memEsc(m.id)}"${m.id === cid ? ' selected' : ''}>${memEsc(m.name)}${absent.has(m.name) ? ' (background)' : ''}</option>`).join('')}</select></label>` : '';
+            box.innerHTML = `<div class="mem-recap">${pick}<div class="mem-empty">Loading...</div></div>`;
+            let r;
+            try {
+                r = await memApi(`/api/memory/recap?character=${encodeURIComponent(cid)}&chat=${encodeURIComponent(src.chat.chat_id)}&target=${encodeURIComponent(conn.target.chat_id)}`);
+            } catch (e) {
+                box.innerHTML = `<div class="mem-recap">${pick}<div class="mem-empty">${memEsc(e.message)}</div></div>`;
+                return;
+            }
+            const name = members.find(m => m.id === cid)?.name || '';
+            // The connection row this character uses: their own, or everyone's.
+            const who = (src.who || []).some(w => w.id === cid) ? cid : '';
+            const notes = [];
+            if (r.passed && r.passed.there === false && (r.parts || []).some(p => p.recap)) {
+                notes.push(`${name} isn't in this chat: it's a plain account, which ${name} gets as background.`);
+            }
+            if (r.passed?.chaptered) {
+                notes.push(who ? `Untick a chapter to leave it out for ${name} here.`
+                    : members.length > 1 ? 'Untick a chapter to leave it out here, for everyone.' : 'Untick a chapter to leave it out here.');
+            }
+            const toggle = r.passed?.chaptered
+                ? s => `<label class="mem-uses"><input type="checkbox" data-start="${s.start}"${s.on ? ' checked' : ''}> pass on</label>` : undefined;
+            box.innerHTML = `<div class="mem-recap">${pick}${notes.map(n => `<div class="mem-empty" style="margin-bottom:8px;">${memEsc(n)}</div>`).join('')}${memRecapHtml(r, toggle)}</div>`;
+            const sel = box.querySelector('[data-member]');
+            if (sel) sel.addEventListener('change', () => memConnRecap(box, conn, src, sel.value, key));
+            box.querySelectorAll('input[data-start]').forEach(i => i.addEventListener('change', () => {
+                const off = [...box.querySelectorAll('input[data-start]')].filter(x => !x.checked).map(x => Number(x.dataset.start));
+                memDo('/api/memory/chapters', {chat: src.chat.chat_id, target: conn.target.chat_id, who, off},
+                      () => memConnRecap(box, conn, src, cid, key));
+            }));
+        }
+
+        // About how many Sonnet calls connecting (or recapping) `source` for
+        // these characters takes (ids null: everyone in `target`).
+        async function memConnCalls(target, source, ids) {
+            const q = new URLSearchParams({target, source});
+            (ids || []).forEach(id => q.append('who', id));
+            try {
+                return (await memApi('/api/memory/connect/preview?' + q)).calls || 0;
+            } catch (e) {
+                return 0;
+            }
+        }
+
+        async function memConnBuild(conn, src) {
+            const ids = memConnMembers(conn, src).map(m => m.id);
+            const calls = await memConnCalls(conn.target.chat_id, src.chat.chat_id, ids);
+            if (calls && !confirm(`Recapping ${memChatPlain(src.chat)} takes about ${calls} Sonnet call${calls === 1 ? '' : 's'}, which count against your plan. Go ahead?`)) return;
+            for (const id of ids) {
+                await memApi('/api/memory/recap/build', {character: id, chat: src.chat.chat_id, title: src.chat.title}).catch(() => null);
+            }
+            await memLoadConns();
+            memPollJobs();
+        }
+
+        // ----- The connect form -----
+        // In `slot`: 1. the chat that remembers, 2. the chat it remembers,
+        // each searched among all of SillyTavern's chats, 3. who remembers
+        // it: everyone in the chat, or the members ticked. pre: {target,
+        // source} already chosen (chat views); a connection that exists is
+        // edited.
+        function memToggleForm(slot, pre = {}) {
+            if (memFormBox === slot) {
+                memCloseForm();
+                return;
+            }
+            memCloseForm();
+            memFormBox = slot;
+            memConnectOpen = !!slot.closest('#memChatModal');
+            memRenderForm(slot, {target: pre.target || null, source: pre.source || null, fixed: !!pre.target,
+                                 preview: null, everyone: true, who: new Set(), editing: false});
+        }
+
+        function memCloseForm() {
+            if (memFormBox) memFormBox.innerHTML = '';
+            memFormBox = null;
+            memConnectOpen = false;
+        }
+
+        function memFormWho(f) {
+            const p = f.preview;
+            if (!p) return '<div class="mem-empty">Loading...</div>';
+            if (p.error) return `<div class="mem-empty">${memEsc(p.error)}</div>`;
+            const m = p.members || [];
+            const bg = x => x.there ? '' : " <small>(isn't in it: gets it as background)</small>";
+            if (!m.length) return '<div class="mem-empty">No character is in that chat to remember it.</div>';
+            if (m.length === 1) return `<div class="mem-check"><span>${memEsc(m[0].name)}${bg(m[0])}</span></div>`;
+            const away = m.filter(x => !x.there).map(x => x.name);
+            const note = !away.length ? 'Everyone in it is in that chat too.'
+                : away.length === m.length ? 'None of them is in that chat: it\'s background for all.'
+                : `Background for ${away.join(', ')}, who ${away.length === 1 ? "isn't" : "aren't"} in that chat.`;
+            return `<label class="mem-check"><input type="radio" name="memWhoMode" value="all"${f.everyone ? ' checked' : ''}><span>Everyone in it (${m.length}), and whoever joins later</span></label>`
+                + (f.everyone ? `<div class="mem-who-list mem-conn-note">${memEsc(note)}</div>` : '')
+                + `<label class="mem-check"><input type="radio" name="memWhoMode" value="some"${f.everyone ? '' : ' checked'}><span>Only these</span></label>`
+                + (f.everyone ? '' : `<div class="mem-who-list">${m.map(x => `<label class="mem-check"><input type="checkbox" data-who="${memEsc(x.id)}"${f.who.has(x.id) ? ' checked' : ''}><span>${memEsc(x.name)}${bg(x)}</span></label>`).join('')}</div>`);
+        }
+
+        function memRenderForm(slot, f) {
+            const step = (n, label, which) => {
+                const chat = f[which];
+                const head = `<div class="mem-step-label"><span class="mem-step-n">${n}</span>${label}</div>`;
+                if (chat) {
+                    const locked = f.editing || (which === 'target' && f.fixed);
+                    return `<div class="mem-step">${head}<div class="mem-chosen"><div class="mem-chat-main">${memChatSummary(chat)}</div>`
+                        + (locked ? '' : `<div class="mem-source-acts"><button type="button" class="toggle-btn sm" data-change="${which}">Change</button></div>`) + '</div></div>';
+                }
+                return `<div class="mem-step">${head}<input type="text" class="w-full" data-search="${which}" placeholder="Search any chat: card or group name, member, file name, last message..." autocomplete="off">
+                    <div class="mem-pick-list" data-results="${which}"></div></div>`;
+            };
+            const both = f.target && f.source;
+            const ready = both && f.preview && !f.preview.error && (f.preview.members || []).length;
+            slot.innerHTML = `<div class="mem-picker mem-form">${step(1, 'The chat that remembers', 'target')}`
+                + (f.target ? step(2, 'The chat it remembers', 'source') : '')
+                + (both ? `<div class="mem-step"><div class="mem-step-label"><span class="mem-step-n">3</span>Who remembers it</div>${memFormWho(f)}</div>` : '')
+                + `<div class="mem-inline" style="margin-top:12px;">`
+                + (both ? `<button type="button" class="toggle-btn sm primary" data-act="connect"${ready ? '' : ' disabled'}>${f.editing ? 'Save' : 'Connect'}</button>` : '')
+                + '<button type="button" class="toggle-btn sm" data-act="cancel">Cancel</button></div></div>';
+            slot.querySelector('[data-act="cancel"]').addEventListener('click', memCloseForm);
+            const go = slot.querySelector('[data-act="connect"]');
+            if (go) go.addEventListener('click', () => memSubmitForm(f));
+            slot.querySelectorAll('[data-change]').forEach(b => b.addEventListener('click', () => {
+                f[b.dataset.change] = null;
+                f.preview = null;
+                memRenderForm(slot, f);
+            }));
+            slot.querySelectorAll('input[name="memWhoMode"]').forEach(r => r.addEventListener('change', () => {
+                f.everyone = r.value === 'all';
+                // Only some: start from the members who were in that chat.
+                if (!f.everyone && !f.who.size) {
+                    const members = f.preview.members || [];
+                    f.who = new Set((members.some(m => m.there) ? members.filter(m => m.there) : members).map(m => m.id));
+                }
+                memRenderForm(slot, f);
+            }));
+            slot.querySelectorAll('input[data-who]').forEach(c => c.addEventListener('change', () => {
+                if (c.checked) f.who.add(c.dataset.who); else f.who.delete(c.dataset.who);
+            }));
+            slot.querySelectorAll('[data-search]').forEach(input => memWireChatSearch(slot, f, input));
+            if (both && !f.preview) {
+                const q = new URLSearchParams({target: f.target.chat_id, source: f.source.chat_id});
+                memApi('/api/memory/connect/preview?' + q).then(p => {
+                    f.preview = p;
+                    // Already connected: show whom for, and save changes to it.
+                    f.editing = !!(p.everyone || (p.who || []).length);
+                    if (f.editing) {
+                        f.everyone = p.everyone;
+                        f.who = new Set(p.who || []);
+                    }
+                }).catch(e => { f.preview = {error: e.message}; }).then(() => {
+                    if (memFormBox === slot) memRenderForm(slot, f);
+                });
+            }
+        }
+
+        // A search over all of SillyTavern's chats, most recently written
+        // first; picking one fills that step.
+        function memWireChatSearch(slot, f, input) {
+            const which = input.dataset.search;
+            const out = slot.querySelector(`[data-results="${which}"]`);
+            let timer = null, seq = 0;
+            const run = async () => {
+                const n = ++seq;
+                let r;
+                try {
+                    r = await memApi(`/api/memory/chats?limit=25&q=${encodeURIComponent(input.value.trim())}`);
+                } catch (e) {
+                    out.innerHTML = `<div class="mem-empty">${memEsc(e.message)}</div>`;
+                    return;
+                }
+                if (n !== seq) return;
+                const other = f[which === 'target' ? 'source' : 'target'];
+                const hits = (r.chats || []).filter(c => !other || c.chat_id !== other.chat_id);
+                out.innerHTML = (hits.map((c, i) => `<div class="mem-chat" data-i="${i}"><div class="mem-chat-main">${memChatSummary(c)}</div></div>`).join('')
+                    + (r.more ? `<div class="mem-empty">${r.more} more match: type more to narrow it down.</div>` : ''))
+                    || '<div class="mem-empty">No chat matches.</div>';
+                out.querySelectorAll('[data-i]').forEach(el => el.addEventListener('click', () => {
+                    f[which] = hits[Number(el.dataset.i)];
+                    f.preview = null;
+                    memRenderForm(slot, f);
+                }));
+            };
+            out.innerHTML = '<div class="mem-empty">Loading the latest chats...</div>';
+            input.addEventListener('input', () => {
+                clearTimeout(timer);
+                timer = setTimeout(run, 250);
+            });
+            run();
+            input.focus({preventScroll: true});
+        }
+
+        async function memSubmitForm(f) {
+            const members = f.preview?.members || [];
+            const everyone = f.everyone || members.length <= 1;
+            const ids = everyone ? null : members.map(m => m.id).filter(id => f.who.has(id));
+            if (ids && !ids.length) {
+                alert('Tick at least one character, or choose everyone.');
+                return;
+            }
+            const calls = await memConnCalls(f.target.chat_id, f.source.chat_id, ids);
+            const forWhom = !ids ? (members.length === 1 ? members[0].name : `everyone in ${memChatPlain(f.target)}`)
+                : ids.length === 1 ? members.find(m => m.id === ids[0]).name : `${ids.length} characters`;
+            if (calls && !confirm(`Recapping ${memChatPlain(f.source)} for ${forWhom} takes about ${calls} Sonnet call${calls === 1 ? '' : 's'}, which count against your plan. Go ahead?`)) return;
+            await memDo('/api/memory/link', {target: f.target.chat_id, source: f.source.chat_id, on: true, who: ids || 'everyone'}, async () => {
+                memCloseForm();
+                await memAfterConnChange();
+                memPollJobs();
+            });
+        }
+
         async function memLoad() {
             let o;
             try {
@@ -2558,6 +2763,7 @@
             memRenderStatus(o);
             memRenderJobs(o.jobs);
             memRenderSettings(o);
+            memLoadConns();
             const known = (o.characters || []).filter(c => c.bindings || c.links || c.recaps || c.alerts);
             const box = document.getElementById('memKnown');
             box.innerHTML = known.map(c => `<button class="toggle-btn sm${c.id === memCharId ? ' active' : ''}" data-char="${memEsc(c.id)}">${memEsc(c.name)}${c.alerts ? ' ⚠' : ''}</button>`).join('');
@@ -2666,17 +2872,18 @@
         function memPartsHtml(parts) {
             const done = parts.filter(p => p.recap).length;
             return `<details class="mem-parts"><summary>Part recaps, 40 messages each (${done} of ${parts.length})</summary>`
-                + parts.map(p => `<div class="mem-recap-head">Messages #${p.from}–#${p.to}${p.edited ? ' · edited' : ''}</div>`
+                + parts.map(p => `<div class="mem-recap-head">Messages #${p.from}–#${p.to}${p.there === false ? ' · not in it: a plain account' : ''}${p.edited ? ' · edited' : ''}</div>`
                     + (p.recap ? `<div class="mem-recap-text">${memEsc(p.recap)}</div>` : '<div class="mem-empty">Not recapped yet.</div>')).join('')
                 + '</details>';
         }
 
         // A recap to read: what other chats get (sections a connection or
-        // binding leaves out are marked), then the part recaps.
-        function memRecapHtml(r) {
+        // binding leaves out are marked), then the part recaps. extra: see
+        // memPassedHtml.
+        function memRecapHtml(r, extra) {
             const parts = r.parts || [];
             if (!parts.some(p => p.recap)) return '<div class="mem-empty">Not recapped yet.</div>';
-            return memPassedHtml(r.passed) + memPartsHtml(parts);
+            return memPassedHtml(r.passed, extra) + memPartsHtml(parts);
         }
 
         // A button that opens a chat's recap in the box under its row
@@ -2871,18 +3078,30 @@
                 && (!persona || c.personas.some(p => p.avatar === persona)));
             document.getElementById('memChatCount').textContent = rows.length === data.chats.length
                 ? `${data.chats.length} chats` : `${rows.length} of ${data.chats.length} chats`;
-            const linksIn = new Map();
-            data.links.forEach(l => linksIn.set(l.target_chat, (linksIn.get(l.target_chat) || 0) + 1));
+            // Each chat's pairs: the chats it remembers, and where it's remembered.
+            const pairs = new Map();
+            const pair = (id, dir, other) => {
+                if (!pairs.has(id)) pairs.set(id, {in: new Set(), out: new Set()});
+                pairs.get(id)[dir].add(other);
+            };
+            data.links.forEach(l => { pair(l.target_chat, 'in', l.source_chat); pair(l.source_chat, 'out', l.target_chat); });
+            const nameOf = id => { const c = memChatById(id) || (data.link_chats || {})[id]; return c ? memChatPlain(c) : id; };
+            const links = c => {
+                const p = pairs.get(c.chat_id);
+                if (!p) return '';
+                const items = [...p.in].map(id => `<span class="mem-link"><span class="mem-link-arrow">⇠</span> remembers <b>${memEsc(nameOf(id))}</b></span>`)
+                    .concat([...p.out].map(id => `<span class="mem-link"><span class="mem-link-arrow">⇢</span> remembered in <b>${memEsc(nameOf(id))}</b></span>`));
+                return `<div class="mem-links">${items.join('')}</div>`;
+            };
             const bound = new Set();
             data.bindings.forEach(b => Object.entries(b.chats).forEach(([id, how]) => { if (how !== 'removed') bound.add(id); }));
             const box = document.getElementById('memChats');
             box.innerHTML = rows.length ? rows.map(c => `
                 <div class="mem-chat" data-chat="${memEsc(c.chat_id)}">
-                    <div class="mem-chat-main">${memChatSummary(c)}</div>
+                    <div class="mem-chat-main">${memChatSummary(c)}${links(c)}</div>
                     <div class="mem-chat-side">
                         ${memRecapTag(c)}
                         ${c.check ? '<div style="margin-top:4px;"><span class="mem-tag warn">conflict</span></div>' : ''}
-                        ${linksIn.get(c.chat_id) ? `<div style="margin-top:4px;"><span class="mem-tag accent">${linksIn.get(c.chat_id)} connected</span></div>` : ''}
                         ${bound.has(c.chat_id) ? '<div style="margin-top:4px;"><span class="mem-tag">in a binding</span></div>' : ''}
                         ${c.excluded ? '<div style="margin-top:4px;"><span class="mem-tag">kept out of bindings</span></div>' : ''}
                     </div>
@@ -2892,6 +3111,7 @@
 
         async function memOpenChat(chatId) {
             if (memChatId && memChatDirty && !confirm('Discard your unsaved recap edits?')) return;
+            if (memFormBox && document.getElementById('memChatModal').contains(memFormBox)) memCloseForm();
             memChatId = chatId;
             memChatDirty = false;
             memConnectOpen = false;
@@ -2904,6 +3124,7 @@
 
         function memCloseChat() {
             if (memChatDirty && !confirm('Discard your unsaved recap edits?')) return;
+            if (memFormBox && document.getElementById('memChatModal').contains(memFormBox)) memCloseForm();
             document.getElementById('memChatModal').style.display = 'none';
             memChatId = null;
             memChatDirty = false;
@@ -2915,42 +3136,14 @@
             return memPersonaLabel(avatar, b?.persona_name);
         }
 
-        // A chat the open chat brings in: the same summary as in the lists
-        // (or its file name if it isn't one of this character's chats any
-        // more), its recap to open under it (use: see memRecapBtn), and
-        // `button`.
-        function memSourceRow(id, title, how, button, use = '') {
-            const c = memChatById(id);
-            const main = c ? memChatSummary(c, ` · ${how}`)
-                : `<div class="mem-chat-title">${memEsc(title || id)}</div><div class="mem-chat-meta">${how}</div>`;
-            return `<div class="mem-source-wrap"><div class="mem-source"><div class="mem-chat-main">${main}</div>`
-                + `<div class="mem-source-acts">${c ? `<button type="button" class="toggle-btn sm" data-open="${memEsc(id)}">Open</button>` : ''}`
-                + `${memRecapBtn(id, use)}${button}</div></div>${memRecapBox(id)}</div>`;
-        }
-
-        function memRenderConnectPicker(options) {
-            const out = document.getElementById('memConnectResults');
-            if (!out) return;
-            const q = document.getElementById('memConnectSearch').value.trim().toLowerCase();
-            const hits = options.filter(c => memChatMatches(c, q));
-            out.innerHTML = hits.map(c => `<div class="mem-chat" data-connect="${memEsc(c.chat_id)}">
-                    <div class="mem-chat-main">${memChatSummary(c)}</div>
-                    <div class="mem-chat-side">${memRecapTag(c)}</div></div>`).join('')
-                || '<div class="mem-empty">No chat matches.</div>';
-            out.querySelectorAll('[data-connect]').forEach(el => el.addEventListener('click', () => memConnect(el.dataset.connect)));
-        }
-
-        function memConnect(source) {
-            const c = memChatById(source);
-            const calls = memCallEstimate(c?.recap);
-            if (calls && !confirm(`Recapping ${c ? memChatPlain(c) : 'that chat'} takes about ${calls} Sonnet call${calls === 1 ? '' : 's'}, which count against your plan. Go ahead?`)) return;
-            memConnectOpen = false;
-            const target = memChatId;
-            memDo('/api/memory/link', {character: memCharId, target, source, on: true}, async () => {
-                await memRenderChatDetail();
-                await memLoadChar(memCharId);
-                memPollJobs();
-            });
+        // A chat the open chat brings in, joined under it: the same summary
+        // as in the lists, `how` it's brought in, its recap to open under it
+        // (use: see memRecapBtn), and `button`.
+        function memSourceRow(s, how, button, use = '') {
+            const c = memChatById(s.chat_id);
+            return `<div class="mem-source-wrap mem-conn-src"><div class="mem-source"><div class="mem-chat-main">${memChatSummary(c || s, ` · ${memEsc(how)}`)}</div>`
+                + `<div class="mem-source-acts">${c ? `<button type="button" class="toggle-btn sm" data-open="${memEsc(s.chat_id)}">Open</button>` : ''}`
+                + `${memRecapBtn(s.chat_id, use)}${button}</div></div>${memRecapBox(s.chat_id)}</div>`;
         }
 
         async function memRenderChatDetail() {
@@ -2966,7 +3159,9 @@
             }
             if (chatId !== memChatId) return;
             memChatDirty = false;
+            if (memFormBox && body.contains(memFormBox)) memCloseForm();
             document.getElementById('memChatTitle').innerHTML = memChatTitle(d);
+            const name = memCharData?.name || 'the character';
             const parts = [];
             const parent = d.parent ? memChatById(d.parent) : null;
             const of = d.branch_of ? ` · branch of ${memEsc(parent ? `${memChatPlain(parent)} (created ${memCreated(parent)})` : d.branch_of)}` : '';
@@ -2979,8 +3174,8 @@
                     <div style="margin-top:6px;">Untick the memories to leave out of this chat:</div>
                     ${(d.check.sources || []).map(s => {
                         const c = memChatById(s.chat_id);
-                        const name = c ? `${memChatTitle(c)} <small>created ${memEsc(memCreated(c))}</small>` : memEsc(s.title);
-                        return `<label class="mem-check"><input type="checkbox" data-drop="${memEsc(s.chat_id)}" checked><span>${name}</span></label>`;
+                        const label = c ? `${memChatTitle(c)} <small>created ${memEsc(memCreated(c))}</small>` : memEsc(s.title);
+                        return `<label class="mem-check"><input type="checkbox" data-drop="${memEsc(s.chat_id)}" checked><span>${label}</span></label>`;
                     }).join('')}
                     <div class="mem-inline" style="margin-top:6px;">
                         <button class="toggle-btn sm primary" id="memCheckApply">Apply</button>
@@ -2990,6 +3185,29 @@
                 parts.push(`<div class="notice" style="margin-bottom:14px;">${memEsc(d.check.explanation || 'The conflict check failed.')} It runs again when the memories or the chat's opening change.</div>`);
             }
 
+            // The chats this one brings in, joined under it as in the
+            // Connections list, and a form to connect another.
+            parts.push(`<div class="mem-sub mem-sub-row"><span>Chats ${memEsc(name)} remembers here</span>`
+                + '<button type="button" class="toggle-btn sm primary" id="memChatConnectBtn">Connect a chat</button></div>');
+            parts.push('<div class="mem-form-slot" id="memChatFormSlot"></div>');
+            const rows = [];
+            (d.sources || []).forEach(s => {
+                const how = (s.how === 'link' ? (s.who ? `connected for ${name}` : d.group ? 'connected for everyone here' : 'connected')
+                    : `binding with ${memPersonaName(s.persona)}`)
+                    + (s.chapters ? ` · ${s.chapters.on} of ${s.chapters.total} chapters` : '')
+                    + (s.there ? '' : ` · ${name} isn't in it: background`);
+                // A connection for everyone in a group chat stays for the
+                // others; this character can leave it out.
+                const act = s.how === 'link' && (s.who || !d.group)
+                    ? `<button class="toggle-btn sm" data-unlink="${memEsc(s.chat_id)}" data-who="${memEsc(s.who)}">Disconnect</button>`
+                    : `<button class="toggle-btn sm" data-exclude="${memEsc(s.chat_id)}">${s.how === 'link' ? `Leave out for ${memEsc(name)}` : 'Leave out here'}</button>`;
+                const use = s.how === 'link' ? `target=${encodeURIComponent(chatId)}` : `persona=${encodeURIComponent(s.persona || '')}`;
+                rows.push(memSourceRow(s, how, act, use));
+            });
+            (d.excluded_sources || []).forEach(s => rows.push(memSourceRow(s, 'left out here',
+                `<button class="toggle-btn sm" data-include="${memEsc(s.chat_id)}">Let back in</button>`)));
+            parts.push(rows.length ? `<div class="mem-conn-list mem-sources">${rows.join('')}</div>` : '<div class="mem-empty">Nothing from other chats.</div>');
+
             // What the character remembers of this chat: what other chats get
             // of it (its synopsis or chapters), and the part recaps they're
             // written from. Read it, or edit it.
@@ -2997,13 +3215,15 @@
             const p = d.passed || {sections: []};
             const secs = p.sections || [];
             const hasRecap = r.done;
-            parts.push(`<div class="mem-sub mem-sub-row"><span>What ${memEsc(memCharData?.name || 'the character')} remembers of this chat</span>`
+            parts.push(`<div class="mem-sub mem-sub-row"><span>What ${memEsc(name)} remembers of this chat</span>`
                 + (hasRecap ? `<button type="button" class="toggle-btn sm${memRecapEdit ? ' active' : ''}" id="memRecapEditBtn">${memRecapEdit ? 'Done editing' : 'Edit'}</button>` : '') + '</div>');
             const status = d.building ? `${memJobWhat(d.building)}…`
                 : !r.available ? 'The chat file wasn\'t found.'
                 : !r.parts ? 'Nothing to recap.'
                 : !r.done ? `Not recapped yet (${r.parts} part${r.parts === 1 ? '' : 's'}).`
                 : r.missing ? `${r.done} of ${r.parts} parts recapped.` : r.parts === 1 ? 'Recapped.' : `All ${r.parts} parts recapped.`;
+            const absent = !r.parts ? '' : !r.there ? ` ${name} isn't in this chat: it's recapped as a plain account.`
+                : r.there < r.parts ? ` ${name} is in ${r.there} of its ${r.parts} parts; the others are plain accounts.` : '';
             const unwritten = secs.filter(s => !s.ready && !s.parts_missing).length;
             const passedStatus = !r.done ? ''
                 : p.mode === 'synopsis' ? (secs[0]?.ready ? (secs[0].as_is ? `Other chats get the part recaps as they are: they're within about ${p.words} words.` : 'Synopsis written.')
@@ -3012,20 +3232,21 @@
                 : r.parts >= 3 ? 'Not divided into chapters yet.' : 'Too short for chapters: other chats get it whole.';
             const build = d.building ? '' : r.missing ? 'Recap missing parts'
                 : !p.complete ? (p.mode === 'synopsis' ? 'Write the synopsis' : 'Write the chapters') : '';
-            parts.push(`<div class="mem-inline" style="margin-bottom:8px;"><span style="font-size:13px;color:var(--paper-dim);">${memEsc(status)}${passedStatus ? ' ' + memEsc(passedStatus) : ''}</span>
+            parts.push(`<div class="mem-inline" style="margin-bottom:8px;"><span style="font-size:13px;color:var(--paper-dim);">${memEsc(status + absent)}${passedStatus ? ' ' + memEsc(passedStatus) : ''}</span>
                 ${build ? `<button class="toggle-btn sm primary" id="memBuildBtn">${build}</button>` : ''}
                 ${d.building ? '<button class="toggle-btn sm" id="memStopBtn">Stop</button>' : ''}
                 ${r.done ? '<button class="toggle-btn sm danger" id="memForgetBtn">Forget recap</button>' : ''}</div>`);
             if (d.error) parts.push(`<div class="notice warn" style="margin-bottom:8px;">${memEsc(d.error)}</div>`);
             // Where this chat is remembered; with chapters, each picks its own.
             const uses = (d.used_in || []).map(u => {
-                const c = memChatById(u.chat_id);
-                return {target: u.chat_id, off: u.off || [], label: c ? `${memChatPlain(c)} (created ${memCreated(c)})` : u.title};
+                const c = memChatById(u.chat_id) || u;
+                return {target: u.chat_id, who: u.who, off: u.off || [],
+                        label: `${memChatPlain(c)}${memCreated(c) ? ` (created ${memCreated(c)})` : ''}${u.who ? '' : ', for everyone there'}`};
             });
             const inB = (d.in_bindings || []).filter(b => b.how !== 'removed');
             if (!d.excluded) inB.forEach(b => uses.push({persona: b.persona, off: b.off || [], label: `binding with ${memPersonaName(b.persona)}`}));
             const used = [];
-            if ((d.used_in || []).length) used.push('Connected to ' + uses.filter(u => u.target).map(u => memEsc(u.label)).join('; '));
+            if ((d.used_in || []).length) used.push('Remembered in ' + uses.filter(u => u.target).map(u => memEsc(u.label)).join('; '));
             if (inB.length) used.push('in the binding with ' + inB.map(b => memEsc(memPersonaName(b.persona))).join(', ')
                 + (d.excluded ? ' (kept out of bindings)' : ''));
             if (used.length) parts.push(`<div class="list-item-meta" style="margin:0 0 8px;">${used.join(' · ')}</div>`);
@@ -3051,46 +3272,23 @@
                 });
                 if (secs.some(s => s.key)) parts.push('<div class="mem-sub">Part recaps</div>');
                 (d.parts || []).forEach(p => {
-                    parts.push(`<div class="mem-part"><div class="mem-part-head"><span>Messages #${p.from}–#${p.to}${p.edited ? ' · edited' : ''}</span>
+                    parts.push(`<div class="mem-part"><div class="mem-part-head"><span>Messages #${p.from}–#${p.to}${p.there === false ? ' · not in it: a plain account' : ''}${p.edited ? ' · edited' : ''}</span>
                         <span>${p.recap ? `<button class="toggle-btn sm" data-save="${memEsc(p.key)}">Save</button> <button class="toggle-btn sm" data-redo="${memEsc(p.key)}">Redo</button>` : ''}</span></div>
                         <textarea rows="5" data-key="${memEsc(p.key)}"${p.recap ? '' : ' readonly placeholder="Not recapped yet."'}>${memEsc(p.recap || '')}</textarea></div>`);
                 });
             }
             parts.push(`<label class="mem-check" style="margin-top:6px;"><input type="checkbox" id="memExcludedBox"${d.excluded ? ' checked' : ''}><span>Don't bring this chat in through persona bindings (connections still can)</span></label>`);
 
-            parts.push('<div class="mem-sub">Memories this chat brings in</div>');
-            const rows = [];
-            (d.sources || []).forEach(s => {
-                const ch = s.chapters ? ` · ${s.chapters.on} of ${s.chapters.total} chapters` : '';
-                const how = (s.how === 'link' ? 'connected' : `binding with ${memEsc(memPersonaName(s.persona))}`) + ch;
-                const act = s.how === 'link'
-                    ? `<button class="toggle-btn sm" data-unlink="${memEsc(s.chat_id)}">Disconnect</button>`
-                    : `<button class="toggle-btn sm" data-exclude="${memEsc(s.chat_id)}">Leave out here</button>`;
-                const use = s.how === 'link' ? `target=${encodeURIComponent(chatId)}` : `persona=${encodeURIComponent(s.persona || '')}`;
-                rows.push(memSourceRow(s.chat_id, s.title, how, act, use));
-            });
-            (d.excluded_sources || []).forEach(s => rows.push(memSourceRow(s.chat_id, s.title, 'left out here',
-                `<button class="toggle-btn sm" data-include="${memEsc(s.chat_id)}">Let back in</button>`)));
-            parts.push(rows.length ? `<div class="mem-sources">${rows.join('')}</div>` : '<div class="mem-empty">Nothing from other chats.</div>');
-            const taken = new Set([chatId, ...(d.sources || []).map(s => s.chat_id)]);
-            const options = (memCharData?.chats || []).filter(c => !taken.has(c.chat_id));
-            if (options.length) {
-                parts.push(`<button class="toggle-btn sm primary" id="memConnectToggle" style="margin-top:10px;">${memConnectOpen ? 'Close' : 'Connect another chat'}</button>
-                    <div id="memConnectPicker" class="mem-picker" style="display:${memConnectOpen ? 'block' : 'none'};">
-                        <input id="memConnectSearch" type="text" class="w-full" placeholder="Search name, branch, persona or last message..." autocomplete="off">
-                        <div id="memConnectResults" class="mem-pick-list"></div>
-                    </div>`);
-            }
-
             body.innerHTML = parts.join('');
-            memWireChatDetail(d, options, uses);
+            memWireChatDetail(d, uses);
         }
 
-        function memWireChatDetail(d, options, uses) {
+        function memWireChatDetail(d, uses) {
             const body = document.getElementById('memChatBody');
             const reload = async () => {
                 await memRenderChatDetail();
                 await memLoadChar(memCharId);
+                await memLoadConns();
             };
             const on = (id, fn) => { const el = document.getElementById(id); if (el) el.addEventListener('click', fn); };
             body.querySelectorAll('textarea').forEach(t => t.addEventListener('input', () => { memChatDirty = true; }));
@@ -3107,21 +3305,16 @@
                 memDo(`/api/memory/check/${d.check.id}`, {action: drop.length ? 'drop' : 'keep', drop}, reload);
             });
             on('memCheckKeep', () => memDo(`/api/memory/check/${d.check.id}`, {action: 'keep'}, reload));
+            on('memChatConnectBtn', () => memToggleForm(document.getElementById('memChatFormSlot'), {target: d}));
+            // A connection of this character's own goes for them; one for
+            // everyone in a one-character chat goes altogether.
             body.querySelectorAll('[data-unlink]').forEach(b => b.addEventListener('click', () =>
-                memDo('/api/memory/link', {character: memCharId, target: d.chat_id, source: b.dataset.unlink, on: false}, reload)));
+                memDo('/api/memory/link', {target: d.chat_id, source: b.dataset.unlink, on: false,
+                                           ...(b.dataset.who ? {character: b.dataset.who} : {})}, reload)));
             body.querySelectorAll('[data-exclude]').forEach(b => b.addEventListener('click', () =>
                 memDo('/api/memory/exclusion', {character: memCharId, target: d.chat_id, source: b.dataset.exclude, on: true}, reload)));
             body.querySelectorAll('[data-include]').forEach(b => b.addEventListener('click', () =>
                 memDo('/api/memory/exclusion', {character: memCharId, target: d.chat_id, source: b.dataset.include, on: false}, reload)));
-            on('memConnectToggle', e => {
-                memConnectOpen = !memConnectOpen;
-                e.target.textContent = memConnectOpen ? 'Close' : 'Connect another chat';
-                document.getElementById('memConnectPicker').style.display = memConnectOpen ? 'block' : 'none';
-                if (memConnectOpen) memRenderConnectPicker(options);
-            });
-            if (memConnectOpen) memRenderConnectPicker(options);
-            const search = document.getElementById('memConnectSearch');
-            if (search) search.addEventListener('input', () => memRenderConnectPicker(options));
             on('memBuildBtn', () => {
                 const secs = d.passed?.sections || [];
                 const calls = d.recap?.missing ? memCallEstimate(d.recap)
@@ -3142,7 +3335,7 @@
                 const u = uses[Number(box.dataset.use)];
                 const off = [...body.querySelectorAll(`input[data-use="${box.dataset.use}"]`)].filter(i => !i.checked).map(i => Number(i.dataset.start));
                 memDo('/api/memory/chapters', {character: memCharId, chat: d.chat_id, off,
-                                               ...(u.target ? {target: u.target} : {persona: u.persona})}, reload);
+                                               ...(u.target ? {target: u.target, who: u.who} : {persona: u.persona})}, reload);
             }));
             body.querySelectorAll('[data-csave]').forEach(b => b.addEventListener('click', () => {
                 const t = body.querySelector(`textarea[data-ckey="${b.dataset.csave}"]`);
@@ -3179,8 +3372,9 @@
                                         j.recent[0] && [j.recent[0].chat_id, j.recent[0].done, j.recent[0].kind]]);
             if (sig === memJobsSig) return;
             memJobsSig = sig;
+            await memLoadConns();
             const touched = [j.current, j.recent[0]].some(x => x && x.cid === memCharId);
-            if (!touched) return;
+            if (!touched || !memCharId) return;
             await memLoadChar(memCharId);
             if (memChatId && !memChatDirty && !memConnectOpen) await memRenderChatDetail();
         }
@@ -3214,6 +3408,7 @@
             document.getElementById('memChatFilter').addEventListener('input', memRenderChats);
             document.getElementById('memChatPersona').addEventListener('change', memRenderChats);
             document.getElementById('memChatCloseBtn').addEventListener('click', memCloseChat);
+            document.getElementById('memConnNewBtn').addEventListener('click', () => memToggleForm(document.getElementById('memConnFormTop')));
             document.querySelectorAll('[data-mem-mode]').forEach(b => b.addEventListener('click', () => memShowSettings(b.dataset.memMode)));
             document.getElementById('memWords').addEventListener('input', memSettingsRefresh);
             document.getElementById('memSettingsSave').addEventListener('click', memSaveSettings);
@@ -3258,8 +3453,8 @@
         }
 
         // Effort / creativity toggle buttons (auto-save on click). Other
-        // .toggle-btn elements (Memory tab actions, model pickers for
-        // summaries and deep analysis) have their own handlers.
+        // .toggle-btn elements (Memory tab actions, the model picker for
+        // deep analysis) have their own handlers.
         document.querySelectorAll('.toggle-btn[data-setting="effort"], .toggle-btn[data-setting="creativity"]').forEach(btn => {
             btn.addEventListener('click', () => {
                 // Disabled buttons shouldn't do anything. pointer-events:none
@@ -3312,12 +3507,6 @@
         document.getElementById('updateCheck').addEventListener('change', function() {
             document.getElementById('updateCheckStatus').textContent = this.checked ? 'Enabled' : 'Disabled';
             saveSettings();
-        });
-        document.getElementById('autoSummary').addEventListener('change', function() {
-            const enabled = this.checked;
-            document.getElementById('autoSummaryStatus').textContent = enabled ? 'Enabled' : 'Disabled';
-            document.getElementById('autoSummarySettings').style.display = enabled ? 'block' : 'none';
-            saveAutoSummarySettings();
         });
 
         // Port change: flag unsaved differences from the running port, and
@@ -3498,20 +3687,6 @@
                 updatePortNotice();
                 document.getElementById('endpointDisplay').textContent = `http://localhost:${RUNNING_PORT}/v1`;
 
-                // Auto-summary settings
-                const autoSummaryEnabled = settings.auto_summary_enabled || false;
-                document.getElementById('autoSummary').checked = autoSummaryEnabled;
-                document.getElementById('autoSummaryStatus').textContent = autoSummaryEnabled ? 'Enabled' : 'Disabled';
-                document.getElementById('autoSummarySettings').style.display = autoSummaryEnabled ? 'block' : 'none';
-                document.getElementById('autoSummaryThreshold').value = settings.auto_summary_threshold || 20;
-                document.getElementById('autoSummaryMaxLength').value = settings.auto_summary_max_length || 50000;
-                updateAutoSummaryInfo();
-
-                // Chunking state
-                if (typeof updateChunkingUI === 'function') {
-                    updateChunkingUI(settings.chunking_enabled || false);
-                }
-
                 // Lorebook settings
                 document.getElementById('lorebookEnabled').checked = settings.lorebook_enabled || false;
                 document.getElementById('lorebookStatus').textContent = settings.lorebook_enabled ? 'Enabled' : 'Disabled';
@@ -3532,26 +3707,6 @@
                 creativityShow(creativityInUse);
             } catch (e) {
                 console.error('Error loading settings:', e);
-            }
-        }
-
-        // Save auto-summary settings
-        async function saveAutoSummarySettings() {
-            const settings = {
-                auto_summary_enabled: document.getElementById('autoSummary').checked,
-                auto_summary_threshold: parseInt(document.getElementById('autoSummaryThreshold').value) || 20,
-                auto_summary_max_length: parseInt(document.getElementById('autoSummaryMaxLength').value) || 50000
-            };
-
-            try {
-                await fetch('/api/settings', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify(settings)
-                });
-                updateAutoSummaryInfo();
-            } catch (e) {
-                console.error('Error saving auto-summary settings:', e);
             }
         }
 
@@ -3828,17 +3983,8 @@
             if (st.found && (st.new_chat_prompt || '').trim()) {
                 chat.push({role: 'system', kind: 'text', name: 'New chat separator', text: st.new_chat_prompt});
             }
-            if (s.auto_summary_enabled) {
-                // The bridge puts the summary right before the recent
-                // messages as a system message, so it joins SillyTavern's
-                // prompt.
-                chat.push({role: 'system', kind: 'bridge-ph', name: 'Story summary', when: 'once a summary exists',
-                    text: 'Auto-Summary: the bridge\'s summary of the older messages, wrapped in <story_summary>.'});
-                chat.push({role: 'mixed', kind: 'ph', name: 'Recent messages', text: 'The latest messages; older ones are covered by the summary.'});
-            } else {
-                chat.push({role: 'assistant', kind: 'ph', name: "Character's greeting", text: "The card's first message."});
-                chat.push({role: 'mixed', kind: 'ph', name: 'Earlier turns', text: "The rest of the chat: your turns and Claude's replies."});
-            }
+            chat.push({role: 'assistant', kind: 'ph', name: "Character's greeting", text: "The card's first message."});
+            chat.push({role: 'mixed', kind: 'ph', name: 'Earlier turns', text: "The rest of the chat: your turns and Claude's replies."});
             chat.push({role: 'system', kind: 'ph', name: 'In-chat injections', when: 'when used',
                 text: "Author's Note, World Info set to a depth, and extension prompts (Summarize, Vector Storage) at the depth each is set to."});
             chat.push(...atDepth(d => d >= 2));
@@ -4045,292 +4191,6 @@
         document.getElementById('systemPromptEditor').addEventListener('input', () => {
             if (PREVIEW && document.getElementById('system').classList.contains('active')) renderPromptPreview();
         });
-
-        // Update auto-summary status info
-        async function updateAutoSummaryInfo() {
-            try {
-                const response = await fetch('/api/cache');
-                const data = await response.json();
-                const info = document.getElementById('autoSummaryInfo');
-
-                // Entries are now per-character: keys of the form 'auto_<char_key>'.
-                // Legacy 'auto' and 'latest' keys are still handled for backward compat.
-                const charEntries = data.entries.filter(e => e.key && e.key.startsWith('auto_'));
-                const legacyAuto = data.entries.find(e => e.key === 'auto');
-                const legacyLatest = data.entries.find(e => e.key === 'latest');
-
-                if (charEntries.length === 0 && !legacyAuto && !legacyLatest) {
-                    info.innerHTML = `<span style="color:var(--paper-faint);">●</span> No summaries yet (will create after threshold on each character)`;
-                    return;
-                }
-
-                let html = '';
-                if (charEntries.length > 0) {
-                    const totalChars = charEntries.reduce((s, e) => s + e.length, 0).toLocaleString();
-                    html += `<span style="color:var(--success);">●</span> <strong>${charEntries.length}</strong> character summar${charEntries.length === 1 ? 'y' : 'ies'} active <span style="color:var(--paper-ghost);">(${totalChars} chars total)</span>`;
-
-                    // Show the most recently updated one as the active one
-                    const mostRecent = [...charEntries].sort((a, b) =>
-                        new Date(b.timestamp) - new Date(a.timestamp)
-                    )[0];
-                    if (mostRecent) {
-                        const date = new Date(mostRecent.timestamp).toLocaleString();
-                        const firstLine = (mostRecent.preview || '').split('\n')[0].slice(0, 80);
-                        html += `<br><small style="color:var(--paper-faint);">Latest: ${escapeHtml(firstLine)}... <span style="color:var(--paper-ghost);">(${date})</span></small>`;
-                    }
-                }
-                if (legacyAuto) {
-                    html += `<br><small style="color:var(--warn);">⚠️ Legacy 'auto' entry found — will migrate to current character on next request</small>`;
-                }
-                if (legacyLatest) {
-                    html += `<br><small style="color:var(--warn);">⚠️ Legacy 'latest' entry (chunking) — will migrate on next auto-summary update</small>`;
-                }
-                info.innerHTML = html;
-            } catch (e) {
-                document.getElementById('autoSummaryInfo').textContent = 'Could not load status';
-            }
-        }
-
-        // Enable chunking (one-shot)
-        async function toggleChunking() {
-            try {
-                const response = await fetch('/api/settings', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({chunking_enabled: true})
-                });
-                if (!response.ok) throw new Error(`HTTP ${response.status}`);
-                updateChunkingUI(true);
-                alert('Chunking ENABLED! Go to SillyTavern and send a message.');
-            } catch (e) {
-                alert('Error: ' + e.message);
-            }
-        }
-
-        async function disableChunking() {
-            try {
-                const response = await fetch('/api/settings', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({chunking_enabled: false})
-                });
-                if (!response.ok) throw new Error(`HTTP ${response.status}`);
-                updateChunkingUI(false);
-            } catch (e) {
-                alert('Error: ' + e.message);
-            }
-        }
-
-        function updateChunkingUI(enabled) {
-            const btn = document.getElementById('chunkingBtn');
-            const cancelBtn = document.getElementById('chunkingCancelBtn');
-            const status = document.getElementById('chunkingStatus');
-            if (enabled) {
-                btn.textContent = '✓ Armed';
-                btn.style.background = 'var(--success)';
-                btn.style.borderColor = 'var(--success)';
-                cancelBtn.style.display = 'inline-flex';
-                status.textContent = 'READY - Send any message in SillyTavern now!';
-                status.style.color = 'var(--success)';
-            } else {
-                btn.textContent = 'Enable Chunking';
-                btn.style.background = '';
-                btn.style.borderColor = '';
-                cancelBtn.style.display = 'none';
-                status.textContent = 'Status: Disabled';
-                status.style.color = 'var(--paper-faint)';
-            }
-        }
-
-        // Send test message
-        async function sendTestMessage() {
-            const system = document.getElementById('testSystem').value;
-            const message = document.getElementById('testMessage').value;
-            if (!message.trim()) return alert('Please enter a message');
-
-            const loader = document.getElementById('testLoader');
-            const result = document.getElementById('testResult');
-            loader.style.display = 'inline-block';
-            result.style.display = 'none';
-
-            try {
-                const messages = [];
-                if (system.trim()) {
-                    messages.push({role: 'system', content: system});
-                }
-                messages.push({role: 'user', content: message});
-
-                const response = await fetch('/v1/chat/completions', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({messages, stream: false})
-                });
-
-                const data = await response.json();
-                const content = data.choices?.[0]?.message?.content || JSON.stringify(data, null, 2);
-                result.textContent = content;
-                result.style.display = 'block';
-            } catch (e) {
-                result.textContent = 'Error: ' + e.message;
-                result.style.display = 'block';
-            } finally {
-                loader.style.display = 'none';
-            }
-        }
-
-        // Label a cache entry in a way a human can recognize at a glance.
-        // Char-keyed entries borrow the summary's first sentence as their title.
-        function labelForCacheEntry(entry) {
-            if (entry.key === 'latest') {
-                return { kind: 'Chunking (one-shot)', color: 'var(--warn)', hint: entry.key };
-            }
-            if (entry.key === 'auto') {
-                return { kind: 'Legacy auto-summary', color: 'var(--warn)', hint: 'pre-per-character' };
-            }
-            if (entry.key && entry.key.startsWith('auto_')) {
-                const short = entry.key.slice(5, 13);
-                const firstLine = (entry.preview || '').split('\n')[0].slice(0, 70).trim();
-                const title = firstLine || `Character ${short}`;
-                return { kind: title, color: 'var(--accent)', hint: `char: ${short}` };
-            }
-            return { kind: entry.key || 'Unknown', color: 'var(--paper-faint)', hint: '' };
-        }
-
-        // Load cache info with previews
-        async function loadCacheInfo() {
-            try {
-                const response = await fetch('/api/cache');
-                const data = await response.json();
-                const info = document.getElementById('cacheInfo');
-                const entriesDiv = document.getElementById('cacheEntries');
-
-                if (data.count === 0) {
-                    info.textContent = 'Cache is empty';
-                    entriesDiv.innerHTML = '';
-                    return;
-                }
-
-                // Sort: most recent first so the active character is at the top
-                const sortedEntries = [...data.entries].sort((a, b) =>
-                    new Date(b.timestamp || 0) - new Date(a.timestamp || 0)
-                );
-
-                const charCount = sortedEntries.filter(e => e.key && e.key.startsWith('auto_')).length;
-                const legacyCount = sortedEntries.length - charCount;
-                let summary = `${data.count} cached summar${data.count === 1 ? 'y' : 'ies'}`;
-                if (charCount > 0) {
-                    summary += ` — ${charCount} per-character`;
-                    if (legacyCount > 0) summary += `, ${legacyCount} legacy`;
-                }
-                info.textContent = summary;
-
-                let html = '';
-                sortedEntries.forEach((entry, index) => {
-                    const label = labelForCacheEntry(entry);
-                    const date = entry.timestamp ? new Date(entry.timestamp).toLocaleString() : 'Unknown';
-                    const chars = entry.length.toLocaleString();
-                    const tokens = Math.round(entry.length / 4).toLocaleString();
-                    const msgCount = entry.last_message_count || 0;
-                    const coveredUpTo = entry.summarized_up_to || 0;
-
-                    html += `
-                    <div class="list-item" style="--item-color:${label.color};">
-                        <div class="list-item-head" onclick="toggleSummary(${index})">
-                            <div style="min-width:0;flex:1;">
-                                <div class="list-item-title">${escapeHtml(label.kind)}</div>
-                                <div class="list-item-meta" style="margin-top:2px;">
-                                    ${label.hint ? escapeHtml(label.hint) + ' · ' : ''}${date}
-                                </div>
-                            </div>
-                            <div class="list-item-meta" style="text-align:right;white-space:nowrap;">
-                                ${chars} chars<br>
-                                <span style="color:var(--paper-ghost);">~${tokens} tokens · msg ${coveredUpTo}/${msgCount}</span>
-                            </div>
-                            <span id="arrow${index}" class="caret">▼</span>
-                        </div>
-                        <div id="summary${index}" class="list-item-body" style="display:none;">
-                            <pre class="code-block" style="max-height:400px;color:var(--paper);">${escapeHtml(entry.preview)}</pre>
-                            <div class="btn-row" style="margin-top:10px;">
-                                <button class="btn btn-secondary btn-sm" onclick="copySummary(${index})">
-                                    Copy Full Summary
-                                </button>
-                                <button class="btn btn-danger btn-sm" onclick="deleteCacheEntry('${encodeURIComponent(entry.key)}', event)">
-                                    Delete This Entry
-                                </button>
-                            </div>
-                        </div>
-                    </div>`;
-                });
-                entriesDiv.innerHTML = html;
-
-                // Store full summaries for copying, keyed by the sorted display order
-                window.cachedSummaries = sortedEntries.map(e => e.full);
-            } catch (e) {
-                document.getElementById('cacheInfo').textContent = 'Could not load cache info';
-                console.error(e);
-            }
-        }
-
-        // Delete a single cache entry
-        async function deleteCacheEntry(encodedKey, event) {
-            if (event) event.stopPropagation();
-            const key = decodeURIComponent(encodedKey);
-            if (!confirm(`Delete cache entry "${key}"?\n\nIf this is a character summary, that character will start fresh on the next request.`)) return;
-            try {
-                const response = await fetch(`/api/cache/entry/${encodedKey}`, { method: 'DELETE' });
-                if (!response.ok) {
-                    const err = await response.json().catch(() => ({}));
-                    alert('Error: ' + (err.error || response.statusText));
-                    return;
-                }
-                refreshCache();
-            } catch (e) {
-                alert('Error deleting cache entry: ' + e.message);
-            }
-        }
-
-        function toggleSummary(index) {
-            const div = document.getElementById('summary' + index);
-            const arrow = document.getElementById('arrow' + index);
-            if (div.style.display === 'none') {
-                div.style.display = 'block';
-                arrow.textContent = '▲';
-            } else {
-                div.style.display = 'none';
-                arrow.textContent = '▼';
-            }
-        }
-
-        function copySummary(index) {
-            if (window.cachedSummaries && window.cachedSummaries[index]) {
-                navigator.clipboard.writeText(window.cachedSummaries[index]);
-                alert('Summary copied to clipboard!');
-            }
-        }
-
-        function escapeHtml(text) {
-            const div = document.createElement('div');
-            div.textContent = text;
-            return div.innerHTML;
-        }
-
-        // Clear cache
-        async function clearCache() {
-            if (!confirm('Clear all cached summaries?')) return;
-            try {
-                await fetch('/api/cache/clear', {method: 'POST'});
-                document.getElementById('cacheInfo').textContent = 'Cache cleared!';
-                setTimeout(refreshCache, 2000);
-            } catch (e) {
-                alert('Error clearing cache: ' + e.message);
-            }
-        }
-
-        // Refresh cache display
-        async function refreshCache() {
-            await loadCacheInfo();
-            await updateAutoSummaryInfo();
-        }
 
         // ===== LOREBOOK FUNCTIONS =====
 
@@ -4612,94 +4472,6 @@
                 }
             } catch (e) {
                 alert('Error triggering analysis: ' + e.message);
-            } finally {
-                btn.textContent = originalText;
-                btn.disabled = false;
-            }
-        }
-
-        // Summary model toggle
-        document.querySelectorAll('[data-setting="summary-model"]').forEach(btn => {
-            btn.addEventListener('click', () => {
-                document.querySelectorAll('[data-setting="summary-model"]').forEach(b => b.classList.remove('active'));
-                btn.classList.add('active');
-            });
-        });
-
-        function updateSummaryFilePath() {
-            const select = document.getElementById('summaryFileSelect');
-            const input = document.getElementById('summaryFilePath');
-            if (select.value) {
-                input.value = select.value;
-            }
-        }
-
-        async function loadSummaryFileSelect() {
-            try {
-                const response = await fetch('/api/chats/list');
-                const data = await response.json();
-
-                const select = document.getElementById('summaryFileSelect');
-                select.innerHTML = '<option value="">-- Select a chat file --</option>';
-
-                if (data.chats && data.chats.length > 0) {
-                    const byChar = {};
-                    data.chats.forEach(chat => {
-                        if (!byChar[chat.character]) byChar[chat.character] = [];
-                        byChar[chat.character].push(chat);
-                    });
-
-                    for (const [char, chats] of Object.entries(byChar)) {
-                        const group = document.createElement('optgroup');
-                        group.label = char;
-                        chats.forEach(chat => {
-                            const opt = document.createElement('option');
-                            opt.value = chat.path;
-                            const size = (chat.size / 1024).toFixed(1);
-                            const date = new Date(chat.modified).toLocaleDateString();
-                            opt.textContent = `${chat.filename} (${size}KB, ${date})`;
-                            group.appendChild(opt);
-                        });
-                        select.appendChild(group);
-                    }
-                }
-            } catch (e) {
-                console.error('Error loading chat files for summary:', e);
-            }
-        }
-
-        async function generateSummaryFromFile() {
-            const chatFile = document.getElementById('summaryFilePath').value.trim();
-            if (!chatFile) {
-                alert('Please select or enter a chat file path');
-                return;
-            }
-
-            const useOpus = document.querySelector('[data-setting="summary-model"].active')?.dataset.value === 'opus';
-            const modelName = useOpus ? 'Opus' : 'Sonnet';
-
-            if (!confirm(`Generate summary from:\n${chatFile}\n\nUsing: ${modelName}\n\nThis may take several minutes for long conversations.`)) return;
-
-            const btn = document.getElementById('genSummaryBtn');
-            const originalText = btn.textContent;
-            btn.textContent = 'Generating...';
-            btn.disabled = true;
-
-            try {
-                const response = await fetch('/api/summary/generate', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({chat_file: chatFile, use_opus: useOpus})
-                });
-                const data = await response.json();
-
-                if (data.status === 'ok') {
-                    alert(`Summary generation started!\n\n${data.message}\n\nCheck the bridge console for progress.`);
-                } else {
-                    alert('Error: ' + (data.error || 'Unknown error'));
-                }
-            } catch (e) {
-                alert('Error: ' + e.message);
             } finally {
                 btn.textContent = originalText;
                 btn.disabled = false;
@@ -5224,11 +4996,8 @@
             await loadPromptDefaults();
             await loadSettings();
             await Promise.all([
-                loadCacheInfo(),
-                updateAutoSummaryInfo(),
                 refreshLorebook(),
                 loadChatFiles(),
-                loadSummaryFileSelect(),
                 loadVersionInfo(),
             ]);
         })();

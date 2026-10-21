@@ -4,7 +4,8 @@
 Like tests/session_scenarios.py, a scratch copy of the bridge runs the real
 `claude` CLI against a fake Messages API in this process, so nothing reaches
 Anthropic. The fake answers the memory calls too: a recap lists the markers
-(e.g. AEVT3) of the messages it was given, a synopsis starts with SYNOPSIS,
+(e.g. AEVT3) of the messages it was given (an account of a part the
+character isn't in starts with ACCOUNT), a synopsis starts with SYNOPSIS,
 a chapter recap with CHAPTERTEXT, the chapter division makes a chapter of
 every two parts, and the conflict check reports a conflict when a chat's
 opening says STRANGERS. A fake SillyTavern data folder (cards, personas, chats, a group)
@@ -45,10 +46,11 @@ MARK = re.compile(r"\b[A-Z]EVT\d+\b")
 def fake_reply(body):
     """Answers for the memory calls; None leaves roleplay turns to FakeAPI."""
     text = "\n".join(_text(m.get("content")) for m in body.get("messages", []) if m.get("role") == "user")
-    if "memory of a roleplay. Below is part" in text:
+    if "of a roleplay. Below is part" in text:
         part = text.split("=== CHAT PART", 1)[1]
         pad = " LONG" + " x" * 2500 if "LONGCHAT" in part else ""
-        return "RECAP " + " ".join(dict.fromkeys(MARK.findall(part))) + pad
+        kind = "ACCOUNT " if "record of a roleplay" in text else "RECAP "
+        return kind + " ".join(dict.fromkeys(MARK.findall(part))) + pad
     if "Write one synopsis of the whole chat" in text:
         pad = " " + "x" * 5000 if " LONG x" in text else ""
         return "SYNOPSIS " + " ".join(list(dict.fromkeys(MARK.findall(text)))[:5]) + pad
@@ -802,8 +804,178 @@ def chapters(ctx):
         ctx.post("/api/settings", {"memory_mode": "synopsis", "memory_synopsis_words": 400, "memory_chapter_words": 250})
 
 
+def q(chat):
+    return urllib.parse.quote(chat.chat_id)
+
+
+def absent(ctx):
+    """A part a character has no message in is recapped as a plain account,
+    never from their point of view, so they aren't written into it; a chat
+    they aren't in at all comes as background, and isn't checked for
+    conflicts."""
+    w = ctx.world
+    for name in ("Sca", "Clo", "Mec"):
+        w.card(name)
+    # Sca is a member of both group chats. In the first her one reply is
+    # empty (stopped); in the second she joins at message 41.
+    msgs = [(("V", True) if i % 2 else ("Clo" if i % 4 == 0 else "Mec", False))
+            + (f"XEVT{i} line {i}.", "p1.png" if i % 2 else None, OLD) for i in range(50)]
+    msgs.append(("Sca", False, "", None, OLD))
+    joined = [(("V", True) if i % 2 else ("Sca" if i > 40 else "Clo", False))
+              + (f"JEVT{i} line {i}.", "p1.png" if i % 2 else None, OLD) for i in range(90)]
+    w.group("gws", "Workshop", ["Sca.png", "Clo.png", "Mec.png"], ["Workshop - one", "Workshop - two"])
+    src = w.chat(None, "Workshop - one", msgs, group="gws")
+    two = w.chat(None, "Workshop - two", joined, group="gws")
+    target = w.chat("Sca", "Sca - later", [("Sca", False, "Hm.", None, None)])
+    time.sleep(5.2)  # memory.list_groups() looks at the groups folder again after 5 s
+    n = ctx.api.count()
+    ctx.post("/api/memory/link", {"target": target.chat_id, "source": src.chat_id, "on": True})
+    ctx.wait_jobs()
+    ctx.check("parts she has no message in are recapped as plain accounts",
+              memory_calls(ctx, n, "record of a roleplay. Below is part") == 2
+              and memory_calls(ctx, n, "Sca's memory of a roleplay") == 0,
+              f"{memory_calls(ctx, n, 'record of a roleplay')} account(s), "
+              f"{memory_calls(ctx, n, 'memory of a roleplay')} recap(s)")
+    view, last = ctx.turn(target, "Sca", "p1.png", user_text="Remember the workshop?")
+    block = memory_block(last)
+    ctx.check("she gets the chat as background, told she wasn't there",
+              "ACCOUNT XEVT0" in block and "Sca wasn't there" in block and "RECAP" not in block, block[:400])
+    ctx.check("named by who was in it", "Present: Clo, V, Mec." in block or "Present: Clo, Mec, V." in block
+              or "Present: V, Clo, Mec." in block, block[:400])
+    ctx.wait_jobs()
+    ctx.check("background isn't checked for conflicts with her chat", memory_calls(ctx, n, "contradicts those memories") == 0)
+    _, d, _ = ctx.get(f"/api/memory/chat?character=Sca.png&chat={q(src)}")
+    ctx.check("the Memory tab marks the parts she isn't in",
+              [p.get("there") for p in d.get("parts", [])] == [False, False] and (d.get("recap") or {}).get("there") == 0,
+              json.dumps([(p.get("there"), (p.get("recap") or "")[:20]) for p in d.get("parts", [])]))
+
+    n = ctx.api.count()
+    view, last = ctx.turn(two, "Sca", "p1.png", first=85, user_text="Sca, you're new here.")
+    ctx.wait_jobs()
+    ctx.check("in a chat she joined, the parts before she did are accounts",
+              memory_calls(ctx, n, "record of a roleplay. Below is part") == 1
+              and memory_calls(ctx, n, "Sca's memory of a roleplay. Below is part") == 2,
+              f"{memory_calls(ctx, n, 'record of a roleplay')} account(s), "
+              f"{memory_calls(ctx, n, 'memory of a roleplay')} recap(s)")
+    swipe(two)
+    view, last = ctx.turn(two, "Sca", "p1.png", first=85)
+    block = memory_block(last)
+    ctx.check("and her recap of the chat's earlier part says which she wasn't there for",
+              "(Sca wasn't there.) ACCOUNT JEVT0" in block and "RECAP JEVT40" in block
+              and "(Sca wasn't there.) RECAP" not in block, block[:500])
+
+
+def everyone(ctx):
+    """Any chat can be connected to any other, a group chat too: everyone in
+    it remembers it, or only the members picked."""
+    w = ctx.world
+    for name in ("Ria", "Tam", "Uli"):
+        w.card(name)
+    private = w.chat("Ria", "Ria - garden", scripted(4, "Ria", "p1.png", "GEVT"))
+    w.group("ghub", "Hub", ["Ria.png", "Tam.png", "Uli.png"], ["Hub - day"])
+    hub = w.chat(None, "Hub - day", [("Tam", False, "Morning, all.", None, None)], group="ghub")
+    time.sleep(5.2)
+    _, found, _ = ctx.get("/api/memory/chats?q=" + urllib.parse.quote("ria garden"))
+    ctx.check("the chat search finds any chat, by card and file name",
+              [c["chat_id"] for c in found.get("chats", [])] == [private.chat_id], json.dumps(found)[:300])
+    _, found, _ = ctx.get("/api/memory/chats?q=uli")
+    hit = next((c for c in found.get("chats", []) if c["chat_id"] == hub.chat_id), {})
+    ctx.check("and a group chat by a member, naming its members",
+              [m["name"] for m in hit.get("members", [])] == ["Ria", "Tam", "Uli"], json.dumps(found)[:300])
+
+    _, pv, _ = ctx.get(f"/api/memory/connect/preview?target={q(hub)}&source={q(private)}")
+    ctx.check("the preview lists everyone who'd remember it, and who's in it",
+              {m["name"]: m["there"] for m in pv.get("members", [])} == {"Ria": True, "Tam": False, "Uli": False},
+              json.dumps(pv.get("members")))
+    ctx.check("and estimates the calls: Ria's recap, and one account for both others", pv.get("calls") == 2,
+              str(pv.get("calls")))
+    n = ctx.api.count()
+    status, _ = ctx.post("/api/memory/link", {"target": hub.chat_id, "source": private.chat_id, "on": True,
+                                              "who": "everyone"})
+    ctx.check("connect a chat to a group chat, for everyone", status == 200)
+    ctx.wait_jobs()
+    ctx.check("one recap for Ria, one account shared by the others",
+              memory_calls(ctx, n, "Ria's memory of a roleplay") == 1
+              and memory_calls(ctx, n, "record of a roleplay") == 1,
+              f"{memory_calls(ctx, n, 'memory of a roleplay')} recap(s), "
+              f"{memory_calls(ctx, n, 'record of a roleplay')} account(s)")
+    view, last = ctx.turn(hub, "Tam", "p1.png", user_text="Tam, what's new?")
+    block = memory_block(last)
+    ctx.check("a member who wasn't in it gets it as background",
+              "ACCOUNT GEVT0" in block and "Tam wasn't there" in block, block[:300])
+    view, last = ctx.turn(hub, "Ria", "p1.png")
+    block = memory_block(last)
+    ctx.check("the one who was, from her own point of view",
+              "RECAP GEVT0" in block and "wasn't there" not in block, block[:300])
+    _, conns, _ = ctx.get("/api/memory/connections")
+    c = next((c for c in conns.get("connections", []) if c["target"]["chat_id"] == hub.chat_id), {})
+    s = (c.get("sources") or [{}])[0]
+    ctx.check("the connections list pairs the chats, for everyone, naming whom it's background for",
+              s.get("chat", {}).get("chat_id") == private.chat_id and s.get("everyone")
+              and sorted((s.get("state") or {}).get("absent", [])) == ["Tam", "Uli"]
+              and [m["name"] for m in c.get("members", [])] == ["Ria", "Tam", "Uli"], json.dumps(c)[:400])
+
+    ctx.post("/api/memory/link", {"target": hub.chat_id, "source": private.chat_id, "on": True, "who": ["Ria.png"]})
+    view, last = ctx.turn(hub, "Uli", "p1.png", user_text="Uli?")
+    ctx.check("connected only for Ria, the others don't get it", "GEVT" not in view, memory_block(last)[:300])
+    _, d, _ = ctx.get(f"/api/memory/chat?character=Ria.png&chat={q(hub)}")
+    ctx.check("and Ria still does", [(x["chat_id"], x.get("who")) for x in d.get("sources", [])]
+              == [(private.chat_id, "Ria.png")], json.dumps(d.get("sources"))[:300])
+    ctx.post("/api/memory/link", {"target": hub.chat_id, "source": private.chat_id, "on": False})
+    _, conns, _ = ctx.get("/api/memory/connections")
+    ctx.check("disconnecting removes it for everyone",
+              all(c["target"]["chat_id"] != hub.chat_id for c in conns.get("connections", [])))
+
+
+def shared_plan(ctx):
+    """In chapters mode a chat is divided once, for every character, so a
+    connection for everyone leaves the same chapters out for all."""
+    w = ctx.world
+    for name in ("Pia", "Quin"):
+        w.card(name)
+    msgs = [(("V", True) if i % 2 else ("Pia" if i % 4 == 0 else "Quin", False))
+            + (f"PEVT{i} line {i}.", "p1.png" if i % 2 else None, OLD) for i in range(130)]
+    w.group("gpq", "Duo", ["Pia.png", "Quin.png"], ["Duo - trek", "Duo - camp"])
+    src = w.chat(None, "Duo - trek", msgs, group="gpq")
+    camp = w.chat(None, "Duo - camp", [("Pia", False, "Camp.", None, None)], group="gpq")
+    time.sleep(5.2)
+    try:
+        ctx.post("/api/settings", {"memory_mode": "chapters", "memory_chapter_words": 60})
+        n = ctx.api.count()
+        ctx.post("/api/memory/link", {"target": camp.chat_id, "source": src.chat_id, "on": True})
+        ctx.wait_jobs()
+        ctx.check("the chat is divided into chapters once for both",
+                  memory_calls(ctx, n, "Divide these parts") == 1, str(memory_calls(ctx, n, "Divide these parts")))
+        ctx.post("/api/memory/chapters", {"chat": src.chat_id, "target": camp.chat_id, "who": "", "off": [80]})
+        seen = {}
+        for name in ("Pia", "Quin"):
+            _, r, _ = ctx.get(f"/api/memory/recap?character={name}.png&chat={q(src)}&target={q(camp)}")
+            seen[name] = [(s["start"], s["on"]) for s in (r.get("passed") or {}).get("sections", [])]
+        ctx.check("both have the same chapters, and the one left out for everyone is out for both",
+                  seen["Pia"] == seen["Quin"] == [(0, True), (80, False)], json.dumps(seen))
+    finally:
+        ctx.post("/api/settings", {"memory_mode": "synopsis", "memory_chapter_words": 250})
+
+
+def no_summaries(ctx):
+    """The bridge's own summaries are gone: Character Memory recaps a chat's
+    earlier part instead."""
+    for path in ("/api/cache", "/api/summary/generate", "/v1/chunked/process"):
+        req = urllib.request.Request(f"http://127.0.0.1:{ctx.bridge.port}{path}", data=b"{}", method="POST",
+                                     headers={"Content-Type": "application/json", "Authorization": "Bearer testkey"})
+        try:
+            with urllib.request.urlopen(req, timeout=30) as r:
+                status = r.status
+        except urllib.error.HTTPError as e:
+            status = e.code
+        ctx.check(f"{path} is gone", status in (404, 405), str(status))
+    _, s, _ = ctx.get("/api/settings")
+    ctx.check("and so are its settings", not any(k.startswith(("auto_summary", "chunking")) for k in s), str(list(s)))
+
+
 SCENARIOS = {f.__name__: f for f in (no_extension, link, binding, group, conflict, in_chat, budget, dashboard,
-                                     chat_names, recap_views, identity, synopsis, chapters)}
+                                     chat_names, recap_views, identity, synopsis, chapters, absent, everyone,
+                                     shared_plan, no_summaries)}
 
 
 def main():
