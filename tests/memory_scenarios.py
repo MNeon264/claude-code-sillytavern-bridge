@@ -677,6 +677,12 @@ def memory_calls(ctx, since, phrase):
                    for b in ctx.api.calls[since:] for m in b.get("messages", []) if m.get("role") == "user")
 
 
+def passed(d):
+    """What other chats get of a chat, from /api/memory/chat: in the first
+    mode it's used in."""
+    return (d.get("passed_all") or [{}])[0]
+
+
 def update_block(text):
     m = re.search(r"<character_memory_update\b[\s\S]*?</character_memory_update>", text)
     return m.group(0) if m else ""
@@ -720,9 +726,9 @@ def synopsis(ctx):
         ctx.check("then the session gets the synopsis instead", "SYNOPSIS SEVT0" in upd and "RECAP" not in upd, upd[:300])
 
         _, d, _ = ctx.get(f"/api/memory/chat?character=Oda.png&chat={urllib.parse.quote(src.chat_id)}")
-        sec = ((d.get("passed") or {}).get("sections") or [{}])[0]
+        sec = (passed(d).get("sections") or [{}])[0]
         ctx.check("the Memory tab shows the synopsis", sec.get("ready") and not sec.get("as_is")
-                  and "SYNOPSIS" in (sec.get("text") or ""), json.dumps(d.get("passed"))[:300])
+                  and "SYNOPSIS" in (sec.get("text") or ""), json.dumps(d.get("passed_all"))[:300])
         status, _ = ctx.post("/api/memory/condensed", {"character": "Oda.png", "chat": src.chat_id,
                                                        "key": sec.get("key"), "recap": "EDITED SYNOPSIS: the harbour."})
         ctx.check("rewrite the synopsis", status == 200, str(status))
@@ -753,7 +759,7 @@ def chapters(ctx):
         ctx.wait_jobs()
         q = urllib.parse.quote(src.chat_id)
         _, d, _ = ctx.get(f"/api/memory/chat?character=Ivy.png&chat={q}")
-        secs = (d.get("passed") or {}).get("sections") or []
+        secs = passed(d).get("sections") or []
         ctx.check("a 200-message chat is divided into chapters",
                   [(s["start"], s["title"]) for s in secs] == [(0, "CHAPTER 1"), (80, "CHAPTER 3"), (160, "CHAPTER 5")],
                   json.dumps([(s["start"], s["title"]) for s in secs]))
@@ -797,7 +803,7 @@ def chapters(ctx):
         view, last = ctx.turn(linked, "Ivy", "p1.png", user_text="What happened next?")
         ctx.wait_jobs()
         _, d, _ = ctx.get(f"/api/memory/chat?character=Ivy.png&chat={q}")
-        secs = (d.get("passed") or {}).get("sections") or []
+        secs = passed(d).get("sections") or []
         ctx.check("when the chat grows, only its last chapter is divided again",
                   [s["start"] for s in secs] == [0, 80, 160, 240] and memory_calls(ctx, n, "Divide the chat into chapters") == 1
                   and "already divided" in "".join(_text(m.get("content")) for b in ctx.api.calls[n:]
@@ -813,12 +819,14 @@ def chapters(ctx):
         ctx.check("the session gets the new chapter, still without the one left out",
                   "CEVT241" in upd and "CEVT85" not in upd, upd[:400])
 
-        ctx.post("/api/settings", {"memory_mode": "synopsis", "memory_synopsis_words": 50})
+        ctx.post("/api/settings", {"memory_synopsis_words": 50})
+        ctx.post("/api/memory/link", {"character": "Ivy.png", "target": linked.chat_id, "source": src.chat_id,
+                                      "on": True, "mode": "synopsis"})
         ctx.turn(linked, "Ivy", "p1.png", user_text="In short?")
         ctx.wait_jobs()
         view, last = ctx.turn(linked, "Ivy", "p1.png", user_text="Summed up?")
         upd = update_block(last)
-        ctx.check("back in synopsis mode the chat comes as one synopsis",
+        ctx.check("with the connection switched to a synopsis the chat comes as one",
                   "SYNOPSIS" in upd and "<chapter" not in upd, upd[:300])
     finally:
         ctx.post("/api/settings", {"memory_mode": "synopsis", "memory_synopsis_words": 400, "memory_chapter_words": 250})
@@ -1000,7 +1008,7 @@ def scenes(ctx):
         ctx.check("the part the story turns in is recapped as two scenes, each marked with its first message",
                   len(parts) == 4 and parts[1]["recap"].startswith("[#40] RECAP KEVT40")
                   and "\n\n[#55] RECAP KEVT55" in parts[1]["recap"], json.dumps([p.get("recap", "")[:40] for p in parts]))
-        secs = (d.get("passed") or {}).get("sections") or []
+        secs = passed(d).get("sections") or []
         ctx.check("the chat is divided where the story turns, inside a part",
                   [(s["start"], s["from"], s["to"], s["title"]) for s in secs]
                   == [(0, 0, 54, "CHAPTER AT 0"), (55, 55, 129, "CHAPTER AT 55")],
@@ -1023,6 +1031,77 @@ def scenes(ctx):
         ctx.post("/api/settings", {"memory_mode": "synopsis", "memory_chapter_words": 250})
 
 
+def modes(ctx):
+    """Each connection and binding chooses synopsis or chapters; the Memory
+    tab's mode is only the default for new ones. A chat used both ways has
+    both written, and switching a connection reuses what exists."""
+    w = ctx.world
+    w.card("Lia")
+    src = w.chat("Lia", "Lia - voyage", scripted(130, "Lia", "p1.png", "LEVT"))
+    t1 = w.chat("Lia", "Lia - port", [("Lia", False, "Land.", None, None)])
+    t2 = w.chat("Lia", "Lia - inland", [("Lia", False, "Hills.", None, None)])
+    try:
+        ctx.post("/api/settings", {"memory_mode": "synopsis", "memory_chapter_words": 60})
+        _, p_syn, _ = ctx.get(f"/api/memory/connect/preview?target={q(t1)}&source={q(src)}")
+        _, p_ch, _ = ctx.get(f"/api/memory/connect/preview?target={q(t1)}&source={q(src)}&mode=chapters")
+        ctx.check("the estimate follows the mode chosen: a division and chapters cost more than a synopsis",
+                  p_syn.get("calls") == 5 and p_ch.get("calls") == 7 and p_syn.get("default_mode") == "synopsis"
+                  and p_syn.get("mode") is None, f"{p_syn.get('calls')} / {p_ch.get('calls')}")
+        status, _ = ctx.post("/api/memory/link", {"target": t1.chat_id, "source": src.chat_id, "on": True,
+                                                  "mode": "outline"})
+        ctx.check("an unknown mode is refused", status == 400, str(status))
+        ctx.post("/api/memory/link", {"target": t1.chat_id, "source": src.chat_id, "on": True, "mode": "chapters"})
+        ctx.post("/api/memory/link", {"target": t2.chat_id, "source": src.chat_id, "on": True})
+        ctx.wait_jobs()
+        ctx.post("/api/settings", {"memory_mode": "chapters"})
+        _, conns, _ = ctx.get("/api/memory/connections")
+        got = {c["target"]["chat_id"]: [x.get("mode") for x in c["sources"]] for c in conns.get("connections", [])}
+        ctx.check("each connection keeps its own mode when the default changes",
+                  got.get(t1.chat_id) == ["chapters"] and got.get(t2.chat_id) == ["synopsis"], json.dumps(got))
+        _, d, _ = ctx.get(f"/api/memory/chat?character=Lia.png&chat={q(src)}")
+        ctx.check("the chat shows what it passes on in both modes, and each connection's",
+                  [x.get("mode") for x in d.get("passed_all", [])] == ["synopsis", "chapters"]
+                  and {u["chat_id"]: u.get("mode") for u in d.get("used_in", [])}
+                  == {t1.chat_id: "chapters", t2.chat_id: "synopsis"},
+                  json.dumps([x.get("mode") for x in d.get("passed_all", [])]) + json.dumps(d.get("used_in"))[:200])
+        _, r, _ = ctx.get(f"/api/memory/recap?character=Lia.png&chat={q(src)}&target={q(t2)}")
+        ctx.check("a connection's recap is read in its mode", (r.get("passed") or {}).get("mode") == "synopsis",
+                  json.dumps(r.get("passed"))[:200])
+
+        view, last = ctx.turn(t1, "Lia", "p1.png", user_text="The voyage?")
+        ctx.check("the chapters connection gets chapters", '<chapter title="CHAPTER 1">' in memory_block(last),
+                  memory_block(last)[:300])
+        view, last = ctx.turn(t2, "Lia", "p1.png", user_text="The voyage?")
+        block = memory_block(last)
+        ctx.check("the synopsis one doesn't", "<chapter" not in block and "LEVT0" in block, block[:300])
+
+        n = ctx.api.count()
+        ctx.post("/api/memory/link", {"target": t2.chat_id, "source": src.chat_id, "on": True, "mode": "chapters"})
+        ctx.wait_jobs()
+        view, last = ctx.turn(t2, "Lia", "p1.png", user_text="In chapters?")
+        made = memory_calls(ctx, n, "Divide the chat into chapters") + memory_calls(ctx, n, "of this chapter")
+        ctx.check("switching a connection to chapters sends the ones written, dividing or writing nothing again",
+                  '<chapter title="CHAPTER 1">' in update_block(last) and made == 0,
+                  f"{made} call(s); " + update_block(last)[:200])
+
+        status, _ = ctx.post("/api/memory/binding", {"character": "Lia.png", "persona": "p1.png", "action": "add",
+                                                     "mode": "synopsis"})
+        _, cv, _ = ctx.get("/api/memory/character?id=Lia.png")
+        ctx.check("a binding is made with the mode chosen, not the default",
+                  status == 200 and [b.get("mode") for b in cv.get("bindings", [])] == ["synopsis"],
+                  json.dumps(cv.get("bindings"))[:200])
+        status, _ = ctx.post("/api/memory/binding", {"character": "Lia.png", "persona": "p1.png", "action": "mode",
+                                                     "mode": "chapters"})
+        _, cv, _ = ctx.get("/api/memory/character?id=Lia.png")
+        ctx.check("and its mode can be changed", status == 200
+                  and [b.get("mode") for b in cv.get("bindings", [])] == ["chapters"], json.dumps(cv.get("bindings"))[:200])
+        status, _ = ctx.post("/api/memory/binding", {"character": "Lia.png", "persona": "nobody.png", "action": "mode",
+                                                     "mode": "chapters"})
+        ctx.check("a binding that doesn't exist is a 404", status == 404, str(status))
+    finally:
+        ctx.post("/api/settings", {"memory_mode": "synopsis", "memory_chapter_words": 250})
+
+
 def no_summaries(ctx):
     """The bridge's own summaries are gone: Character Memory recaps a chat's
     earlier part instead."""
@@ -1041,7 +1120,7 @@ def no_summaries(ctx):
 
 SCENARIOS = {f.__name__: f for f in (no_extension, link, binding, group, conflict, in_chat, budget, dashboard,
                                      chat_names, recap_views, identity, synopsis, chapters, absent, everyone,
-                                     shared_plan, scenes, no_summaries)}
+                                     shared_plan, scenes, modes, no_summaries)}
 
 
 def main():

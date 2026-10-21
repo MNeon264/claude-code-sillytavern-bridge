@@ -1833,7 +1833,8 @@ runtime_settings = {
     # extension in st-extension/, which says which chat and persona a
     # request is from.
     "character_memory_enabled": False,
-    # What another chat gets of a remembered chat: "synopsis", one recap of
+    # What another chat gets of a remembered chat by default, for new
+    # connections and bindings (each has its own): "synopsis", one recap of
     # the whole chat, or "chapters", one per event, each of which a
     # connection or binding can leave out. The word targets are the
     # synopsis's length and each chapter's (see memory.passed_on).
@@ -4101,14 +4102,33 @@ def memory_card():
     return (jsonify({"status": "ok"}), 200) if ok else (jsonify({"error": err}), 400)
 
 
+def _mem_mode(data: dict):
+    """The request's mode: (mode or None when absent, error)."""
+    mode = data.get("mode")
+    if mode is not None and mode not in memory.MODES:
+        return None, f"mode is one of: {', '.join(memory.MODES)}"
+    return mode, None
+
+
 @app.route("/api/memory/binding", methods=["POST"])
 def memory_binding():
+    """Bind a character to a persona (mode: what its chats pass on; default
+    the Memory tab's default), unbind them (action "remove"), or change the
+    binding's mode (action "mode")."""
     data = _mem_body()
     cid, persona = _mem_ids(data, "character", "persona")
+    mode, err = _mem_mode(data)
+    if err:
+        return jsonify({"error": err}), 400
     if data.get("action") == "remove":
         memory.unbind(cid, persona)
         return jsonify({"status": "ok"})
-    return jsonify({"status": "ok", "binding": memory.bind(cid, persona)})
+    if data.get("action") == "mode":
+        if not mode:
+            return jsonify({"error": "missing mode"}), 400
+        ok = memory.set_binding_mode(cid, persona, mode)
+        return (jsonify({"status": "ok"}), 200) if ok else (jsonify({"error": "no such binding"}), 404)
+    return jsonify({"status": "ok", "binding": memory.bind(cid, persona, mode)})
 
 
 @app.route("/api/memory/binding/chats", methods=["POST"])
@@ -4138,10 +4158,11 @@ def memory_connections():
 @app.route("/api/memory/connect/preview", methods=["GET"])
 def memory_connect_preview():
     """Who would remember `source` in `target`, and about how many calls
-    recapping it takes (who, repeated: those characters; default everyone)."""
+    recapping it takes (who, repeated: those characters, default everyone;
+    mode: what it would pass on, default the connection's or the default)."""
     a = request.args
     who = [c for c in a.getlist("who") if c] or None
-    view = memory.connect_preview(a.get("target", ""), a.get("source", ""), who)
+    view = memory.connect_preview(a.get("target", ""), a.get("source", ""), who, a.get("mode") or None)
     return (jsonify(view), 200) if view else (jsonify({"error": "chat not found"}), 404)
 
 
@@ -4151,19 +4172,23 @@ def memory_link():
     who: "everyone" there, or a list of characters, which replaces whoever
     it was for (off: the connection goes for everyone). character instead:
     that one character's own connection, the others' untouched ("" is the
-    one for everyone)."""
+    one for everyone). mode: what it passes on, synopsis or chapters, for
+    everyone it's for (default: what it had, or the Memory tab's default)."""
     data = _mem_body()
     target, source = _mem_ids(data, "target", "source")
     on = bool(data.get("on", True))
     who = data.get("who")
+    mode, err = _mem_mode(data)
+    if err:
+        return jsonify({"error": err}), 400
     if isinstance(data.get("character"), str) and who is None:
-        memory.set_link(data["character"], target, source, on)
+        memory.set_link(data["character"], target, source, on, mode=mode)
     elif not on:
         memory.disconnect(target, source)
     elif who in (None, "everyone"):
-        memory.connect(target, source)
+        memory.connect(target, source, mode=mode)
     elif isinstance(who, list) and who and all(isinstance(c, str) and c for c in who):
-        memory.connect(target, source, who)
+        memory.connect(target, source, who, mode=mode)
     else:
         return jsonify({"error": 'who is "everyone" or a list of characters'}), 400
     return jsonify({"status": "ok"})

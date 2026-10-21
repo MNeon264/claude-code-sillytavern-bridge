@@ -2009,15 +2009,20 @@
 
             <div class="setting-card">
                 <div class="card-head"><h3>What other chats get</h3></div>
-                <p class="card-desc">A chat remembered in another chat, through a connection or a binding, comes either as one <strong>synopsis</strong> or as its <strong>chapters</strong>. In chapters mode Sonnet divides a chat of three parts or more (81 messages and up) by event, at the scene breaks its recaps mark, and each connection or binding can leave chapters out: open its recap to choose. Both are written from the chat's scene recaps, and scene recaps already shorter than the target are passed on as they are.</p>
+                <p class="card-desc">A chat remembered in another chat comes either as one <strong>synopsis</strong> or as its <strong>chapters</strong>. Each connection and each binding has its own choice: pick it when you connect a chat (or with <strong>Edit</strong> under Connections) and in each binding. The choice here is the default for new ones. In chapters mode Sonnet divides a chat of three parts or more (81 messages and up) by event, at the scene breaks its recaps mark, and each connection or binding can leave chapters out: open its recap to choose. Both are written from the chat's scene recaps, and scene recaps already shorter than the target are passed on as they are.</p>
+                <div class="field-label">Default for new connections and bindings</div>
                 <div class="toggle-group" style="margin-bottom:12px;">
                     <button class="toggle-btn" data-mem-mode="synopsis">Synopsis</button>
                     <button class="toggle-btn" data-mem-mode="chapters">Chapters</button>
                 </div>
                 <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:flex-end;">
                     <div>
-                        <label class="field-label" for="memWords" id="memWordsLabel">Words per synopsis, about</label>
-                        <input type="number" id="memWords" min="50" max="2000" step="10" style="width:110px;">
+                        <label class="field-label" for="memSynWords">Words per synopsis, about</label>
+                        <input type="number" id="memSynWords" min="50" max="2000" step="10" style="width:110px;">
+                    </div>
+                    <div>
+                        <label class="field-label" for="memChapWords">Words per chapter, about</label>
+                        <input type="number" id="memChapWords" min="50" max="2000" step="10" style="width:110px;">
                     </div>
                     <button class="btn btn-secondary" id="memSettingsSave">Save</button>
                     <span id="memSettingsStatus" class="status-msg" style="display:none;">Saved!</span>
@@ -2034,16 +2039,16 @@
                 <dd>The bridge reads a chat's file from SillyTavern's folder, and Sonnet recaps it 40 messages at a time, each part with the previous part's recap for context. A part the character has a message in is recapped from their point of view. A part they have no message in is recapped as a plain account of what happened, which never puts them in it, and every character who isn't in that part shares the one account. Hidden and empty messages are left out. A recap is written scene by scene, each paragraph opening with the number of the message its scene starts at, like <code>[#52]</code>; the model reads it without those marks. Recaps are built in the background when a chat that needs them is used or opened in SillyTavern, or when you ask here, and a reply uses whatever is ready; the rest arrives on later replies. A part is recapped again only when its messages change, and a branch shares its parent's recaps up to the branch point. Open a chat below to read what the character remembers of it; <strong>Recap</strong> beside a connected chat, or a chat in a binding, shows it in place. <strong>Edit</strong> lets you rewrite any part, the synopsis or a chapter; <strong>Redo</strong> has it written again. An edit of a synopsis or chapter lasts until a part it's written from changes.</dd>
 
                 <dt>Synopsis or chapters</dt>
-                <dd>Other chats don't get a chat's part recaps but what's written from them, set at the top of this tab. <strong>Synopsis</strong>: one recap of the whole chat in about the number of words you set. <strong>Chapters</strong>: Sonnet divides a chat of three parts or more (81 messages and up) into chapters by event, at the scene breaks its recaps mark, so a chapter can start in the middle of a part, once for every character, titles them, and writes each in about the number of words you set. A chat too short for chapters comes as its synopsis. When the chat grows, only its last chapter is divided again, so the earlier ones keep their place and what you chose for them. Untick chapters per connection (in its recap under Connections, or in the chat) and per binding; a binding's choice holds in all its chats. Scene recaps already within the word target go as they are, with no call. Changing the mode or word target has each chat written again the next time it's needed; the division into chapters is kept when only the word target changes.</dd>
+                <dd>Other chats don't get a chat's part recaps but what's written from them, chosen for each connection (when you connect a chat, or with <strong>Edit</strong>) and each binding (its <strong>Other chats get each chat as</strong> switch); the choice at the top of this tab is the default for new ones. <strong>Synopsis</strong>: one recap of the whole chat in about the number of words you set. <strong>Chapters</strong>: Sonnet divides a chat of three parts or more (81 messages and up) into chapters by event, at the scene breaks its recaps mark, so a chapter can start in the middle of a part, once for every character, titles them, and writes each in about the number of words you set. A chat too short for chapters comes as its synopsis. When the chat grows, only its last chapter is divided again, so the earlier ones keep their place and what you chose for them. Untick chapters per connection (in its recap under Connections, or in the chat) and per binding; a binding's choice holds in all its chats. Scene recaps already within the word target go as they are, with no call. A chat one connection gets as a synopsis and another as chapters has both written from the same part recaps. Switching a connection or binding to the other mode, or changing a word target, has each chat it affects written that way the next time it's needed; a division into chapters, once made, is kept.</dd>
 
                 <dt>Earlier in a chat</dt>
                 <dd>When SillyTavern leaves a chat's oldest messages out to fit the context, the recap of those messages comes in instead.</dd>
 
                 <dt>Connections</dt>
-                <dd>Connect any chat to any other under <strong>Connections</strong>, or from a chat's dialog: the chat that remembers, the chat it remembers, and who remembers it. In a one-character chat, that's the character. In a group chat it's everyone in it, members who join later included, or only the members you tick, so a private scene can stay with the one character who was in it. A character who isn't in the remembered chat at all gets it as background: the memory says they weren't there and know only what they'd have heard or been told. In a group chat, <strong>Leave out for</strong> in one member's view of the chat keeps a connection for everyone from that member.</dd>
+                <dd>Connect any chat to any other under <strong>Connections</strong>, or from a chat's dialog: the chat that remembers, the chat it remembers, who remembers it, and what it gets, a synopsis or chapters. <strong>Edit</strong> on a connection changes the last two. In a one-character chat, that's the character. In a group chat it's everyone in it, members who join later included, or only the members you tick, so a private scene can stay with the one character who was in it. A character who isn't in the remembered chat at all gets it as background: the memory says they weren't there and know only what they'd have heard or been told. In a group chat, <strong>Leave out for</strong> in one member's view of the chat keeps a connection for everyone from that member.</dd>
 
                 <dt>Persona bindings</dt>
-                <dd>Bind a character to a persona, then tick the chats with that persona they should remember; <strong>Select all</strong> ticks every chat with it. From then on each new chat with that character and persona joins by itself. Branches don't, as they're alternate timelines; tick them if you want them. In every chat with the persona, the character remembers all the ticked chats except the chat itself and its own branches. A chat's <strong>Don't bring in through bindings</strong> keeps it out everywhere; <strong>Leave out here</strong> keeps one chat's memory out of one other chat.</dd>
+                <dd>Bind a character to a persona, then tick the chats with that persona they should remember; <strong>Select all</strong> ticks every chat with it. Each binding passes its chats on as a synopsis or as chapters, its own choice. From then on each new chat with that character and persona joins by itself. Branches don't, as they're alternate timelines; tick them if you want them. In every chat with the persona, the character remembers all the ticked chats except the chat itself and its own branches. A chat's <strong>Don't bring in through bindings</strong> keeps it out everywhere; <strong>Leave out here</strong> keeps one chat's memory out of one other chat.</dd>
 
                 <dt>What the model gets</dt>
                 <dd>A new CLI session gets a <code>&lt;character_memory&gt;</code> block before the transcript: the recap of this chat's earlier part, then the other chats' synopses or chapters, oldest first, each saying who was there, or that the character wasn't and it's background. Newest chats get theirs while 24,000 characters last; a chat whose chapters don't all fit loses its earliest ones, and older chats that don't fit are left out. After that, each reply carries only recaps that are new or changed, and a note when one is dropped. The block says the memories count over the card's description and scenario about the character's history and relationships. Only the character whose reply it is gets their memories; in a group chat each member has their own CLI session.</dd>
@@ -2189,19 +2194,27 @@
             return p?.title ? `${n} (${p.title})` : n;
         }
 
-        // ===== What other chats get: the mode and word targets =====
+        // ===== What other chats get: the default mode and the word targets =====
         // memSettings: the saved ones (the overview's settings); memSettingsMode:
-        // the mode the card shows, saved or not. memInUse: chats remembered
-        // in other chats, which a change has written again.
+        // the default mode the card shows, saved or not. memInUse: chats
+        // remembered in other chats, which a word target change has written
+        // again.
         let memSettings = null;
         let memSettingsMode = null;
         let memInUse = 0;
 
-        const memWordsKey = mode => mode === 'chapters' ? 'chapter_words' : 'synopsis_words';
+        const MEM_MODES = {synopsis: 'a synopsis', chapters: 'chapters'};
+
+        function memSettingsForm() {
+            return {mode: memSettingsMode, synopsis_words: Math.round(Number(document.getElementById('memSynWords').value)),
+                    chapter_words: Math.round(Number(document.getElementById('memChapWords').value))};
+        }
 
         function memSettingsDirty() {
-            return !!memSettings && memSettingsMode !== null && (memSettingsMode !== memSettings.mode
-                || Number(document.getElementById('memWords').value) !== memSettings[memWordsKey(memSettingsMode)]);
+            if (!memSettings || memSettingsMode === null) return false;
+            const f = memSettingsForm();
+            return f.mode !== memSettings.mode || f.synopsis_words !== memSettings.synopsis_words
+                || f.chapter_words !== memSettings.chapter_words;
         }
 
         function memRenderSettings(o) {
@@ -2209,6 +2222,8 @@
             memInUse = o.in_use || 0;
             if (memSettingsDirty()) return;
             memSettings = o.settings;
+            document.getElementById('memSynWords').value = memSettings.synopsis_words;
+            document.getElementById('memChapWords').value = memSettings.chapter_words;
             memShowSettings(memSettings.mode);
         }
 
@@ -2216,33 +2231,27 @@
             if (!memSettings) return;
             memSettingsMode = mode;
             document.querySelectorAll('[data-mem-mode]').forEach(b => b.classList.toggle('active', b.dataset.memMode === mode));
-            document.getElementById('memWordsLabel').textContent = mode === 'chapters' ? 'Words per chapter, about' : 'Words per synopsis, about';
-            document.getElementById('memWords').value = memSettings[memWordsKey(mode)];
             memSettingsRefresh();
         }
 
         function memSettingsRefresh() {
             if (!memSettings) return;
             const s = memSettings;
-            document.getElementById('memSettingsNote').textContent = `In use: ${s.mode === 'chapters'
-                ? `chapters of about ${s.chapter_words} words each` : `a synopsis of about ${s.synopsis_words} words`}.`
+            document.getElementById('memSettingsNote').textContent = `In use: new connections and bindings get ${MEM_MODES[s.mode]}; a synopsis is about ${s.synopsis_words} words, a chapter about ${s.chapter_words}.`
                 + (memSettingsDirty() ? ' Your changes aren\'t saved yet.' : '');
         }
 
         async function memSaveSettings() {
-            if (!memSettings) return;
-            const mode = memSettingsMode;
-            const words = Math.round(Number(document.getElementById('memWords').value));
-            if (!(words >= 50 && words <= 2000)) {
-                alert('The word target is a number from 50 to 2000.');
+            if (!memSettingsDirty()) return;
+            const f = memSettingsForm();
+            if (![f.synopsis_words, f.chapter_words].every(w => w >= 50 && w <= 2000)) {
+                alert('A word target is a number from 50 to 2000.');
                 return;
             }
-            if (!memSettingsDirty()) return;
-            const what = mode === 'chapters'
-                ? 'divided into chapters (one Sonnet call, kept when only the word target changes) and its chapters written (about one call each)'
-                : 'its synopsis written (one Sonnet call)';
-            if (memInUse && !confirm(`${memInUse} chat${memInUse === 1 ? ' is' : 's are'} remembered in other chats. Each long one gets ${what} the next time it's needed. The calls count against your plan. Go ahead?`)) return;
-            await memDo('/api/settings', {memory_mode: mode, [`memory_${mode === 'chapters' ? 'chapter' : 'synopsis'}_words`]: words}, async data => {
+            const syn = f.synopsis_words !== memSettings.synopsis_words, chap = f.chapter_words !== memSettings.chapter_words;
+            const what = syn && chap ? 'synopses and chapters are' : syn ? 'synopses are' : 'chapters are';
+            if ((syn || chap) && memInUse && !confirm(`${memInUse} chat${memInUse === 1 ? ' is' : 's are'} remembered in other chats. Their ${what} written again at the new length the next time each is needed (about one Sonnet call each). The calls count against your plan. Go ahead?`)) return;
+            await memDo('/api/settings', {memory_mode: f.mode, memory_synopsis_words: f.synopsis_words, memory_chapter_words: f.chapter_words}, async data => {
                 const s = data.settings || {};
                 memSettings = {mode: s.memory_mode, synopsis_words: s.memory_synopsis_words, chapter_words: s.memory_chapter_words};
                 memShowSettings(memSettings.mode);
@@ -2254,14 +2263,20 @@
             });
         }
 
-        // About how many Sonnet calls recapping a chat takes: its missing
-        // parts, then one for a synopsis, or in chapters mode one to divide
-        // it and about one per chapter of three parts. Short ones need none.
-        function memCallEstimate(r) {
+        // About how many Sonnet calls recapping a chat and passing it on in
+        // `mode` takes: its missing parts, then one for a synopsis, or in
+        // chapters mode one to divide it and about one per chapter of three
+        // parts. Short ones need none.
+        function memCallEstimate(r, mode) {
             const missing = r?.missing || 0, parts = r?.parts || 0;
             if (!missing) return 0;
-            if ((memSettings?.mode || 'synopsis') === 'chapters' && parts >= 3) return missing + 1 + Math.ceil(parts / 3);
+            if (mode === 'chapters' && parts >= 3) return missing + 1 + Math.ceil(parts / 3);
             return missing + (parts > 1 ? 1 : 0);
+        }
+
+        // How a connection or binding passes a chat on, for its row.
+        function memModeText(mode) {
+            return mode === 'chapters' ? 'as chapters' : 'as a synopsis';
         }
 
         // A recap job's stage, for the jobs line, a chat's tag and its dialog.
@@ -2478,18 +2493,17 @@
                 return;
             }
             box.innerHTML = memConns.map((conn, k) => {
-                const group = (conn.members || []).length > 1 || !!conn.target.group;
                 const rows = conn.sources.map((src, i) => {
                     const st = src.state || {};
                     const acts = ['<button type="button" class="toggle-btn sm" data-act="recap">Recap</button>'];
                     if (st.available && st.parts && st.recapped < st.of && !st.building) {
                         acts.push('<button type="button" class="toggle-btn sm" data-act="build">Recap now</button>');
                     }
-                    if (group) acts.push('<button type="button" class="toggle-btn sm" data-act="who">Who</button>');
+                    acts.push('<button type="button" class="toggle-btn sm" data-act="edit">Edit</button>');
                     acts.push('<button type="button" class="toggle-btn sm danger" data-act="disconnect">Disconnect</button>');
                     return `<div class="mem-conn-src" data-i="${i}">
                         <div class="mem-source"><div class="mem-chat-main">${memChatSummary(src.chat)}
-                            <div class="mem-conn-who">Remembered by ${memEsc(memConnWho(conn, src))}${memConnTag(src)}</div>
+                            <div class="mem-conn-who">Remembered by ${memEsc(memConnWho(conn, src))}, ${memModeText(src.mode)}${memConnTag(src)}</div>
                             ${memAbsentNote(st.absent)}</div>
                             <div class="mem-source-acts">${acts.join('')}</div></div>
                         <div class="mem-recap-box" style="display:none;"></div></div>`;
@@ -2521,7 +2535,7 @@
                     if (memConnShown.has(key)) show(true, memConnShown.get(key));
                     const act = (name, fn) => { const b = row.querySelector(`[data-act="${name}"]`); if (b) b.addEventListener('click', fn); };
                     act('build', () => memConnBuild(conn, src));
-                    act('who', () => memToggleForm(slot, {target: conn.target, source: src.chat}));
+                    act('edit', () => memToggleForm(slot, {target: conn.target, source: src.chat}));
                     act('disconnect', () => {
                         if (!confirm(`Disconnect ${memChatPlain(src.chat)} from ${memChatPlain(conn.target)}? It stops being remembered there; its recaps are kept.`)) return;
                         memDo('/api/memory/link', {target: conn.target.chat_id, source: src.chat.chat_id, on: false}, memAfterConnChange);
@@ -2576,10 +2590,12 @@
         }
 
         // About how many Sonnet calls connecting (or recapping) `source` for
-        // these characters takes (ids null: everyone in `target`).
-        async function memConnCalls(target, source, ids) {
+        // these characters takes (ids null: everyone in `target`), passed on
+        // in `mode` (null: the connection's, or the default).
+        async function memConnCalls(target, source, ids, mode = null) {
             const q = new URLSearchParams({target, source});
             (ids || []).forEach(id => q.append('who', id));
+            if (mode) q.append('mode', mode);
             try {
                 return (await memApi('/api/memory/connect/preview?' + q)).calls || 0;
             } catch (e) {
@@ -2589,7 +2605,7 @@
 
         async function memConnBuild(conn, src) {
             const ids = memConnMembers(conn, src).map(m => m.id);
-            const calls = await memConnCalls(conn.target.chat_id, src.chat.chat_id, ids);
+            const calls = await memConnCalls(conn.target.chat_id, src.chat.chat_id, ids, src.mode);
             if (calls && !confirm(`Recapping ${memChatPlain(src.chat)} takes about ${calls} Sonnet call${calls === 1 ? '' : 's'}, which count against your plan. Go ahead?`)) return;
             for (const id of ids) {
                 await memApi('/api/memory/recap/build', {character: id, chat: src.chat.chat_id, title: src.chat.title}).catch(() => null);
@@ -2601,9 +2617,9 @@
         // ----- The connect form -----
         // In `slot`: 1. the chat that remembers, 2. the chat it remembers,
         // each searched among all of SillyTavern's chats, 3. who remembers
-        // it: everyone in the chat, or the members ticked. pre: {target,
-        // source} already chosen (chat views); a connection that exists is
-        // edited.
+        // it: everyone in the chat, or the members ticked, 4. what it gets:
+        // a synopsis or chapters. pre: {target, source} already chosen (chat
+        // views); a connection that exists is edited.
         function memToggleForm(slot, pre = {}) {
             if (memFormBox === slot) {
                 memCloseForm();
@@ -2613,7 +2629,7 @@
             memFormBox = slot;
             memConnectOpen = !!slot.closest('#memChatModal');
             memRenderForm(slot, {target: pre.target || null, source: pre.source || null, fixed: !!pre.target,
-                                 preview: null, everyone: true, who: new Set(), editing: false});
+                                 preview: null, everyone: true, who: new Set(), mode: null, editing: false});
         }
 
         function memCloseForm() {
@@ -2640,6 +2656,13 @@
                 + (f.everyone ? '' : `<div class="mem-who-list">${m.map(x => `<label class="mem-check"><input type="checkbox" data-who="${memEsc(x.id)}"${f.who.has(x.id) ? ' checked' : ''}><span>${memEsc(x.name)}${bg(x)}</span></label>`).join('')}</div>`);
         }
 
+        function memFormMode(f) {
+            const words = memSettings || {};
+            const opt = (mode, label, note) => `<label class="mem-check"><input type="radio" name="memModePick" value="${mode}"${f.mode === mode ? ' checked' : ''}><span>${label} <small>${note}</small></span></label>`;
+            return opt('synopsis', 'A synopsis', `one recap of the whole chat${words.synopsis_words ? `, about ${words.synopsis_words} words` : ''}`)
+                + opt('chapters', 'Chapters', `one per event${words.chapter_words ? `, about ${words.chapter_words} words each` : ''}; you can leave some out. A chat under 81 messages comes as its synopsis.`);
+        }
+
         function memRenderForm(slot, f) {
             const step = (n, label, which) => {
                 const chat = f[which];
@@ -2657,6 +2680,7 @@
             slot.innerHTML = `<div class="mem-picker mem-form">${step(1, 'The chat that remembers', 'target')}`
                 + (f.target ? step(2, 'The chat it remembers', 'source') : '')
                 + (both ? `<div class="mem-step"><div class="mem-step-label"><span class="mem-step-n">3</span>Who remembers it</div>${memFormWho(f)}</div>` : '')
+                + (both && f.preview && !f.preview.error ? `<div class="mem-step"><div class="mem-step-label"><span class="mem-step-n">4</span>What it gets</div>${memFormMode(f)}</div>` : '')
                 + `<div class="mem-inline" style="margin-top:12px;">`
                 + (both ? `<button type="button" class="toggle-btn sm primary" data-act="connect"${ready ? '' : ' disabled'}>${f.editing ? 'Save' : 'Connect'}</button>` : '')
                 + '<button type="button" class="toggle-btn sm" data-act="cancel">Cancel</button></div></div>';
@@ -2680,17 +2704,20 @@
             slot.querySelectorAll('input[data-who]').forEach(c => c.addEventListener('change', () => {
                 if (c.checked) f.who.add(c.dataset.who); else f.who.delete(c.dataset.who);
             }));
+            slot.querySelectorAll('input[name="memModePick"]').forEach(r => r.addEventListener('change', () => { f.mode = r.value; }));
             slot.querySelectorAll('[data-search]').forEach(input => memWireChatSearch(slot, f, input));
             if (both && !f.preview) {
                 const q = new URLSearchParams({target: f.target.chat_id, source: f.source.chat_id});
                 memApi('/api/memory/connect/preview?' + q).then(p => {
                     f.preview = p;
-                    // Already connected: show whom for, and save changes to it.
+                    // Already connected: show whom for and what it gets, and
+                    // save changes to it. Else the default mode.
                     f.editing = !!(p.everyone || (p.who || []).length);
                     if (f.editing) {
                         f.everyone = p.everyone;
                         f.who = new Set(p.who || []);
                     }
+                    f.mode = p.mode || memSettings?.mode || p.default_mode || 'synopsis';
                 }).catch(e => { f.preview = {error: e.message}; }).then(() => {
                     if (memFormBox === slot) memRenderForm(slot, f);
                 });
@@ -2741,11 +2768,11 @@
                 alert('Tick at least one character, or choose everyone.');
                 return;
             }
-            const calls = await memConnCalls(f.target.chat_id, f.source.chat_id, ids);
+            const calls = await memConnCalls(f.target.chat_id, f.source.chat_id, ids, f.mode);
             const forWhom = !ids ? (members.length === 1 ? members[0].name : `everyone in ${memChatPlain(f.target)}`)
                 : ids.length === 1 ? members.find(m => m.id === ids[0]).name : `${ids.length} characters`;
-            if (calls && !confirm(`Recapping ${memChatPlain(f.source)} for ${forWhom} takes about ${calls} Sonnet call${calls === 1 ? '' : 's'}, which count against your plan. Go ahead?`)) return;
-            await memDo('/api/memory/link', {target: f.target.chat_id, source: f.source.chat_id, on: true, who: ids || 'everyone'}, async () => {
+            if (calls && !confirm(`Recapping ${memChatPlain(f.source)} for ${forWhom} and passing it on ${memModeText(f.mode)} takes about ${calls} Sonnet call${calls === 1 ? '' : 's'}, which count against your plan. Go ahead?`)) return;
+            await memDo('/api/memory/link', {target: f.target.chat_id, source: f.source.chat_id, on: true, who: ids || 'everyone', mode: f.mode}, async () => {
                 memCloseForm();
                 await memAfterConnChange();
                 memPollJobs();
@@ -2960,11 +2987,15 @@
                     <div class="list-item-head" style="align-items:flex-start;">
                         <div style="min-width:0;">
                             ${memPersonaHead(memPersonaMap.get(b.persona), b.persona, b.persona_name)}
-                            <div class="list-item-meta" style="margin-top:4px;">bound ${memEsc(b.created)} · remembers ${n} chat${n === 1 ? '' : 's'}</div>
+                            <div class="list-item-meta" style="margin-top:4px;">bound ${memEsc(b.created)} · remembers ${n} chat${n === 1 ? '' : 's'}, ${memModeText(b.mode)}</div>
                         </div>
                         <span class="caret">▼</span>
                     </div>
                     <div class="list-item-body" style="display:${memOpenBindings.has(b.persona) ? 'block' : 'none'};">
+                        <div class="mem-inline" style="margin:2px 0 10px;">
+                            <span class="list-item-meta">Other chats get each chat as</span>
+                            <div class="toggle-group">${Object.keys(MEM_MODES).map(m => `<button type="button" class="toggle-btn sm${b.mode === m ? ' active' : ''}" data-bmode="${m}">${m === 'chapters' ? 'Chapters' : 'A synopsis'}</button>`).join('')}</div>
+                        </div>
                         <div class="mem-inline" style="margin:2px 0 10px;">
                             <button class="toggle-btn sm" data-act="all">Select all</button>
                             <button class="toggle-btn sm" data-act="none">Select none</button>
@@ -2993,6 +3024,12 @@
                     memDirtyBindings.add(b.persona);
                 });
                 body.querySelector('[data-act="save"]').addEventListener('click', () => memSaveBinding(b, body));
+                body.querySelectorAll('[data-bmode]').forEach(btn => btn.addEventListener('click', () => {
+                    const mode = btn.dataset.bmode;
+                    if (mode === b.mode) return;
+                    if (n && !confirm(`Pass this binding's ${n} chat${n === 1 ? '' : 's'} on ${memModeText(mode)}? Each is written that way the next time a chat with ${memPersonaLabel(b.persona, b.persona_name)} needs it: about one Sonnet call per synopsis or chapter, and one to divide a long chat into chapters. The calls count against your plan.`)) return;
+                    memDo('/api/memory/binding', {character: memCharId, persona: b.persona, action: 'mode', mode}, () => memLoadChar(memCharId));
+                }));
                 body.querySelector('[data-act="unbind"]').addEventListener('click', () => {
                     if (!confirm(`Unbind ${data.name} from ${memPersonaLabel(b.persona, b.persona_name)}? The chats' recaps are kept.`)) return;
                     memDirtyBindings.delete(b.persona);
@@ -3010,7 +3047,7 @@
                 if (!i.checked && was) remove.push(i.dataset.chat);
             });
             const byId = new Map(memCharData.chats.map(c => [c.chat_id, c]));
-            const calls = add.reduce((n, id) => n + memCallEstimate((byId.get(id) || {}).recap), 0);
+            const calls = add.reduce((n, id) => n + memCallEstimate((byId.get(id) || {}).recap, b.mode), 0);
             if (calls && !confirm(`Recapping the newly ticked chats takes about ${calls} Sonnet call${calls === 1 ? '' : 's'}, which count against your plan. Go ahead?`)) return;
             memDirtyBindings.delete(b.persona);
             await memDo('/api/memory/binding/chats', {character: memCharId, persona: b.persona, add, remove}, async () => {
@@ -3212,8 +3249,7 @@
             // of it (its synopsis or chapters), and the part recaps they're
             // written from. Read it, or edit it.
             const r = d.recap || {};
-            const p = d.passed || {sections: []};
-            const secs = p.sections || [];
+            const views = d.passed_all || [];
             const hasRecap = r.done;
             parts.push(`<div class="mem-sub mem-sub-row"><span>What ${memEsc(name)} remembers of this chat</span>`
                 + (hasRecap ? `<button type="button" class="toggle-btn sm${memRecapEdit ? ' active' : ''}" id="memRecapEditBtn">${memRecapEdit ? 'Done editing' : 'Edit'}</button>` : '') + '</div>');
@@ -3224,53 +3260,66 @@
                 : r.missing ? `${r.done} of ${r.parts} parts recapped.` : r.parts === 1 ? 'Recapped.' : `All ${r.parts} parts recapped.`;
             const absent = !r.parts ? '' : !r.there ? ` ${name} isn't in this chat: it's recapped as a plain account.`
                 : r.there < r.parts ? ` ${name} is in ${r.there} of its ${r.parts} parts; the others are plain accounts.` : '';
-            const unwritten = secs.filter(s => !s.ready && !s.parts_missing).length;
-            const passedStatus = !r.done ? ''
-                : p.mode === 'synopsis' ? (secs[0]?.ready ? (secs[0].as_is ? `Other chats get the part recaps as they are: they're within about ${p.words} words.` : 'Synopsis written.')
-                    : unwritten ? 'Synopsis not written yet.' : '')
-                : p.chaptered ? `${secs.length} chapters${unwritten ? `, ${unwritten} not written yet` : ''}${p.complete || unwritten ? '' : '; the last is divided again once the chat\'s new parts are recapped'}.`
-                : r.parts >= 3 ? 'Not divided into chapters yet.' : 'Too short for chapters: other chats get its synopsis.';
+            // How far what other chats get of it is, in each mode.
+            const viewStatus = p => {
+                const secs = p.sections || [];
+                const unwritten = secs.filter(s => !s.ready && !s.parts_missing).length;
+                return p.mode === 'synopsis' ? (secs[0]?.ready ? (secs[0].as_is ? `As a synopsis, other chats get the scene recaps as they are: they're within about ${secs[0].words} words.` : 'Synopsis written.')
+                        : unwritten ? 'Synopsis not written yet.' : '')
+                    : p.chaptered ? `${secs.length} chapters${unwritten ? `, ${unwritten} not written yet` : ''}${p.complete || unwritten ? '' : '; the last is divided again once the chat\'s new parts are recapped'}.`
+                    : r.parts >= 3 ? 'Not divided into chapters yet.' : 'Too short for chapters: other chats get its synopsis.';
+            };
+            const passedStatus = r.done ? [...new Set(views.map(viewStatus).filter(Boolean))].join(' ') : '';
+            const incomplete = views.filter(p => !p.complete).map(p => p.mode);
             const build = d.building ? '' : r.missing ? 'Recap missing parts'
-                : !p.complete ? (p.mode === 'synopsis' ? 'Write the synopsis' : 'Write the chapters') : '';
+                : incomplete.length > 1 ? 'Write the synopsis and chapters'
+                : incomplete.length ? (incomplete[0] === 'synopsis' ? 'Write the synopsis' : 'Write the chapters') : '';
             parts.push(`<div class="mem-inline" style="margin-bottom:8px;"><span style="font-size:13px;color:var(--paper-dim);">${memEsc(status + absent)}${passedStatus ? ' ' + memEsc(passedStatus) : ''}</span>
                 ${build ? `<button class="toggle-btn sm primary" id="memBuildBtn">${build}</button>` : ''}
                 ${d.building ? '<button class="toggle-btn sm" id="memStopBtn">Stop</button>' : ''}
                 ${r.done ? '<button class="toggle-btn sm danger" id="memForgetBtn">Forget recap</button>' : ''}</div>`);
             if (d.error) parts.push(`<div class="notice warn" style="margin-bottom:8px;">${memEsc(d.error)}</div>`);
-            // Where this chat is remembered; with chapters, each picks its own.
+            // Where this chat is remembered, and how; a connection or binding
+            // that gets chapters picks its own.
             const uses = (d.used_in || []).map(u => {
                 const c = memChatById(u.chat_id) || u;
-                return {target: u.chat_id, who: u.who, off: u.off || [],
+                return {target: u.chat_id, who: u.who, off: u.off || [], mode: u.mode,
                         label: `${memChatPlain(c)}${memCreated(c) ? ` (created ${memCreated(c)})` : ''}${u.who ? '' : ', for everyone there'}`};
             });
             const inB = (d.in_bindings || []).filter(b => b.how !== 'removed');
-            if (!d.excluded) inB.forEach(b => uses.push({persona: b.persona, off: b.off || [], label: `binding with ${memPersonaName(b.persona)}`}));
+            if (!d.excluded) inB.forEach(b => uses.push({persona: b.persona, off: b.off || [], mode: b.mode, label: `binding with ${memPersonaName(b.persona)}`}));
             const used = [];
-            if ((d.used_in || []).length) used.push('Remembered in ' + uses.filter(u => u.target).map(u => memEsc(u.label)).join('; '));
-            if (inB.length) used.push('in the binding with ' + inB.map(b => memEsc(memPersonaName(b.persona))).join(', ')
+            if ((d.used_in || []).length) used.push('Remembered in ' + uses.filter(u => u.target).map(u => memEsc(`${u.label}, ${memModeText(u.mode)}`)).join('; '));
+            if (inB.length) used.push('in the binding with ' + inB.map(b => memEsc(`${memPersonaName(b.persona)}, ${memModeText(b.mode)}`)).join('; ')
                 + (d.excluded ? ' (kept out of bindings)' : ''));
             if (used.length) parts.push(`<div class="list-item-meta" style="margin:0 0 8px;">${used.join(' · ')}</div>`);
-            if (p.chaptered && uses.length && !memRecapEdit) {
+            const chapterUses = uses.map((u, k) => ({...u, k})).filter(u => u.mode === 'chapters');
+            if (views.some(p => p.chaptered) && chapterUses.length && !memRecapEdit) {
                 parts.push('<div class="list-item-meta" style="margin:0 0 8px;">Untick a chapter to leave it out of a connection or binding. A binding\'s choice applies in all its chats.</div>');
             }
-            const useBoxes = s => p.chaptered && uses.length
-                ? `<div class="mem-uses">${uses.map((u, k) => `<label><input type="checkbox" data-use="${k}" data-start="${s.start}"${u.off.includes(s.start) ? '' : ' checked'}> ${memEsc(u.label)}</label>`).join('')}</div>`
+            const useBoxes = (p, s) => p.chaptered && chapterUses.length
+                ? `<div class="mem-uses">${chapterUses.map(u => `<label><input type="checkbox" data-use="${u.k}" data-start="${s.start}"${u.off.includes(s.start) ? '' : ' checked'}> ${memEsc(u.label)}</label>`).join('')}</div>`
                 : '';
+            // With both modes in use, each under its own heading.
+            const viewHead = p => views.length > 1 ? `<div class="mem-sub">${p.mode === 'chapters' ? 'As chapters' : 'As a synopsis'}</div>` : '';
             if (!memRecapEdit) {
-                if (hasRecap) parts.push(`<div class="mem-recap">${memPassedHtml(p, useBoxes)}${memPartsHtml(d.parts || [])}</div>`);
+                if (hasRecap) parts.push(`<div class="mem-recap">${views.map(p => viewHead(p) + memPassedHtml(p, s => useBoxes(p, s))).join('')}${memPartsHtml(d.parts || [])}</div>`);
             } else {
                 // A section's text can be rewritten once its parts are
                 // recapped. Redo writes a generated one again; Drop edit goes
-                // back to what it's written from.
-                secs.forEach((s, i) => {
-                    if (!s.key) return;
+                // back to what it's written from. A synopsis passed on in both
+                // modes is one text.
+                const shown = new Set();
+                views.forEach(p => (p.sections || []).forEach((s, i) => {
+                    if (!s.key || shown.has(s.key)) return;
+                    shown.add(s.key);
                     const btns = [`<button class="toggle-btn sm" data-csave="${memEsc(s.key)}">Save</button>`];
                     if (s.edited) btns.push(`<button class="toggle-btn sm" data-credo="${memEsc(s.key)}" data-edited="1">Drop edit</button>`);
                     else if (s.ready && !s.as_is) btns.push(`<button class="toggle-btn sm" data-credo="${memEsc(s.key)}">Redo</button>`);
                     parts.push(`<div class="mem-part"><div class="mem-part-head"><span>${memSectionHead(p, s, i)}</span><span>${btns.join(' ')}</span></div>
                         <textarea rows="${s.title ? 5 : 7}" data-ckey="${memEsc(s.key)}" placeholder="Not written yet. Write it here, or have it written.">${memEsc(s.ready ? s.text : '')}</textarea></div>`);
-                });
-                if (secs.some(s => s.key)) parts.push('<div class="mem-sub">Part recaps</div>');
+                }));
+                if (shown.size) parts.push('<div class="mem-sub">Part recaps</div>');
                 parts.push('<div class="list-item-meta" style="margin:0 0 8px;">Each paragraph of a part recap is a scene and opens with the number of the message it starts at, like [#52]. Chapters can start at those marks; a recap without them is one scene.</div>');
                 (d.parts || []).forEach(p => {
                     parts.push(`<div class="mem-part"><div class="mem-part-head"><span>Messages #${p.from}–#${p.to}${p.there === false ? ' · not in it: a plain account' : ''}${p.edited ? ' · edited' : ''}</span>
@@ -3317,9 +3366,11 @@
             body.querySelectorAll('[data-include]').forEach(b => b.addEventListener('click', () =>
                 memDo('/api/memory/exclusion', {character: memCharId, target: d.chat_id, source: b.dataset.include, on: false}, reload)));
             on('memBuildBtn', () => {
-                const secs = d.passed?.sections || [];
-                const calls = d.recap?.missing ? memCallEstimate(d.recap)
-                    : secs.filter(s => !s.ready).length + (d.passed?.mode === 'chapters' && (d.recap?.parts || 0) >= 3 && !d.passed?.complete ? 1 : 0);
+                const views = d.passed_all || [];
+                const calls = d.recap?.missing
+                    ? views.reduce((n, p, i) => n + memCallEstimate(d.recap, p.mode) - (i ? d.recap.missing : 0), 0)
+                    : views.reduce((n, p) => n + (p.sections || []).filter(s => !s.ready).length
+                        + (p.mode === 'chapters' && (d.recap?.parts || 0) >= 3 && !p.complete ? 1 : 0), 0);
                 if (calls > 3 && !confirm(`That's about ${calls} Sonnet calls, which count against your plan. Go ahead?`)) return;
                 memDo('/api/memory/recap/build', {character: memCharId, chat: d.chat_id, title: d.title}, async () => { await reload(); memPollJobs(); });
             });
@@ -3411,7 +3462,7 @@
             document.getElementById('memChatCloseBtn').addEventListener('click', memCloseChat);
             document.getElementById('memConnNewBtn').addEventListener('click', () => memToggleForm(document.getElementById('memConnFormTop')));
             document.querySelectorAll('[data-mem-mode]').forEach(b => b.addEventListener('click', () => memShowSettings(b.dataset.memMode)));
-            document.getElementById('memWords').addEventListener('input', memSettingsRefresh);
+            ['memSynWords', 'memChapWords'].forEach(id => document.getElementById(id).addEventListener('input', memSettingsRefresh));
             document.getElementById('memSettingsSave').addEventListener('click', memSaveSettings);
             const overlay = document.getElementById('memChatModal');
             overlay.addEventListener('click', e => { if (e.target === overlay) memCloseChat(); });

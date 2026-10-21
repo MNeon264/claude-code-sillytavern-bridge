@@ -36,9 +36,10 @@ the user asks on the Memory tab; a turn uses what's built so far.
 A part's recap is written scene by scene, each scene's paragraph opening
 with the number of the message it starts at ("[#52]"). What another chat
 gets of a remembered chat is written from those scene recaps (passed_on),
-in the mode the Memory tab sets: a synopsis of the whole chat of about a
-set number of words, or chapters, one per event, each of about a set
-number of words. Sonnet divides a chat of at least CHAPTER_MIN_PARTS parts
+in the mode its connection or binding sets (the Memory tab's is the
+default for new ones): a synopsis of the whole chat of about a set number
+of words, or chapters, one per event, each of about a set number of words.
+A chat used both ways has both written. Sonnet divides a chat of at least CHAPTER_MIN_PARTS parts
 into chapters at its scenes, so a chapter can start inside a part, once
 per chat for every character, and when the chat grows only its last
 chapter is divided again, so earlier chapters keep their place and the
@@ -82,9 +83,10 @@ SEGMENT_SIZE = 40
 # theirs; a chat's earliest chapters are left out when its others fit, and
 # chats that don't fit at all are left out.
 SOURCE_BUDGET = 24000
-# What another chat gets of a remembered chat (the memory_mode setting):
-# one synopsis, or chapters. Word targets: memory_synopsis_words and
-# memory_chapter_words.
+# What another chat gets of a remembered chat: one synopsis, or chapters.
+# Each connection and each binding has its own (links.mode,
+# bindings.mode); the memory_mode setting is the default for new ones.
+# Word targets: memory_synopsis_words and memory_chapter_words.
 MODES = ("synopsis", "chapters")
 DEFAULT_WORDS = {"synopsis": 400, "chapters": 250}
 WORDS_MIN, WORDS_MAX = 50, 2000
@@ -135,9 +137,15 @@ def configure(log=None, claude_exe=None, call_recorder=None, st_user_dir=None, s
 
 
 def pass_mode() -> str:
-    """What another chat gets of a remembered chat: "synopsis" or "chapters"."""
+    """The default of what another chat gets of a remembered chat, for new
+    connections and bindings: "synopsis" or "chapters"."""
     m = (_settings_fn() if _settings_fn else {}).get("memory_mode")
     return m if m in MODES else MODES[0]
+
+
+def _mode(v) -> str:
+    """A connection's or binding's mode as stored; the default if unset."""
+    return v if v in MODES else pass_mode()
 
 
 def word_target(m: Optional[str] = None) -> int:
@@ -206,8 +214,11 @@ CREATE TABLE IF NOT EXISTS segments (
 CREATE TABLE IF NOT EXISTS condensed (
     key TEXT PRIMARY KEY, kind TEXT NOT NULL, pov TEXT NOT NULL, recap TEXT NOT NULL,
     edited INTEGER NOT NULL DEFAULT 0, created_ts REAL NOT NULL);
+-- mode, here and in links: what other chats get of a chat this binding or
+-- connection brings in, "synopsis" or "chapters" (see MODES).
 CREATE TABLE IF NOT EXISTS bindings (
     character_id TEXT NOT NULL, persona TEXT NOT NULL, persona_name TEXT, created_ts REAL NOT NULL,
+    mode TEXT,
     PRIMARY KEY (character_id, persona));
 -- how: chosen (picked on the Memory tab), auto (a new chat), removed (taken
 -- out; never auto-added again). chapters_off, here and in links: JSON list
@@ -219,10 +230,11 @@ CREATE TABLE IF NOT EXISTS binding_chats (
     PRIMARY KEY (character_id, persona, chat_id));
 -- A connection: target_chat remembers source_chat. character_id: the
 -- character who remembers it, or "" for everyone in the target chat (a
--- character's own row wins over that one).
+-- character's own row wins over that one). All rows of a connection have
+-- the same mode.
 CREATE TABLE IF NOT EXISTS links (
     character_id TEXT NOT NULL, target_chat TEXT NOT NULL, source_chat TEXT NOT NULL, created_ts REAL NOT NULL,
-    chapters_off TEXT,
+    chapters_off TEXT, mode TEXT,
     PRIMARY KEY (character_id, target_chat, source_chat));
 CREATE TABLE IF NOT EXISTS exclusions (
     character_id TEXT NOT NULL, target_chat TEXT NOT NULL, source_chat TEXT NOT NULL, created_ts REAL NOT NULL,
@@ -255,9 +267,14 @@ def _db() -> sqlite3.Connection:
         conn.executescript(_SCHEMA)
         for table, col, kind in (("chats", "created_ts", "REAL"), ("chats", "last_msg", "TEXT"),
                                  ("encounters", "chapters", "TEXT"), ("links", "chapters_off", "TEXT"),
-                                 ("binding_chats", "chapters_off", "TEXT")):
+                                 ("binding_chats", "chapters_off", "TEXT"), ("links", "mode", "TEXT"),
+                                 ("bindings", "mode", "TEXT")):
             if col not in {r[1] for r in conn.execute(f"PRAGMA table_info({table})")}:
                 conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {kind}")
+                # Connections and bindings made before each had its own
+                # mode keep the one they had: the setting's then.
+                if col == "mode":
+                    conn.execute(f"UPDATE {table} SET mode = ?", (pass_mode(),))
         # Chapters used to be divided per character; a chat keeps the first.
         conn.execute("INSERT OR IGNORE INTO plans (chat_id, chapters) SELECT chat_id, chapters FROM encounters "
                      "WHERE chapters IS NOT NULL ORDER BY built_ts")
@@ -1256,14 +1273,22 @@ def _plan_list(units: list[dict], numbers: dict) -> str:
 
 
 def _write_passed_on(job: dict, cid: str, row: dict, cf: ChatFile, who: _Who, user: str):
-    """Write what another chat gets of this chat in the current mode, once
-    every part is recapped: the synopsis, or the chapters (dividing the chat
-    first). What's written already, or short enough as it is, is kept. A
-    chat the character isn't in at all is written as a plain account."""
-    m = pass_mode()
+    """Write what other chats get of this chat, once every part is
+    recapped, in each mode they get it in (_modes_used): the synopsis, or
+    the chapters (dividing the chat first). What's written already, or
+    short enough as it is, is kept. A chat the character isn't in at all is
+    written as a plain account."""
+    for m in _modes_used(cid, row["chat_id"]):
+        if not _write_mode(job, cid, row, cf, who, user, m):
+            return
+
+
+def _write_mode(job: dict, cid: str, row: dict, cf: ChatFile, who: _Who, user: str, m: str) -> bool:
+    """_write_passed_on for one mode; False when a call failed or the job
+    was cancelled."""
     where = f' ("{row["title"]}")' if row.get("title") else ""
     if m == "chapters" and not _plan_chapters(job, row, cf, who, user):
-        return
+        return False
     mem = passed_on(cid, row, cf, m=m)
     secs = mem["sections"]
     char = who.name if mem["there"] else None
@@ -1272,7 +1297,7 @@ def _write_passed_on(job: dict, cid: str, row: dict, cf: ChatFile, who: _Who, us
     whose = who.name if char else f"account (without {who.name})"
     for s in todo:
         if job.get("cancel"):
-            return
+            return False
         voice = _voice(char, [u["seg"] for u in s["units"]])
         if not s["title"]:
             # The synopsis, which is also what chapters mode passes on of a
@@ -1293,10 +1318,11 @@ def _write_passed_on(job: dict, cid: str, row: dict, cf: ChatFile, who: _Who, us
         if not text or not text.strip():
             job["error"] = f"writing the {s['kind']} failed (see the History tab)"
             _x("UPDATE encounters SET error = ? WHERE character_id = ? AND chat_id = ?", (job["error"], cid, row["chat_id"]))
-            return
+            return False
         _x("INSERT OR REPLACE INTO condensed (key, kind, pov, recap, edited, created_ts) VALUES (?, ?, ?, ?, 0, ?)",
            (s["key"], s["kind"], who.pov if char else "", text.strip(), time.time()))
         job["done"] += 1
+    return True
 
 
 def _plan(chat_id: str) -> Optional[dict]:
@@ -1404,7 +1430,7 @@ def _condensed(keys: list[str]) -> dict:
 
 def passed_on(cid: str, row: dict, cf: Optional[ChatFile] = None, off=(), m: Optional[str] = None) -> dict:
     """What another chat gets of this chat for the character, in mode `m`
-    (default: the current one): {mode, words, chaptered, complete, there,
+    (a connection's or binding's; default: the default mode): {mode, words, chaptered, complete, there,
     sections}. A section is the synopsis, or a chapter: start (its id: the
     message its first scene starts at), title (None for the synopsis, which
     is also what chapters mode passes on of a chat too short for chapters
@@ -1478,17 +1504,18 @@ def render_passed_on(sections: list[dict]) -> str:
                        for s in sections)
 
 
-def _uses_off(cid: str, chat_id: str, target: Optional[str] = None, persona: Optional[str] = None) -> Optional[list]:
-    """The chapters a connection to `target` (the character's own, else the
-    one for everyone there) or the binding with `persona` leaves out of
-    this chat; None when there's no such connection or binding chat."""
+def _use(cid: str, chat_id: str, target: Optional[str] = None, persona: Optional[str] = None) -> Optional[dict]:
+    """How a connection to `target` (the character's own, else the one for
+    everyone there) or the binding with `persona` brings this chat in:
+    {off: the starts of the chapters it leaves out, mode}; None when
+    there's no such connection or binding chat."""
     if target:
-        row = _q1("SELECT chapters_off FROM links WHERE character_id IN (?, '') AND target_chat = ? AND source_chat = ? "
-                  "ORDER BY character_id = '' LIMIT 1", (cid, target, chat_id))
+        row = _q1("SELECT chapters_off, mode FROM links WHERE character_id IN (?, '') AND target_chat = ? "
+                  "AND source_chat = ? ORDER BY character_id = '' LIMIT 1", (cid, target, chat_id))
     else:
-        row = _q1("SELECT chapters_off FROM binding_chats WHERE character_id = ? AND persona = ? AND chat_id = ?",
-                  (cid, persona or "", chat_id))
-    return None if row is None else _off_list(row["chapters_off"])
+        row = _q1("SELECT c.chapters_off, b.mode FROM binding_chats c JOIN bindings b USING (character_id, persona) "
+                  "WHERE c.character_id = ? AND c.persona = ? AND c.chat_id = ?", (cid, persona or "", chat_id))
+    return None if row is None else {"off": _off_list(row["chapters_off"]), "mode": _mode(row["mode"])}
 
 
 def _off_list(raw) -> list:
@@ -1772,18 +1799,21 @@ def binding(cid: str, persona: str) -> Optional[dict]:
 
 def sources(cid: str, chat_id: str, persona: str, chat_row: Optional[dict] = None) -> list[dict]:
     """The other chats a character remembers in this chat: [{chat_id, how,
-    off, who}], how being "link" or "binding", off the starts of the
-    chapters that connection or binding leaves out, and who, for a link,
-    the character it's for ("" for everyone in this chat)."""
-    off, whose = {}, {}
+    off, mode, who}], how being "link" or "binding", off the starts of the
+    chapters that connection or binding leaves out, mode what it passes on
+    (synopsis or chapters), and who, for a link, the character it's for
+    ("" for everyone in this chat)."""
+    off, whose, modes = {}, {}, {}
     # A character's own connection wins over the one for everyone.
-    for r in _q("SELECT character_id, source_chat, chapters_off FROM links WHERE character_id IN (?, '') "
+    for r in _q("SELECT character_id, source_chat, chapters_off, mode FROM links WHERE character_id IN (?, '') "
                 "AND target_chat = ? ORDER BY character_id = '' DESC", (cid, chat_id)):
         off[("link", r["source_chat"])] = _off_list(r["chapters_off"])
         whose[r["source_chat"]] = r["character_id"]
+        modes[r["source_chat"]] = _mode(r["mode"])
     links = {c for how, c in off if how == "link"}
     bound = set()
-    if binding(cid, persona):
+    b = binding(cid, persona)
+    if b:
         for r in _q("SELECT chat_id, chapters_off FROM binding_chats WHERE character_id = ? AND persona = ? "
                     "AND how != 'removed'", (cid, persona)):
             off[("binding", r["chat_id"])] = _off_list(r["chapters_off"])
@@ -1798,11 +1828,31 @@ def sources(cid: str, chat_id: str, persona: str, chat_row: Optional[dict] = Non
                     bound.discard(other)
     excluded = {r["source_chat"] for r in _q(
         "SELECT source_chat FROM exclusions WHERE character_id = ? AND target_chat = ?", (cid, chat_id))}
-    out = [{"chat_id": c, "how": "link", "off": off[("link", c)], "who": whose[c]}
+    out = [{"chat_id": c, "how": "link", "off": off[("link", c)], "mode": modes[c], "who": whose[c]}
            for c in sorted(links - excluded - {chat_id})]
-    out += [{"chat_id": c, "how": "binding", "off": off[("binding", c)]}
+    out += [{"chat_id": c, "how": "binding", "off": off[("binding", c)], "mode": _mode(b["mode"])}
             for c in sorted(bound - links - excluded - {chat_id})]
     return out
+
+
+def _modes_used(cid: str, chat_id: str) -> list[str]:
+    """The modes other chats get this chat in for the character: those of
+    its connections (their own, or for everyone in a chat they're in) and
+    of the persona bindings it's in. The default when it's in none, as for
+    a chat recapped from the Memory tab."""
+    modes = set()
+    left_out = {r["target_chat"] for r in _q(
+        "SELECT target_chat FROM exclusions WHERE character_id = ? AND source_chat = ?", (cid, chat_id))}
+    for r in _q("SELECT character_id, target_chat, mode FROM links WHERE source_chat = ? AND character_id IN (?, '')",
+                (chat_id, cid)):
+        if r["target_chat"] not in left_out and (
+                r["character_id"] or any(m["id"] == cid for m in rememberers(r["target_chat"]))):
+            modes.add(_mode(r["mode"]))
+    if not _encounter(cid, chat_id).get("excluded"):
+        for r in _q("SELECT b.mode FROM binding_chats c JOIN bindings b USING (character_id, persona) "
+                    "WHERE c.character_id = ? AND c.chat_id = ? AND c.how != 'removed'", (cid, chat_id)):
+            modes.add(_mode(r["mode"]))
+    return [m for m in MODES if m in modes] or [pass_mode()]
 
 
 def _date(ts: Optional[float]) -> str:
@@ -1831,8 +1881,8 @@ class TurnMemory:
     def pieces(self, floor: Optional[int]) -> list[tuple[str, str, str]]:
         """[(piece id, title, text)]: the recap of this chat up to `floor`
         (the first message the CLI session has; see _inchat_upto), then what
-        each other chat passes on (passed_on: a synopsis, or the chapters its
-        connection or binding keeps). Missing recaps are scheduled; what
+        each other chat passes on (passed_on, in its connection's or
+        binding's mode: a synopsis, or the chapters it keeps). Missing recaps are scheduled; what
         exists is used."""
         out = []
         self.incomplete = set()
@@ -1862,11 +1912,11 @@ class TurnMemory:
             row = get_chat(s["chat_id"], rescan_for=self.cid)
             src = read_chat(row["rel"]) if row else None
             if src:
-                rows.append((row, src, s.get("off") or ()))
+                rows.append((row, src, s.get("off") or (), s.get("mode")))
         rows.sort(key=lambda rs: rs[0].get("last_ts") or 0, reverse=True)
         budget, used_keys, chosen, left_out = SOURCE_BUDGET, set(own_keys), [], 0
-        for row, src, off in rows:
-            mem = passed_on(self.cid, row, src, off)
+        for row, src, off, mode in rows:
+            mem = passed_on(self.cid, row, src, off, m=_mode(mode))
             if not mem["complete"]:
                 schedule_recap(self.cid, row["chat_id"], None, row.get("title") or "")
                 self.incomplete.add(f"chat:{row['chat_id']}")
@@ -2135,13 +2185,15 @@ def _run_check(job: dict):
         return
     mems = []
     off = {s["chat_id"]: s.get("off") or () for s in tm.sources}
+    modes = {s["chat_id"]: s.get("mode") for s in tm.sources}
     for src_id in to_check:
         srow = get_chat(src_id, rescan_for=cid)
         src = read_chat(srow["rel"]) if srow else None
         if not src:
             continue
         # What this chat gets of it: the synopsis, or the chapters passed on.
-        text = render_passed_on([s for s in passed_on(cid, srow, src, off.get(src_id, ()))["sections"]
+        text = render_passed_on([s for s in passed_on(cid, srow, src, off.get(src_id, ()),
+                                                      m=_mode(modes.get(src_id)))["sections"]
                                  if s["on"] and s["text"].strip()])
         mems.append(f"--- {srow.get('title') or src_id} ---\n{text[:5000]}")
     user, _ = _chat_people(cf, tm.name)
@@ -2207,10 +2259,18 @@ def _chat_title(chat_id: str) -> str:
     return row["title"] if row and row["title"] else chat_id
 
 
-def bind(cid: str, persona: str) -> dict:
-    _x("INSERT OR IGNORE INTO bindings (character_id, persona, persona_name, created_ts) VALUES (?, ?, ?, ?)",
-       (cid, persona, _persona_name(persona), time.time()))
+def bind(cid: str, persona: str, mode: Optional[str] = None) -> dict:
+    """Bind a character to a persona; its chats pass on in `mode` (default:
+    the default mode)."""
+    _x("INSERT OR IGNORE INTO bindings (character_id, persona, persona_name, created_ts, mode) VALUES (?, ?, ?, ?, ?)",
+       (cid, persona, _persona_name(persona), time.time(), mode if mode in MODES else pass_mode()))
     return binding(cid, persona)
+
+
+def set_binding_mode(cid: str, persona: str, mode: str) -> bool:
+    """Choose what other chats get of a binding's chats. Each is written in
+    that mode the next time a chat with the persona needs it."""
+    return _x("UPDATE bindings SET mode = ? WHERE character_id = ? AND persona = ?", (mode, cid, persona)) > 0
 
 
 def unbind(cid: str, persona: str):
@@ -2262,15 +2322,20 @@ def _link_cids(target: str, cid: str) -> list[str]:
     return [r["id"] for r in rememberers(target)] if cid == "" else [cid]
 
 
-def set_link(cid: str, target: str, source: str, on: bool, build: bool = True):
+def set_link(cid: str, target: str, source: str, on: bool, build: bool = True, mode: Optional[str] = None):
     """Connect `source` to `target` for one character (cid "": everyone in
     the target chat), or take that connection away. The others it's for
-    keep theirs."""
+    keep theirs. mode: what the connection passes on, for everyone it's
+    for; by default the mode it has, or the default mode."""
     if target == source:
         return
     if on:
-        _x("INSERT OR IGNORE INTO links (character_id, target_chat, source_chat, created_ts) VALUES (?, ?, ?, ?)",
-           (cid, target, source, time.time()))
+        if mode not in MODES:
+            r = _q1("SELECT mode FROM links WHERE target_chat = ? AND source_chat = ? LIMIT 1", (target, source))
+            mode = _mode(r["mode"] if r else None)
+        _x("INSERT OR IGNORE INTO links (character_id, target_chat, source_chat, created_ts, mode) VALUES (?, ?, ?, ?, ?)",
+           (cid, target, source, time.time(), mode))
+        _x("UPDATE links SET mode = ? WHERE target_chat = ? AND source_chat = ?", (mode, target, source))
         if cid:
             _x("DELETE FROM exclusions WHERE character_id = ? AND target_chat = ? AND source_chat = ?",
                (cid, target, source))
@@ -2283,19 +2348,22 @@ def set_link(cid: str, target: str, source: str, on: bool, build: bool = True):
         _x("DELETE FROM links WHERE character_id = ? AND target_chat = ? AND source_chat = ?", (cid, target, source))
 
 
-def connect(target: str, source: str, who: Optional[list] = None, build: bool = True):
+def connect(target: str, source: str, who: Optional[list] = None, build: bool = True, mode: Optional[str] = None):
     """Connect `source` to `target`, for everyone there (who None) or the
-    characters in `who`, replacing whoever it was for. Chapters left out of
-    it stay out."""
+    characters in `who`, replacing whoever it was for, passing on `mode`
+    (by default the mode it has, or the default mode). Chapters left out
+    of it stay out."""
     if target == source:
         return
     cids = [""] if who is None else list(dict.fromkeys(who))
     with _db_lock:
-        old = _q1("SELECT chapters_off FROM links WHERE target_chat = ? AND source_chat = ? "
+        old = _q1("SELECT chapters_off, mode FROM links WHERE target_chat = ? AND source_chat = ? "
                   "ORDER BY character_id = '' DESC LIMIT 1", (target, source))
+        if mode not in MODES:
+            mode = _mode(old["mode"] if old else None)
         _x("DELETE FROM links WHERE target_chat = ? AND source_chat = ?", (target, source))
         for cid in cids:
-            set_link(cid, target, source, True, build=False)
+            set_link(cid, target, source, True, build=False, mode=mode)
         if old and old["chapters_off"]:
             _x("UPDATE links SET chapters_off = ? WHERE target_chat = ? AND source_chat = ?",
                (old["chapters_off"], target, source))
@@ -2309,10 +2377,11 @@ def disconnect(target: str, source: str):
     _x("DELETE FROM links WHERE target_chat = ? AND source_chat = ?", (target, source))
 
 
-def estimate(cids: list[str], chat_id: str) -> int:
+def estimate(cids: list[str], chat_id: str, mode: Optional[str] = None) -> int:
     """About how many Sonnet calls recapping a chat for these characters
-    takes: its parts not recapped yet (an account of a part, shared by those
-    not in it, counts once), then for each version of it not written yet a
+    and passing it on in `mode` (default: the default mode) takes: its
+    parts not recapped yet (an account of a part, shared by those not in
+    it, counts once), then for each version of it not written yet a
     synopsis, or a division into chapters (once per chat) and about one call
     per three parts."""
     row = get_chat(chat_id)
@@ -2320,7 +2389,7 @@ def estimate(cids: list[str], chat_id: str) -> int:
     if not cf:
         return 0
     missing, written, calls = set(), set(), 0
-    m = pass_mode()
+    m = _mode(mode)
     for cid in cids:
         segs = _segments(cf, _who(cid, row))
         have = _segment_recaps([s["key"] for s in segs])
@@ -2462,14 +2531,15 @@ def _passed_view(mem: dict) -> dict:
 
 def recap_view(cid: str, chat_id: str, target: Optional[str] = None, persona: Optional[str] = None) -> dict:
     """A character's recap of a chat, to read where another chat uses it:
-    its parts, and what's passed on, with the chapters a connection to
-    `target` or the binding with `persona` leaves out marked."""
+    its parts, and what's passed on in the mode of the connection to
+    `target` or the binding with `persona`, with the chapters it leaves out
+    marked."""
     row = get_chat(chat_id, rescan_for=cid)
     if not row:
         return {}
-    off = (_uses_off(cid, chat_id, target, persona) if target or persona else None) or []
+    use = (_use(cid, chat_id, target, persona) if target or persona else None) or {"off": [], "mode": None}
     return {**_chat_view(row, cid, recaps=False), "parts": _recap_parts(cid, row),
-            "passed": _passed_view(passed_on(cid, row, off=off))}
+            "passed": _passed_view(passed_on(cid, row, off=use["off"], m=_mode(use["mode"])))}
 
 
 def overview() -> dict:
@@ -2487,7 +2557,7 @@ def overview() -> dict:
                       "bindings": n_b, "links": n_l, "recaps": n_s, "alerts": n_o})
     n_c = _q1("SELECT COUNT(*) AS n FROM (SELECT DISTINCT target_chat, source_chat FROM links)")["n"]
     # Chats remembered somewhere: each is written again (synopsis or
-    # chapters) when the mode or word target changes and it's next needed.
+    # chapters) when a word target changes and it's next needed.
     in_use = _q1("SELECT COUNT(*) AS n FROM (SELECT character_id, source_chat FROM links UNION "
                  "SELECT character_id, chat_id FROM binding_chats WHERE how != 'removed')")["n"]
     return {"characters": chars, "extension": _meta_get("extension"), "jobs": jobs_status(),
@@ -2513,7 +2583,7 @@ def character_view(cid: str) -> dict:
         members = {r["chat_id"]: r["how"] for r in _q(
             "SELECT chat_id, how FROM binding_chats WHERE character_id = ? AND persona = ?", (cid, b["persona"]))}
         bindings.append({"persona": b["persona"], "persona_name": b["persona_name"] or _persona_name(b["persona"]),
-                         "created": _date(b["created_ts"]), "chats": members})
+                         "created": _date(b["created_ts"]), "mode": _mode(b["mode"]), "chats": members})
     # Connections for this character or everyone, among their chats.
     links = [{"target_chat": r["target_chat"], "source_chat": r["source_chat"], "who": r["character_id"]}
              for r in _q("SELECT character_id, target_chat, source_chat FROM links WHERE character_id IN (?, '')", (cid,))
@@ -2532,8 +2602,9 @@ def character_view(cid: str) -> dict:
 
 
 def chat_detail(cid: str, chat_id: str) -> dict:
-    """One chat for a character: its recap, part by part, and the memories
-    it uses."""
+    """One chat for a character: its recap, part by part, what other chats
+    get of it (passed_all: in each mode they get it in, see _modes_used),
+    where it's remembered, and the memories it uses."""
     row = get_chat(chat_id, rescan_for=cid)
     if not row:
         return {}
@@ -2546,7 +2617,7 @@ def chat_detail(cid: str, chat_id: str) -> dict:
         for s in sources(cid, chat_id, persona, row):
             if all(u["chat_id"] != s["chat_id"] for u in used):
                 srow = get_chat(s["chat_id"], rescan_for=cid)
-                mem = passed_on(cid, srow, off=s["off"]) if srow else None
+                mem = passed_on(cid, srow, off=s["off"], m=s["mode"]) if srow else None
                 chapters = ({"on": sum(x["on"] for x in mem["sections"]), "total": len(mem["sections"])}
                             if mem and mem["chaptered"] else None)
                 used.append({**_brief(None, s["chat_id"], names), **s, "chapters": chapters,
@@ -2556,13 +2627,18 @@ def chat_detail(cid: str, chat_id: str) -> dict:
         "SELECT source_chat FROM exclusions WHERE character_id = ? AND target_chat = ?", (cid, chat_id))]
     # Where this chat is remembered (by this character, or everyone there),
     # each with the chapters it leaves out.
-    used_in = [{**_brief(None, r["target_chat"], names), "who": r["character_id"], "off": _off_list(r["chapters_off"])}
-               for r in _q("SELECT character_id, target_chat, chapters_off FROM links WHERE character_id IN (?, '') "
+    used_in = [{**_brief(None, r["target_chat"], names), "who": r["character_id"], "off": _off_list(r["chapters_off"]),
+                "mode": _mode(r["mode"])}
+               for r in _q("SELECT character_id, target_chat, chapters_off, mode FROM links WHERE character_id IN (?, '') "
                            "AND source_chat = ? ORDER BY created_ts", (cid, chat_id))]
-    in_bindings = [{"persona": r["persona"], "how": r["how"], "off": _off_list(r["chapters_off"])} for r in _q(
-        "SELECT b.persona, b.how, b.chapters_off FROM binding_chats b JOIN bindings USING (character_id, persona) "
-        "WHERE b.character_id = ? AND b.chat_id = ?", (cid, chat_id))]
-    return {**view, "parts": parts, "passed": _passed_view(passed_on(cid, row)),
+    in_bindings = [{"persona": r["persona"], "how": r["how"], "off": _off_list(r["chapters_off"]), "mode": _mode(r["mode"])}
+                   for r in _q("SELECT c.persona, c.how, c.chapters_off, b.mode FROM binding_chats c "
+                               "JOIN bindings b USING (character_id, persona) WHERE c.character_id = ? AND c.chat_id = ?",
+                               (cid, chat_id))]
+    # What other chats get of it, in each mode they get it in.
+    cf = read_chat(row["rel"])
+    passed_all = [_passed_view(passed_on(cid, row, cf, m=m)) for m in _modes_used(cid, chat_id)]
+    return {**view, "parts": parts, "passed_all": passed_all,
             "sources": used, "excluded_sources": excluded, "used_in": used_in,
             "in_bindings": in_bindings, "check": get_check(cid, chat_id)}
 
@@ -2599,12 +2675,12 @@ def extension_status(info: dict, recaps: bool = False) -> dict:
             if not srow:
                 continue
             st = recap_state(cid, s["chat_id"], row=srow)
-            mem = passed_on(cid, srow, off=s["off"])
+            mem = passed_on(cid, srow, off=s["off"], m=s["mode"])
             if not mem["complete"]:
                 schedule_recap(cid, s["chat_id"], None, srow.get("title") or "")
             view = _chat_view(srow, cid, recaps=False, names=card_names)
             item = {**{k: view[k] for k in _BRIEF_KEYS}, "how": s["how"], "who": s.get("who"), "recap": st,
-                    "there": mem["there"]}
+                    "mode": s["mode"], "there": mem["there"]}
             if recaps:
                 item.update(parts=[{k: p[k] for k in ("from", "to", "there", "recap")} for p in _recap_parts(cid, srow)],
                             passed=_passed_view(mem))
@@ -2716,12 +2792,12 @@ def connections() -> list[dict]:
     """Every connection, by the chat that remembers it, the most recently
     connected first: [{target (chat view), members (who "everyone" is
     there: rememberers), sources: [{chat, everyone, who: [{id, name}] the
-    characters with a connection of their own, state}]}]."""
+    characters with a connection of their own, mode, state}]}]."""
     targets: "OrderedDict[str, OrderedDict]" = OrderedDict()
     newest: dict = {}
-    for r in _q("SELECT character_id, target_chat, source_chat, created_ts FROM links ORDER BY created_ts"):
+    for r in _q("SELECT character_id, target_chat, source_chat, created_ts, mode FROM links ORDER BY created_ts"):
         src = targets.setdefault(r["target_chat"], OrderedDict()).setdefault(
-            r["source_chat"], {"everyone": False, "who": []})
+            r["source_chat"], {"everyone": False, "who": [], "mode": _mode(r["mode"])})
         if r["character_id"]:
             src["who"].append(r["character_id"])
         else:
@@ -2738,7 +2814,7 @@ def connections() -> list[dict]:
             cids = ([m["id"] for m in members] if info["everyone"] else []) + info["who"]
             items.append({"chat": _chat_view(srow, None, recaps=False, names=names) if srow
                           else {"chat_id": source, "title": source, "name": source},
-                          "everyone": info["everyone"],
+                          "everyone": info["everyone"], "mode": info["mode"],
                           "who": [{"id": c, "name": character_name(c)} for c in info["who"]],
                           "state": _connection_state(list(dict.fromkeys(cids)), srow)})
         out.append({"target": _chat_view(trow, None, recaps=False, names=names) if trow
@@ -2747,22 +2823,26 @@ def connections() -> list[dict]:
     return out
 
 
-def connect_preview(target: str, source: str, who: Optional[list] = None) -> dict:
+def connect_preview(target: str, source: str, who: Optional[list] = None, mode: Optional[str] = None) -> dict:
     """Before connecting `source` to `target`: who'd remember it there
     (members: rememberers, each with there, whether they're in it), the
-    current connection if any (everyone, who), and about how many Sonnet
-    calls recapping it takes for everyone there, or for `who`."""
+    current connection if any (everyone, who, mode), the default mode for a
+    new one, and about how many Sonnet calls recapping it and passing it on
+    in `mode` (default: the connection's, or the default) takes for
+    everyone there, or for `who`."""
     trow, srow = get_chat(target), get_chat(source)
     if not trow or not srow or target == source:
         return {}
     members = rememberers(target)
     for m in members:
         m["there"] = bool(recap_state(m["id"], source, row=srow)["there"])
-    rows = _q("SELECT character_id FROM links WHERE target_chat = ? AND source_chat = ?", (target, source))
+    rows = _q("SELECT character_id, mode FROM links WHERE target_chat = ? AND source_chat = ?", (target, source))
+    current = _mode(rows[0]["mode"]) if rows else None
     cids = [m["id"] for m in members] if who is None else who
     names = _card_names()
     return {"target": _chat_view(trow, None, recaps=False, names=names),
             "source": _chat_view(srow, None, recaps=False, names=names),
             "members": members, "everyone": any(r["character_id"] == "" for r in rows),
             "who": [r["character_id"] for r in rows if r["character_id"]],
-            "calls": estimate(cids, source) if cids else 0}
+            "mode": current, "default_mode": pass_mode(),
+            "calls": estimate(cids, source, mode if mode in MODES else current) if cids else 0}
