@@ -2109,6 +2109,13 @@ runtime_settings = {
     # extension in st-extension/, which says which chat and persona a
     # request is from.
     "character_memory_enabled": False,
+    # What another chat gets of a remembered chat: "synopsis", one recap of
+    # the whole chat, or "chapters", one per event, each of which a
+    # connection or binding can leave out. The word targets are the
+    # synopsis's length and each chapter's (see memory.passed_on).
+    "memory_mode": memory.MODES[0],
+    "memory_synopsis_words": memory.DEFAULT_WORDS["synopsis"],
+    "memory_chapter_words": memory.DEFAULT_WORDS["chapters"],
 }
 
 # ============================================================================
@@ -2127,7 +2134,7 @@ PERSISTED_SETTING_KEYS = {
     "system_prompt_override",
     "creativity", "creativity_prompts", "bridge_port",
     "cli_session_reuse", "update_check_enabled",
-    "character_memory_enabled",
+    "character_memory_enabled", "memory_mode", "memory_synopsis_words", "memory_chapter_words",
 }
 
 
@@ -2227,7 +2234,7 @@ def log(message: str, level: str = "INFO"):
 # that they exist (_sillytavern_user_dir is defined further down, so it's
 # looked up when called).
 memory.configure(log=log, claude_exe=CLAUDE_EXE, call_recorder=prompt_history.start_call,
-                 st_user_dir=lambda: _sillytavern_user_dir())
+                 st_user_dir=lambda: _sillytavern_user_dir(), settings=lambda: runtime_settings)
 
 prompt_history.set_logger(log)
 prompt_history.init(os.path.join(os.path.dirname(os.path.abspath(__file__)), "prompt_history.db"))
@@ -4546,7 +4553,19 @@ def update_settings():
                 prompts[mode] = text
         runtime_settings["creativity_prompts"] = prompts
 
-    for key in ["effort_level", "include_thinking", "show_thinking_console", "debug_output", "model", "tool_calling_enabled", "auto_summary_enabled", "auto_summary_threshold", "auto_summary_max_length", "lorebook_enabled", "lorebook_path", "lorebook_name", "system_prompt_override", "creativity", "bridge_port", "cli_session_reuse", "update_check_enabled", "character_memory_enabled"]:
+    # Character Memory's mode and word targets (Memory tab).
+    if "memory_mode" in data and data["memory_mode"] not in memory.MODES:
+        return jsonify({"error": f"memory_mode is one of: {', '.join(memory.MODES)}"}), 400
+    for key in ("memory_synopsis_words", "memory_chapter_words"):
+        if key in data:
+            v = data[key]
+            if isinstance(v, bool) or not isinstance(v, (int, float)) or not (
+                    memory.WORDS_MIN <= v <= memory.WORDS_MAX):
+                return jsonify({"error": f"{key} is a number of words from {memory.WORDS_MIN} "
+                                         f"to {memory.WORDS_MAX}"}), 400
+            data[key] = int(v)
+
+    for key in ["effort_level", "include_thinking", "show_thinking_console", "debug_output", "model", "tool_calling_enabled", "auto_summary_enabled", "auto_summary_threshold", "auto_summary_max_length", "lorebook_enabled", "lorebook_path", "lorebook_name", "system_prompt_override", "creativity", "bridge_port", "cli_session_reuse", "update_check_enabled", "character_memory_enabled", "memory_mode", "memory_synopsis_words", "memory_chapter_words"]:
         if key in data:
             # Coerce bridge_port to int and bounds-check. Invalid values are rejected.
             if key == "bridge_port":
@@ -4636,8 +4655,12 @@ def memory_chat():
 
 @app.route("/api/memory/recap", methods=["GET"])
 def memory_recap():
-    """A character's recap of one chat, to read where another chat uses it."""
-    view = memory.recap_view(request.args.get("character", ""), request.args.get("chat", ""))
+    """A character's recap of one chat, to read where another chat uses it
+    (target: through a connection to that chat; persona: through that
+    binding), with the chapters that use leaves out."""
+    a = request.args
+    view = memory.recap_view(a.get("character", ""), a.get("chat", ""),
+                             target=a.get("target") or None, persona=a.get("persona") or None)
     return (jsonify(view), 200) if view else (jsonify({"error": "chat not found"}), 404)
 
 
@@ -4738,14 +4761,34 @@ def memory_segment():
     return (jsonify({"status": "ok"}), 200) if ok else (jsonify({"error": "no such part"}), 404)
 
 
-@app.route("/api/memory/short", methods=["POST"])
-def memory_short():
-    """Rewrite a chat's short recap, or (text null) go back to the generated one."""
+@app.route("/api/memory/condensed", methods=["POST"])
+def memory_condensed():
+    """Rewrite a chat's synopsis or one of its chapters, or (recap null)
+    drop it to have it written again."""
+    data = _mem_body()
+    cid, chat, key = _mem_ids(data, "character", "chat", "key")
+    recap = data.get("recap")
+    if recap is not None and (not isinstance(recap, str) or not recap.strip()):
+        return jsonify({"error": "recap must be text, or null to write it again"}), 400
+    ok = memory.set_condensed(cid, chat, key, recap)
+    return (jsonify({"status": "ok"}), 200) if ok else (jsonify({"error": "no such synopsis or chapter"}), 404)
+
+
+@app.route("/api/memory/chapters", methods=["POST"])
+def memory_chapters():
+    """Choose which of a chat's chapters a connection (target) or a binding
+    (persona) passes on: `off` lists the starts of those it leaves out."""
     data = _mem_body()
     cid, chat = _mem_ids(data, "character", "chat")
-    text = data.get("text")
-    memory.set_short_recap(cid, chat, text if isinstance(text, str) else None)
-    return jsonify({"status": "ok"})
+    off = data.get("off")
+    if not isinstance(off, list) or any(isinstance(x, bool) or not isinstance(x, int) for x in off):
+        return jsonify({"error": "off is a list of chapter starts"}), 400
+    target, persona = data.get("target"), data.get("persona")
+    if not isinstance(target, str) and not isinstance(persona, str):
+        return jsonify({"error": "give the connection's target chat or the binding's persona"}), 400
+    ok = memory.set_chapters_off(cid, chat, off, target=target if isinstance(target, str) else None,
+                                 persona=persona if isinstance(persona, str) else None)
+    return (jsonify({"status": "ok"}), 200) if ok else (jsonify({"error": "no such connection or binding"}), 404)
 
 
 @app.route("/api/memory/check/<int:check_id>", methods=["POST"])

@@ -4,9 +4,10 @@
 Like tests/session_scenarios.py, a scratch copy of the bridge runs the real
 `claude` CLI against a fake Messages API in this process, so nothing reaches
 Anthropic. The fake answers the memory calls too: a recap lists the markers
-(e.g. AEVT3) of the messages it was given, a short recap starts with SHORT,
-and the conflict check reports a conflict when a chat's opening says
-STRANGERS. A fake SillyTavern data folder (cards, personas, chats, a group)
+(e.g. AEVT3) of the messages it was given, a synopsis starts with SYNOPSIS,
+a chapter recap with CHAPTERTEXT, the chapter division makes a chapter of
+every two parts, and the conflict check reports a conflict when a chat's
+opening says STRANGERS. A fake SillyTavern data folder (cards, personas, chats, a group)
 sits next to the scratch bridge, where it looks for SillyTavern.
 
     .venv/bin/python tests/memory_scenarios.py              # every scenario
@@ -46,10 +47,16 @@ def fake_reply(body):
     text = "\n".join(_text(m.get("content")) for m in body.get("messages", []) if m.get("role") == "user")
     if "memory of a roleplay. Below is part" in text:
         part = text.split("=== CHAT PART", 1)[1]
-        pad = " " + "x" * 5000 if "LONGCHAT" in part else ""
+        pad = " LONG" + " x" * 2500 if "LONGCHAT" in part else ""
         return "RECAP " + " ".join(dict.fromkeys(MARK.findall(part))) + pad
-    if "Condense them into one recap" in text:
-        return "SHORT " + " ".join(list(dict.fromkeys(MARK.findall(text)))[:5])
+    if "Write one synopsis of the whole chat" in text:
+        pad = " " + "x" * 5000 if " LONG x" in text else ""
+        return "SYNOPSIS " + " ".join(list(dict.fromkeys(MARK.findall(text)))[:5]) + pad
+    if "Divide these parts into chapters" in text:
+        parts = [int(n) for n in re.findall(r"^Part (\d+) \(messages", text, re.M)]
+        return json.dumps({"chapters": [{"first_part": n, "title": f"CHAPTER {n}"} for n in parts[::2]]})
+    if "Write one recap of this chapter" in text:
+        return "CHAPTERTEXT " + " ".join(dict.fromkeys(MARK.findall(text)))
     if "contradicts those memories" in text:
         opening = text.split("=== HOW THE NEW CHAT STARTS ===", 1)[1]
         clash = "STRANGERS" in opening
@@ -491,11 +498,10 @@ def budget(ctx):
     block = memory_block(last)
     sections = re.findall(r'<memory source="([^"]+)"[^>]*>([\s\S]*?)</memory>', block)
     titles = [t for t, _ in sections]
-    ctx.check("the bound chats come oldest first", titles == [f"Lena - {k}" for k in range(1, 6)], str(titles))
-    if len(sections) == 5:
-        ctx.check("the oldest gets its short recap once the full ones fill the budget",
-                  "SHORT" in sections[0][1] and "RECAP" in sections[-1][1],
-                  str([s[1][:40] for s in sections]))
+    ctx.check("long recaps are passed on as their synopsis", sections and all(
+        "SYNOPSIS" in t and "RECAP" not in t for _, t in sections), str([t[:40] for _, t in sections]))
+    ctx.check("oldest first, and the oldest that doesn't fit the budget is left out",
+              titles == [f"Lena - {k}" for k in range(2, 6)], str(titles))
     ctx.check("the block stays within the budget", len(block) < 26000, str(len(block)))
 
 
@@ -643,8 +649,161 @@ def identity(ctx):
               json.dumps(d.get("sources")))
 
 
+def memory_calls(ctx, since, phrase):
+    with ctx.api.lock:
+        return sum(phrase in _text(m.get("content"))
+                   for b in ctx.api.calls[since:] for m in b.get("messages", []) if m.get("role") == "user")
+
+
+def update_block(text):
+    m = re.search(r"<character_memory_update\b[\s\S]*?</character_memory_update>", text)
+    return m.group(0) if m else ""
+
+
+def synopsis(ctx):
+    """Another chat gets a synopsis of about the word target set on the
+    Memory tab; part recaps that are short enough already go as they are."""
+    w = ctx.world
+    w.card("Oda")
+    n0 = ctx.api.count()
+    src = w.chat("Oda", "Oda - harbour", scripted(90, "Oda", "p1.png", "SEVT"))
+    target = w.chat("Oda", "Oda - inn", [("Oda", False, "Back again.", None, None)])
+    ctx.post("/api/memory/link", {"character": "Oda.png", "target": target.chat_id, "source": src.chat_id, "on": True})
+    ctx.wait_jobs()
+    try:
+        n = ctx.api.count()
+        view, last = ctx.turn(target, "Oda", "p1.png", user_text="Remember the harbour?")
+        block = memory_block(last)
+        ctx.check("part recaps within the default 400 words go as they are",
+                  "RECAP SEVT0" in block and "RECAP SEVT80" in block and "SYNOPSIS" not in block, block[:300])
+        ctx.check("with no synopsis call", memory_calls(ctx, n0, "Write one synopsis") == 0)
+
+        status, _ = ctx.post("/api/settings", {"memory_synopsis_words": 10})
+        ctx.check("a word target below 50 is refused", status == 400, str(status))
+        status, _ = ctx.post("/api/settings", {"memory_mode": "outline"})
+        ctx.check("so is an unknown mode", status == 400, str(status))
+        status, _ = ctx.post("/api/settings", {"memory_synopsis_words": 50})
+        ctx.check("set the synopsis to about 50 words", status == 200, str(status))
+        _, o, _ = ctx.get("/api/memory/overview")
+        ctx.check("the Memory tab reads the settings back", (o.get("settings") or {}).get("synopsis_words") == 50
+                  and o["settings"].get("mode") == "synopsis", json.dumps(o.get("settings")))
+
+        view, last = ctx.turn(target, "Oda", "p1.png", user_text="And?")
+        ctx.check("while the synopsis is written, the session keeps the part recaps", not update_block(last), last[:300])
+        ctx.wait_jobs()
+        ctx.check("one Sonnet call wrote it", memory_calls(ctx, n, "Write one synopsis") == 1,
+                  str(memory_calls(ctx, n, "Write one synopsis")))
+        view, last = ctx.turn(target, "Oda", "p1.png", user_text="Go on.")
+        upd = update_block(last)
+        ctx.check("then the session gets the synopsis instead", "SYNOPSIS SEVT0" in upd and "RECAP" not in upd, upd[:300])
+
+        _, d, _ = ctx.get(f"/api/memory/chat?character=Oda.png&chat={urllib.parse.quote(src.chat_id)}")
+        sec = ((d.get("passed") or {}).get("sections") or [{}])[0]
+        ctx.check("the Memory tab shows the synopsis", sec.get("ready") and not sec.get("as_is")
+                  and "SYNOPSIS" in (sec.get("text") or ""), json.dumps(d.get("passed"))[:300])
+        status, _ = ctx.post("/api/memory/condensed", {"character": "Oda.png", "chat": src.chat_id,
+                                                       "key": sec.get("key"), "recap": "EDITED SYNOPSIS: the harbour."})
+        ctx.check("rewrite the synopsis", status == 200, str(status))
+        view, last = ctx.turn(target, "Oda", "p1.png", user_text="Really?")
+        ctx.check("the rewritten synopsis is what the model gets", "EDITED SYNOPSIS" in update_block(last), last[:300])
+        status, _ = ctx.post("/api/memory/condensed", {"character": "Oda.png", "chat": src.chat_id,
+                                                       "key": "0" * 24, "recap": "nope"})
+        ctx.check("a key that isn't this chat's is a 404", status == 404, str(status))
+    finally:
+        ctx.post("/api/settings", {"memory_synopsis_words": 400})
+
+
+def chapters(ctx):
+    """In chapters mode a long chat is divided into chapters by event, and
+    each connection or binding can leave some out. As the chat grows, only
+    its last chapter is divided again, so the earlier ones keep their
+    place and the choices made about them."""
+    w = ctx.world
+    w.card("Ivy")
+    src = w.chat("Ivy", "Ivy - expedition", scripted(200, "Ivy", "p1.png", "CEVT"))
+    linked = w.chat("Ivy", "Ivy - camp", [("Ivy", False, "The fire's lit.", None, None)])
+    try:
+        ctx.post("/api/settings", {"memory_mode": "chapters", "memory_chapter_words": 60})
+        ctx.post("/api/memory/link", {"character": "Ivy.png", "target": linked.chat_id, "source": src.chat_id, "on": True})
+        ctx.post("/api/memory/binding", {"character": "Ivy.png", "persona": "p1.png", "action": "add"})
+        ctx.post("/api/memory/binding/chats", {"character": "Ivy.png", "persona": "p1.png", "add": [src.chat_id],
+                                               "remove": []})
+        ctx.wait_jobs()
+        q = urllib.parse.quote(src.chat_id)
+        _, d, _ = ctx.get(f"/api/memory/chat?character=Ivy.png&chat={q}")
+        secs = (d.get("passed") or {}).get("sections") or []
+        ctx.check("a 200-message chat is divided into chapters",
+                  [(s["start"], s["title"]) for s in secs] == [(0, "CHAPTER 1"), (80, "CHAPTER 3"), (160, "CHAPTER 5")],
+                  json.dumps([(s["start"], s["title"]) for s in secs]))
+        ctx.check("each of about the chapter word target; a short one goes as it is",
+                  [s.get("as_is") for s in secs] == [False, False, True]
+                  and all(s.get("ready") for s in secs) and "CHAPTERTEXT CEVT0" in secs[0]["text"],
+                  json.dumps([(s.get("ready"), s.get("as_is"), s.get("text", "")[:30]) for s in secs]))
+
+        view, last = ctx.turn(linked, "Ivy", "p1.png", user_text="Tell me about the expedition.")
+        block = memory_block(last)
+        ctx.check("the connected chat comes as its chapters, titled",
+                  block.count("<chapter title=") == 3 and '<chapter title="CHAPTER 3">' in block
+                  and "CEVT85" in block, block[:400])
+
+        status, _ = ctx.post("/api/memory/chapters", {"character": "Ivy.png", "chat": src.chat_id,
+                                                      "target": linked.chat_id, "off": [80]})
+        ctx.check("leave a chapter out of the connection", status == 200, str(status))
+        view, last = ctx.turn(linked, "Ivy", "p1.png", user_text="Skip the middle.")
+        upd = update_block(last)
+        ctx.check("the resumed session gets the chat again without it",
+                  "CEVT0" in upd and "CEVT85" not in upd and "CHAPTER 3" not in upd and "CEVT170" in upd, upd[:400])
+        _, r, _ = ctx.get(f"/api/memory/recap?character=Ivy.png&chat={q}&target={urllib.parse.quote(linked.chat_id)}")
+        ctx.check("its recap, read from the connection, marks the chapter left out",
+                  [s["on"] for s in (r.get("passed") or {}).get("sections", [])] == [True, False, True],
+                  json.dumps((r.get("passed") or {}).get("sections"))[:300])
+
+        bound = w.chat("Ivy", "Ivy - later", [("Ivy", False, "Another day.", None, None)])
+        view, last = ctx.turn(bound, "Ivy", "p1.png", user_text="Do you remember?")
+        ctx.check("the binding passes on every chapter: its choice is its own", "CEVT85" in memory_block(last),
+                  memory_block(last)[:300])
+        status, _ = ctx.post("/api/memory/chapters", {"character": "Ivy.png", "chat": src.chat_id,
+                                                      "persona": "p1.png", "off": [0]})
+        view, last = ctx.turn(bound, "Ivy", "p1.png", user_text="The start?")
+        upd = update_block(last)
+        ctx.check("and can leave others out", status == 200 and "CEVT5 " not in upd and "CEVT85" in upd, upd[:300])
+
+        n = ctx.api.count()
+        for i in range(200, 245):
+            src.append("V" if i % 2 else "Ivy", bool(i % 2), f"CEVT{i} the expedition goes on.",
+                       "p1.png" if i % 2 else None)
+        view, last = ctx.turn(linked, "Ivy", "p1.png", user_text="What happened next?")
+        ctx.wait_jobs()
+        _, d, _ = ctx.get(f"/api/memory/chat?character=Ivy.png&chat={q}")
+        secs = (d.get("passed") or {}).get("sections") or []
+        ctx.check("when the chat grows, only its last chapter is divided again",
+                  [s["start"] for s in secs] == [0, 80, 160, 240] and memory_calls(ctx, n, "Divide these parts") == 1
+                  and "already divided" in "".join(_text(m.get("content")) for b in ctx.api.calls[n:]
+                                                   for m in b.get("messages", [])),
+                  json.dumps([(s["start"], s["title"]) for s in secs]))
+        ctx.check("and the earlier chapters aren't written again",
+                  memory_calls(ctx, n, 'chapter 1 of') == 0 and memory_calls(ctx, n, 'chapter 2 of') == 0,
+                  f"{memory_calls(ctx, n, 'Write one recap of this chapter')} chapter call(s)")
+        used = {u["chat_id"]: u["off"] for u in d.get("used_in", [])}
+        ctx.check("the connection's choice stays", used.get(linked.chat_id) == [80], json.dumps(d.get("used_in")))
+        view, last = ctx.turn(linked, "Ivy", "p1.png", user_text="And then?")
+        upd = update_block(last)
+        ctx.check("the session gets the new chapter, still without the one left out",
+                  "CEVT241" in upd and "CEVT85" not in upd, upd[:400])
+
+        ctx.post("/api/settings", {"memory_mode": "synopsis", "memory_synopsis_words": 50})
+        ctx.turn(linked, "Ivy", "p1.png", user_text="In short?")
+        ctx.wait_jobs()
+        view, last = ctx.turn(linked, "Ivy", "p1.png", user_text="Summed up?")
+        upd = update_block(last)
+        ctx.check("back in synopsis mode the chat comes as one synopsis",
+                  "SYNOPSIS" in upd and "<chapter" not in upd, upd[:300])
+    finally:
+        ctx.post("/api/settings", {"memory_mode": "synopsis", "memory_synopsis_words": 400, "memory_chapter_words": 250})
+
+
 SCENARIOS = {f.__name__: f for f in (no_extension, link, binding, group, conflict, in_chat, budget, dashboard,
-                                     chat_names, recap_views, identity)}
+                                     chat_names, recap_views, identity, synopsis, chapters)}
 
 
 def main():

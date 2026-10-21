@@ -84,20 +84,27 @@ function chatHtml(s, extra = '') {
         + (meta ? ` <span class="bridge-memory-meta">${meta}</span>` : '') + last;
 }
 
-/** A recap to read: the short one, if there is one, then each part. */
-function recapHtml(parts, short) {
+/**
+ * A recap to read: what this chat gets of it (`passed`: its synopsis or chapters,
+ * minus those left out here), then the part recaps they're written from, folded.
+ * Without `passed`, the part recaps alone.
+ */
+function recapHtml(parts, passed) {
     parts = parts || [];
-    if (!parts.some(p => p.recap) && !short) {
+    if (!parts.some(p => p.recap)) {
         return '<p><small>Not recapped yet.</small></p>';
     }
     const out = [];
-    if (short) {
-        out.push(`<h5>Short recap, used when the full one doesn't fit</h5><div>${escapeHtml(short)}</div>`);
-    }
-    for (const p of parts) {
-        out.push(`<h5>Messages #${p.from}–#${p.to}</h5>`
-            + (p.recap ? `<div>${escapeHtml(p.recap)}</div>` : '<div><small>Not recapped yet.</small></div>'));
-    }
+    const sections = passed?.sections || [];
+    sections.forEach((s, i) => {
+        const what = s.title ? `Chapter ${i + 1}: ${s.title}` : passed.mode === 'chapters' ? 'The whole chat' : 'Synopsis';
+        const note = !s.on ? ' (left out here)' : !s.ready ? ' (not written yet; the part recaps meanwhile)' : '';
+        out.push(`<h5>${escapeHtml(what)}, messages #${s.from}–#${s.to}${note}</h5>`
+            + (s.on && s.ready ? `<div>${escapeHtml(s.text)}</div>` : ''));
+    });
+    const partsHtml = parts.map(p => `<h5>Messages #${p.from}–#${p.to}</h5>`
+        + (p.recap ? `<div>${escapeHtml(p.recap)}</div>` : '<div><small>Not recapped yet.</small></div>')).join('');
+    out.push(sections.length ? `<details><summary><small>Part recaps, 40 messages each</small></summary>${partsHtml}</details>` : partsHtml);
     return `<div class="bridge-memory-recap">${out.join('')}</div>`;
 }
 
@@ -299,6 +306,14 @@ function recapText(recap) {
     return recap.missing ? `recapped ${recap.done} of ${recap.parts} parts so far` : 'recapped';
 }
 
+/** "; 2 of 3 chapters" for a chat divided into chapters. */
+function chaptersText(passed) {
+    if (!passed?.chaptered) {
+        return '';
+    }
+    return `; ${passed.sections.filter(s => s.on).length} of ${passed.sections.length} chapters`;
+}
+
 /** Per character: the chats they remember here, each opening to its recap, then their recap of this chat. */
 async function showMemories() {
     const status = await refresh({ quiet: false, recaps: true });
@@ -309,15 +324,15 @@ async function showMemories() {
         const list = ch.sources.length
             ? ch.sources.map(s => `
                 <details class="bridge-memory-item">
-                    <summary>${chatHtml(s, `${s.how === 'link' ? 'connected' : 'persona binding'}; ${recapText(s.recap)}`)}</summary>
-                    ${recapHtml(s.parts, s.short)}
+                    <summary>${chatHtml(s, `${s.how === 'link' ? 'connected' : 'persona binding'}; ${recapText(s.recap)}${chaptersText(s.passed)}`)}</summary>
+                    ${recapHtml(s.parts, s.passed)}
                 </details>`).join('')
             : '<p><small>Nothing from other chats.</small></p>';
-        const own = ch.own && (ch.own.short || (ch.own.parts || []).some(p => p.recap)) ? `
+        const own = ch.own && (ch.own.parts || []).some(p => p.recap) ? `
                 <details class="bridge-memory-item">
                     <summary><span class="bridge-memory-name">What ${escapeHtml(ch.name)} remembers of this chat</span>
                         <div class="bridge-memory-last">Used in the chats it's connected or bound to, and here once its oldest messages no longer fit.</div></summary>
-                    ${recapHtml(ch.own.parts, ch.own.short)}
+                    ${recapHtml(ch.own.parts)}
                 </details>` : '';
         const bound = ch.bound ? ' <small>(bound to this persona)</small>' : '';
         return `<h4>${escapeHtml(ch.name)}${bound}</h4>${list}${own}`;

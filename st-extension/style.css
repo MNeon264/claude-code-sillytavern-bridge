@@ -63,6 +63,12 @@
     margin-top: 0;
 }
 
+.bridge-memory-recap details > summary {
+    margin-top: 10px;
+    cursor: pointer;
+    white-space: normal;
+}
+
 .bridge-memory-settings .inline-drawer-content {
     display: flex;
     flex-direction: column;
