@@ -664,6 +664,43 @@ def cancelled(ctx):
     ctx.record("the cancelled user turn reaches the model once", k == 1, [] if k == 1 else [f"{k} times"])
 
 
+def creativity(ctx):
+    """The Creativity text follows the Prompts tab's edits. Editing the mode
+    in use changes the bridge's part of the system prompt, so the next turn
+    starts a new session; editing another mode doesn't."""
+    def settings(body):
+        req = urllib.request.Request(f"http://127.0.0.1:{ctx.bridge.port}/api/settings", data=json.dumps(body).encode(),
+                                     headers={"Content-Type": "application/json"})
+        urllib.request.urlopen(req, timeout=30).read()
+
+    def system_has(label, *texts, absent=()):
+        sys_text = _text(ctx.api.calls[-1].get("system") or "")
+        why = [f"missing {t!r}" for t in texts if t not in sys_text] + [f"has {t!r}" for t in absent if t in sys_text]
+        ctx.record(label, not why, why)
+
+    c = Chat(ctx, group=False)
+    c.members = ["Mira"]
+    c.greet("Mira")
+    try:
+        settings({"creativity": "wild", "creativity_prompts": {"wild": "CREATIVITY-ONE"}})
+        c.user("(1) V asks Mira to surprise them.")
+        c.turn("Mira", "first turn, Wild text edited", "new")
+        system_has("the edited Wild text is sent", "CREATIVITY-ONE", absent=["WILD MODE"])
+        settings({"creativity_prompts": {"precise": "CREATIVITY-UNUSED"}})
+        c.user("(2) V waits.")
+        c.turn("Mira", "after editing a mode not in use", "resumed")
+        settings({"creativity_prompts": {"wild": "CREATIVITY-TWO"}})
+        c.user("(3) V waits some more.")
+        c.turn("Mira", "after editing the mode in use", "new")
+        system_has("with the new text", "CREATIVITY-TWO", absent=["CREATIVITY-ONE", "CREATIVITY-UNUSED"])
+        settings({"creativity_prompts": {"wild": None}})
+        c.user("(4) V gives up waiting.")
+        c.turn("Mira", "after restoring the default", "new")
+        system_has("with the default text", "WILD MODE", absent=["CREATIVITY-TWO"])
+    finally:
+        settings({"creativity": "balanced", "creativity_prompts": {"wild": None, "precise": None}})
+
+
 def _session_files(ctx):
     root = os.path.join(ctx.bridge.work, "claude-config", "projects")
     return [os.path.join(d, f) for d, _, fs in os.walk(root) for f in fs if f.endswith(".jsonl")]
@@ -671,7 +708,7 @@ def _session_files(ctx):
 
 SCENARIOS = {f.__name__: f for f in (
     group_swap, group_join, group_names_field, group_history, group_branches,
-    solo, solo_trimmed, solo_history, solo_edge, branches, cancelled)}
+    solo, solo_trimmed, solo_history, solo_edge, branches, cancelled, creativity)}
 
 
 def main():

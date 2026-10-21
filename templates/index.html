@@ -1450,7 +1450,7 @@
                 <dd>Model selection, effort level, creativity mode (a prompt-based stand-in for temperature, since Claude Code CLI doesn't expose the real parameter), and toggles for thinking visibility, debug logging, and tool calling.</dd>
 
                 <dt>Prompts</dt>
-                <dd>Optional style notes added to every roleplay's system prompt, and a preview of how the bridge assembles a turn from your SillyTavern prompt: where its own text goes, and where SillyTavern's prompts end up.</dd>
+                <dd>Optional style notes added to every roleplay's system prompt, the Creativity modes' texts, and a preview of how the bridge assembles a turn from your SillyTavern prompt: where its own text goes, and where SillyTavern's prompts end up.</dd>
 
                 <dt>History</dt>
                 <dd>Every call the bridge made to the Claude CLI (roleplay turns, memory, lorebook, image and summary calls) with the exact command, system prompt and input text it passed, the reply, the tokens it used, and how much of your 5-hour and weekly limits each roleplay turn took.</dd>
@@ -1571,7 +1571,7 @@
 
                 <div class="setting-card">
                     <h3>Creativity</h3>
-                    <p>Simulates temperature - controls writing style variation</p>
+                    <p>The Claude CLI has no temperature setting, so this adds the selected mode's writing-style text to the system prompt instead. <a href="#" onclick="showTab('system'); return false;">View or edit the texts</a> on the Prompts tab.</p>
                     <div class="toggle-group">
                         <button class="toggle-btn" data-setting="creativity" data-value="precise">Precise</button>
                         <button class="toggle-btn active" data-setting="creativity" data-value="balanced">Balanced</button>
@@ -1709,7 +1709,7 @@
         <div id="system" class="panel">
             <h3>Prompts</h3>
             <p>
-                Your SillyTavern prompt (preset, character card, persona, lore, Post-History Instructions) is what tells Claude how to write. The bridge adds only a short frame explaining how SillyTavern's messages are laid out, plus the optional style notes below.
+                Your SillyTavern prompt (preset, character card, persona, lore, Post-History Instructions) is what tells Claude how to write. The bridge adds only a short frame explaining how SillyTavern's messages are laid out, plus the optional style notes and the Creativity text below.
             </p>
 
             <div class="setting-card">
@@ -1727,6 +1727,30 @@
                 <div class="btn-row" style="margin-top:12px;">
                     <button class="btn" onclick="saveSystemPrompt()">Save Style Notes</button>
                     <span id="systemPromptStatus" class="status-msg" style="display:none;">Saved!</span>
+                </div>
+            </div>
+
+            <div class="setting-card">
+                <div class="card-head">
+                    <h3>Creativity <span class="badge" id="creativityBadge">default</span></h3>
+                    <div class="btn-row">
+                        <button class="btn btn-secondary btn-sm" id="creativityRestore" onclick="restoreCreativityPrompt()">Restore default</button>
+                    </div>
+                </div>
+                <p>
+                    The Claude CLI has no temperature setting, so the Creativity mode stands in for it: the selected mode's text goes into the system prompt after SillyTavern's prompt. It's an instruction to Claude; sampling itself doesn't change. Balanced adds nothing unless you give it text, and an empty text adds nothing. Choose the mode on the Settings tab. Changing the selected mode's text starts a new CLI session on each character's next turn.
+                </p>
+                <div class="toggle-group" style="margin-bottom:6px;">
+                    <button class="toggle-btn" data-cp-mode="precise">Precise</button>
+                    <button class="toggle-btn" data-cp-mode="balanced">Balanced</button>
+                    <button class="toggle-btn" data-cp-mode="creative">Creative</button>
+                    <button class="toggle-btn" data-cp-mode="wild">Wild</button>
+                </div>
+                <p id="creativityInUse" style="margin:0 0 10px;"></p>
+                <textarea id="creativityEditor" class="w-full" style="height:160px;padding:12px 14px;" placeholder="Empty: this mode adds nothing."></textarea>
+                <div class="btn-row" style="margin-top:12px;">
+                    <button class="btn" onclick="saveCreativityPrompt()">Save Creativity Text</button>
+                    <span id="creativityStatus" class="status-msg" style="display:none;">Saved!</span>
                 </div>
             </div>
 
@@ -3118,15 +3142,18 @@
         }
 
         // The upstream roleplay prompt, offered as a starting point for the
-        // optional style notes. Fetched from the backend so it can't drift.
+        // optional style notes, and the Creativity modes' default texts.
+        // Fetched from the backend so they can't drift.
         let UPSTREAM_STYLE_PROMPT = '';
-        async function loadUpstreamStylePromptText() {
+        let CREATIVITY_DEFAULTS = null;
+        async function loadPromptDefaults() {
             try {
                 const response = await fetch('/api/settings/default_system_prompt');
                 const data = await response.json();
                 UPSTREAM_STYLE_PROMPT = data.upstream_style_prompt || '';
+                CREATIVITY_DEFAULTS = data.creativity_defaults || null;
             } catch (e) {
-                console.error('Failed to load upstream style prompt:', e);
+                console.error('Failed to load the default prompts:', e);
             }
         }
 
@@ -3158,6 +3185,8 @@
                 });
 
                 if (response.ok) {
+                    creativityInUse = settings.creativity;
+                    creativityRefresh();
                     const status = document.getElementById('saveStatus');
                     status.style.display = 'inline';
                     setTimeout(() => status.style.display = 'none', 2000);
@@ -3297,6 +3326,12 @@
 
                 // Optional style notes (empty = none)
                 document.getElementById('systemPromptEditor').value = settings.system_prompt_override || '';
+
+                // Creativity texts: the edited ones; other modes use their defaults
+                creativityPrompts = settings.creativity_prompts || {};
+                creativityInUse = settings.creativity || 'balanced';
+                creativityMode = null;
+                creativityShow(creativityInUse);
             } catch (e) {
                 console.error('Error loading settings:', e);
             }
@@ -3350,7 +3385,7 @@
         }
 
         async function loadUpstreamStylePrompt() {
-            if (!UPSTREAM_STYLE_PROMPT) await loadUpstreamStylePromptText();
+            if (!UPSTREAM_STYLE_PROMPT) await loadPromptDefaults();
             const editor = document.getElementById('systemPromptEditor');
             if (editor.value.trim() && !confirm('Replace the current style notes with the upstream prompt? Nothing is saved until you click Save.')) return;
             editor.value = UPSTREAM_STYLE_PROMPT;
@@ -3361,6 +3396,92 @@
             document.getElementById('systemPromptEditor').value = '';
             await saveSystemPrompt();
         }
+
+        // ===== Creativity texts (Prompts tab) =====
+        // A mode's text is its edit (settings.creativity_prompts) or its
+        // default. creativityMode is the mode open in the editor;
+        // creativityInUse the one selected on the Settings tab.
+        let creativityPrompts = {};
+        let creativityInUse = 'balanced';
+        let creativityMode = null;
+
+        const creativityName = mode => mode.charAt(0).toUpperCase() + mode.slice(1);
+
+        function creativityEdited(mode) {
+            return typeof creativityPrompts[mode] === 'string';
+        }
+
+        function creativitySaved(mode) {
+            return creativityEdited(mode) ? creativityPrompts[mode] : ((CREATIVITY_DEFAULTS || {})[mode] || '');
+        }
+
+        function creativityDirty() {
+            return creativityMode !== null
+                && document.getElementById('creativityEditor').value.trim() !== creativitySaved(creativityMode);
+        }
+
+        function creativityShow(mode) {
+            if (creativityMode && mode !== creativityMode && creativityDirty()
+                && !confirm(`Discard your unsaved changes to the ${creativityName(creativityMode)} text?`)) return;
+            creativityMode = mode;
+            document.getElementById('creativityEditor').value = creativitySaved(mode);
+            creativityRefresh();
+        }
+
+        function creativityRefresh() {
+            if (creativityMode === null) return;
+            document.querySelectorAll('[data-cp-mode]').forEach(b => b.classList.toggle('active', b.dataset.cpMode === creativityMode));
+            const dirty = creativityDirty();
+            const edited = creativityEdited(creativityMode);
+            document.getElementById('creativityBadge').textContent = dirty ? 'unsaved' : edited ? 'edited' : 'default';
+            document.getElementById('creativityRestore').disabled = !dirty && !edited;
+            document.getElementById('creativityInUse').textContent = creativityMode === creativityInUse
+                ? `${creativityName(creativityMode)} is the mode in use.`
+                : `Not in use: the Settings tab has ${creativityName(creativityInUse)} selected.`;
+            if (PREVIEW && document.getElementById('system').classList.contains('active')) renderPromptPreview();
+        }
+
+        async function postCreativityPrompt(mode, text) {
+            const status = document.getElementById('creativityStatus');
+            try {
+                const response = await fetch('/api/settings', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ creativity_prompts: { [mode]: text } })
+                });
+                const data = await response.json();
+                if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+                creativityPrompts = data.settings.creativity_prompts || {};
+                if (PREVIEW) PREVIEW.settings.creativity_prompts = creativityPrompts;
+                if (creativityMode === mode) document.getElementById('creativityEditor').value = creativitySaved(mode);
+                creativityRefresh();
+                status.textContent = text === null ? 'Restored!' : 'Saved!';
+                status.style.color = 'var(--success)';
+                status.style.display = 'inline';
+                setTimeout(() => { status.style.display = 'none'; }, 2000);
+            } catch (e) {
+                console.error('Error saving the Creativity text:', e);
+                status.textContent = 'Save failed: ' + e.message;
+                status.style.color = 'var(--error)';
+                status.style.display = 'inline';
+            }
+        }
+
+        async function saveCreativityPrompt() {
+            if (creativityMode === null) return;
+            await postCreativityPrompt(creativityMode, document.getElementById('creativityEditor').value);
+        }
+
+        async function restoreCreativityPrompt() {
+            if (creativityMode === null) return;
+            if (!confirm(`Restore the default ${creativityName(creativityMode)} text? This saves immediately.`)) return;
+            await postCreativityPrompt(creativityMode, null);
+        }
+
+        document.querySelectorAll('[data-cp-mode]').forEach(btn => {
+            btn.addEventListener('click', () => creativityShow(btn.dataset.cpMode));
+        });
+        document.getElementById('creativityEditor').addEventListener('input', creativityRefresh);
 
         // ===== Prompt preview (Prompts tab) =====
         // Rebuilds the layout call_claude_code() gives a roleplay turn from
@@ -3589,9 +3710,16 @@
                 sys.push(pvOff('<sillytavern_prompt>', 'no system prompts before the chat'));
             }
             const creativity = s.creativity || 'balanced';
-            const creativityText = (b.creativity || {})[creativity] || '';
-            const creativityName = `Creativity: ${creativity.charAt(0).toUpperCase()}${creativity.slice(1)}`;
-            sys.push(creativityText ? pvBlock({kind: 'bridge', name: creativityName, text: creativityText}) : pvOff(creativityName, 'adds nothing'));
+            const creativityUnsaved = creativity === creativityMode && creativityDirty();
+            const creativityText = creativityUnsaved
+                ? document.getElementById('creativityEditor').value.trim()
+                : (CREATIVITY_DEFAULTS ? creativitySaved(creativity) : ((b.creativity || {})[creativity] || ''));
+            const creativityLabel = `Creativity: ${creativityName(creativity)}`;
+            const creativityMeta = creativityUnsaved ? `unsaved · ${creativityText.length.toLocaleString()} chars`
+                : creativityEdited(creativity) ? 'edited' : '';
+            sys.push(creativityText
+                ? pvBlock({kind: 'bridge', name: creativityLabel, text: creativityText, meta: creativityMeta})
+                : pvOff(creativityLabel, 'adds nothing'));
             if (s.tool_calling_enabled === false) {
                 sys.push(pvOff('Tool protocol', 'Tool Calling is off'));
             } else if (st.found && !st.function_calling) {
@@ -4866,7 +4994,7 @@
         // depend on both), then fan out parallel fetches for panels that
         // don't depend on each other.
         (async () => {
-            await loadUpstreamStylePromptText();
+            await loadPromptDefaults();
             await loadSettings();
             await Promise.all([
                 loadCacheInfo(),

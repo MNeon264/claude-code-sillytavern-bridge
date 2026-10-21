@@ -1966,6 +1966,15 @@ Be more expressive and varied than usual. Take creative risks with word choice, 
     "wild": """WRITING STYLE - WILD MODE:
 Be unpredictable, experimental, and bold. Take dramatic narrative risks: unexpected character choices, unusual perspectives, striking imagery, unconventional structure. Characters may act on impulse, scenes may shift in unexpected ways, and dialogue should feel alive and unrehearsed. Prefer the surprising choice to the safe one.""",
 }
+CREATIVITY_MODES = ("precise", "balanced", "creative", "wild")
+
+
+def creativity_text(mode: str) -> str:
+    """The text a Creativity mode adds to the system prompt: the user's
+    edit from the Prompts tab (runtime_settings["creativity_prompts"]), or
+    else the default above."""
+    edited = (runtime_settings.get("creativity_prompts") or {}).get(mode)
+    return edited if isinstance(edited, str) else CREATIVITY_SECTIONS.get(mode, "")
 
 # The upstream project's roleplay prompt. No longer sent by default: the GUI's
 # Prompts tab can load it as a starting point for the optional style
@@ -2075,6 +2084,9 @@ runtime_settings = {
     "system_prompt_override": "",
     # Creativity level: "precise", "balanced", "creative", "wild"
     "creativity": "balanced",
+    # Edited Creativity texts by mode (see creativity_text). A mode that
+    # isn't here uses its default; "" makes it add nothing.
+    "creativity_prompts": {},
     # Bridge HTTP server port (persisted; requires restart to apply)
     "bridge_port": 5001,
     # CLI session reuse via --resume. When enabled, the bridge captures the
@@ -2113,7 +2125,7 @@ PERSISTED_SETTING_KEYS = {
     "model", "tool_calling_enabled", "auto_summary_enabled", "auto_summary_threshold",
     "auto_summary_max_length", "lorebook_enabled", "lorebook_path", "lorebook_name",
     "system_prompt_override",
-    "creativity", "bridge_port",
+    "creativity", "creativity_prompts", "bridge_port",
     "cli_session_reuse", "update_check_enabled",
     "character_memory_enabled",
 }
@@ -2827,7 +2839,7 @@ def call_claude_code(messages: list, tools: list = None, process_holder: dict = 
     bridge_parts = None
     if context_blocks or trailing_system:
         style = (runtime_settings.get("system_prompt_override") or "").strip()
-        creativity_section = CREATIVITY_SECTIONS.get(runtime_settings.get("creativity", "balanced"), "")
+        creativity_section = creativity_text(runtime_settings.get("creativity", "balanced"))
         tool_section = ""
         if tools:
             tool_section = f"{TOOL_CALLING_INSTRUCTIONS}\n{format_tools_for_prompt(tools)}"
@@ -4359,8 +4371,10 @@ def get_settings():
 @app.route("/api/settings/default_system_prompt", methods=["GET"])
 def get_default_system_prompt():
     """The upstream roleplay prompt, offered by the GUI as a starting point
-    for the optional style notes. Nothing is sent by default."""
-    return jsonify({"default_system_prompt": "", "upstream_style_prompt": UPSTREAM_STYLE_PROMPT})
+    for the optional style notes (nothing is sent by default), and each
+    Creativity mode's default text, for the Prompts tab's editor."""
+    return jsonify({"default_system_prompt": "", "upstream_style_prompt": UPSTREAM_STYLE_PROMPT,
+                    "creativity_defaults": {m: CREATIVITY_SECTIONS.get(m, "") for m in CREATIVITY_MODES}})
 
 
 def _sillytavern_user_dir():
@@ -4437,7 +4451,7 @@ def get_prompt_preview():
         "bridge": {
             "frame": BRIDGE_FRAME,
             "style_notes_line": BRIDGE_STYLE_NOTES_LINE,
-            "creativity": CREATIVITY_SECTIONS,
+            "creativity": {m: creativity_text(m) for m in CREATIVITY_MODES},
             "tool_instructions": TOOL_CALLING_INSTRUCTIONS.strip(),
         },
         "sillytavern": _sillytavern_prompt_tree(),
@@ -4514,6 +4528,23 @@ def update_settings():
         new_val = data["chunking_enabled"]
         runtime_settings["chunking_enabled"] = new_val
         log(f"CHUNKING: {old_val} -> {new_val}")
+
+    # Creativity texts are sent per mode and merged: a string is that mode's
+    # text, null (or the default text) restores the default.
+    if "creativity_prompts" in data:
+        edits = data["creativity_prompts"]
+        if not isinstance(edits, dict) or any(m not in CREATIVITY_MODES or not (t is None or isinstance(t, str))
+                                              for m, t in edits.items()):
+            return jsonify({"error": "creativity_prompts maps a Creativity mode to its text, "
+                                     "or to null for the default"}), 400
+        prompts = dict(runtime_settings.get("creativity_prompts") or {})
+        for mode, text in edits.items():
+            text = None if text is None else text.strip()
+            if text is None or text == CREATIVITY_SECTIONS.get(mode, ""):
+                prompts.pop(mode, None)
+            else:
+                prompts[mode] = text
+        runtime_settings["creativity_prompts"] = prompts
 
     for key in ["effort_level", "include_thinking", "show_thinking_console", "debug_output", "model", "tool_calling_enabled", "auto_summary_enabled", "auto_summary_threshold", "auto_summary_max_length", "lorebook_enabled", "lorebook_path", "lorebook_name", "system_prompt_override", "creativity", "bridge_port", "cli_session_reuse", "update_check_enabled", "character_memory_enabled"]:
         if key in data:
