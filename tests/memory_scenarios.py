@@ -4,11 +4,12 @@
 Like tests/session_scenarios.py, a scratch copy of the bridge runs the real
 `claude` CLI against a fake Messages API in this process, so nothing reaches
 Anthropic. The fake answers the memory calls too: a recap lists the markers
-(e.g. AEVT3) of the messages it was given (an account of a part the
-character isn't in starts with ACCOUNT), a synopsis starts with SYNOPSIS,
-a chapter recap with CHAPTERTEXT, the chapter division makes a chapter of
-every two parts, and the conflict check reports a conflict when a chat's
-opening says STRANGERS. A fake SillyTavern data folder (cards, personas, chats, a group)
+(e.g. AEVT3) of the messages it was given, scene by scene, a new scene
+starting at a message that says TURN (an account of a part the character
+isn't in starts with ACCOUNT), a synopsis starts with SYNOPSIS, a chapter
+recap with CHAPTERTEXT, the chapter division starts a chapter at each TURN
+scene, or else every two parts, and the conflict check reports a conflict
+when a chat's opening says STRANGERS. A fake SillyTavern data folder (cards, personas, chats, a group)
 sits next to the scratch bridge, where it looks for SillyTavern.
 
     .venv/bin/python tests/memory_scenarios.py              # every scenario
@@ -43,20 +44,39 @@ OLD = "2025-03-01T10:00:00.000Z"
 MARK = re.compile(r"\b[A-Z]EVT\d+\b")
 
 
+def fake_recap(part, kind):
+    """A part's recap, scene by scene as the prompt asks: a scene starts at
+    the part's first message and at each message saying TURN, and lists the
+    markers of its messages."""
+    scenes = []
+    for n, text in re.findall(r"^#(\d+) [^:\n]*: (.*)$", part, re.M):
+        if not scenes or "TURN" in text:
+            scenes.append((n, [], "TURN" in text))
+        scenes[-1][1].extend(MARK.findall(text))
+    pad = " LONG" + " x" * 2500 if "LONGCHAT" in part else ""
+    return "\n\n".join(f"[#{n}] {kind}" + " ".join(dict.fromkeys(marks)) + (" TURN" if turn else "") + pad
+                       for n, marks, turn in scenes)
+
+
 def fake_reply(body):
     """Answers for the memory calls; None leaves roleplay turns to FakeAPI."""
     text = "\n".join(_text(m.get("content")) for m in body.get("messages", []) if m.get("role") == "user")
     if "of a roleplay. Below is part" in text:
         part = text.split("=== CHAT PART", 1)[1]
-        pad = " LONG" + " x" * 2500 if "LONGCHAT" in part else ""
-        kind = "ACCOUNT " if "record of a roleplay" in text else "RECAP "
-        return kind + " ".join(dict.fromkeys(MARK.findall(part))) + pad
+        return fake_recap(part, "ACCOUNT " if "record of a roleplay" in text else "RECAP ")
     if "Write one synopsis of the whole chat" in text:
         pad = " " + "x" * 5000 if " LONG x" in text else ""
         return "SYNOPSIS " + " ".join(list(dict.fromkeys(MARK.findall(text)))[:5]) + pad
-    if "Divide these parts into chapters" in text:
-        parts = [int(n) for n in re.findall(r"^Part (\d+) \(messages", text, re.M)]
-        return json.dumps({"chapters": [{"first_part": n, "title": f"CHAPTER {n}"} for n in parts[::2]]})
+    if "Divide the chat into chapters" in text:
+        # A chapter at each scene that says TURN; without any, one every two parts.
+        recaps = text.split("The first chapter starts at message", 1)[1]
+        scenes = [(int(n), rest) for n, rest in re.findall(r"^\[#(\d+)\] (.*)$", recaps, re.M)]
+        turns = [n for n, rest in scenes[1:] if rest.rstrip().endswith("TURN")]
+        if turns:
+            return json.dumps({"chapters": [{"first_message": n, "title": f"CHAPTER AT {n}"}
+                                            for n in [scenes[0][0]] + turns]})
+        parts = [(int(p), int(n)) for p, n in re.findall(r"^Part (\d+) \(messages (\d+)–", recaps, re.M)]
+        return json.dumps({"chapters": [{"first_message": n, "title": f"CHAPTER {p}"} for p, n in parts[::2]]})
     if "Write one recap of this chapter" in text:
         return "CHAPTERTEXT " + " ".join(dict.fromkeys(MARK.findall(text)))
     if "contradicts those memories" in text:
@@ -779,7 +799,7 @@ def chapters(ctx):
         _, d, _ = ctx.get(f"/api/memory/chat?character=Ivy.png&chat={q}")
         secs = (d.get("passed") or {}).get("sections") or []
         ctx.check("when the chat grows, only its last chapter is divided again",
-                  [s["start"] for s in secs] == [0, 80, 160, 240] and memory_calls(ctx, n, "Divide these parts") == 1
+                  [s["start"] for s in secs] == [0, 80, 160, 240] and memory_calls(ctx, n, "Divide the chat into chapters") == 1
                   and "already divided" in "".join(_text(m.get("content")) for b in ctx.api.calls[n:]
                                                    for m in b.get("messages", [])),
                   json.dumps([(s["start"], s["title"]) for s in secs]))
@@ -945,7 +965,7 @@ def shared_plan(ctx):
         ctx.post("/api/memory/link", {"target": camp.chat_id, "source": src.chat_id, "on": True})
         ctx.wait_jobs()
         ctx.check("the chat is divided into chapters once for both",
-                  memory_calls(ctx, n, "Divide these parts") == 1, str(memory_calls(ctx, n, "Divide these parts")))
+                  memory_calls(ctx, n, "Divide the chat into chapters") == 1, str(memory_calls(ctx, n, "Divide the chat into chapters")))
         ctx.post("/api/memory/chapters", {"chat": src.chat_id, "target": camp.chat_id, "who": "", "off": [80]})
         seen = {}
         for name in ("Pia", "Quin"):
@@ -953,6 +973,52 @@ def shared_plan(ctx):
             seen[name] = [(s["start"], s["on"]) for s in (r.get("passed") or {}).get("sections", [])]
         ctx.check("both have the same chapters, and the one left out for everyone is out for both",
                   seen["Pia"] == seen["Quin"] == [(0, True), (80, False)], json.dumps(seen))
+    finally:
+        ctx.post("/api/settings", {"memory_mode": "synopsis", "memory_chapter_words": 250})
+
+
+def scenes(ctx):
+    """A part's recap marks where its scenes start, so a chapter can start
+    inside a part: at message 55 here, where the story turns. The model
+    reads the recaps without the marks."""
+    w = ctx.world
+    w.card("Kai")
+    msgs = [(("V", True) if i % 2 else ("Kai", False))
+            + (f"KEVT{i} {'TURN the caravan leaves. ' if i == 55 else ''}line {i}.", "p1.png" if i % 2 else None, OLD)
+            for i in range(130)]
+    src = w.chat("Kai", "Kai - market", msgs)
+    road = w.chat("Kai", "Kai - road", [("Kai", False, "Dust.", None, None)])
+    try:
+        ctx.post("/api/settings", {"memory_mode": "chapters", "memory_chapter_words": 60})
+        n = ctx.api.count()
+        ctx.post("/api/memory/link", {"character": "Kai.png", "target": road.chat_id, "source": src.chat_id, "on": True})
+        ctx.wait_jobs()
+        _, d, _ = ctx.get(f"/api/memory/chat?character=Kai.png&chat={q(src)}")
+        parts = d.get("parts") or []
+        ctx.check("the recap prompt numbers the messages",
+                  memory_calls(ctx, n, "#55 V: KEVT55 TURN") == 1 and memory_calls(ctx, n, "[#40]") >= 1)
+        ctx.check("the part the story turns in is recapped as two scenes, each marked with its first message",
+                  len(parts) == 4 and parts[1]["recap"].startswith("[#40] RECAP KEVT40")
+                  and "\n\n[#55] RECAP KEVT55" in parts[1]["recap"], json.dumps([p.get("recap", "")[:40] for p in parts]))
+        secs = (d.get("passed") or {}).get("sections") or []
+        ctx.check("the chat is divided where the story turns, inside a part",
+                  [(s["start"], s["from"], s["to"], s["title"]) for s in secs]
+                  == [(0, 0, 54, "CHAPTER AT 0"), (55, 55, 129, "CHAPTER AT 55")],
+                  json.dumps([(s["start"], s["from"], s["to"], s["title"]) for s in secs]))
+        ctx.check("the division call saw the scenes", memory_calls(ctx, n, "[#55] RECAP KEVT55") == 1)
+        ctx.check("each chapter has its own scenes and none of the other's",
+                  len(secs) == 2 and "KEVT54" in secs[0]["text"] and "KEVT55" not in secs[0]["text"]
+                  and "KEVT55" in secs[1]["text"] and "KEVT129" in secs[1]["text"] and "KEVT54" not in secs[1]["text"]
+                  and "[#" not in secs[0]["text"], json.dumps([s.get("text", "")[:60] for s in secs]))
+        view, last = ctx.turn(road, "Kai", "p1.png", user_text="Remember the market?")
+        block = memory_block(last)
+        ctx.check("the connected chat comes as those chapters",
+                  '<chapter title="CHAPTER AT 55">' in block and "[#" not in block, block[:300])
+
+        view, last = ctx.turn(src, "Kai", "p1.png", first=85, user_text="Where were we?")
+        block = memory_block(last)
+        ctx.check("the recap of a chat's earlier part has no scene marks",
+                  "RECAP KEVT40" in block and "RECAP KEVT55" in block and "[#" not in block, block[:300])
     finally:
         ctx.post("/api/settings", {"memory_mode": "synopsis", "memory_chapter_words": 250})
 
@@ -975,7 +1041,7 @@ def no_summaries(ctx):
 
 SCENARIOS = {f.__name__: f for f in (no_extension, link, binding, group, conflict, in_chat, budget, dashboard,
                                      chat_names, recap_views, identity, synopsis, chapters, absent, everyone,
-                                     shared_plan, no_summaries)}
+                                     shared_plan, scenes, no_summaries)}
 
 
 def main():

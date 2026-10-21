@@ -2009,7 +2009,7 @@
 
             <div class="setting-card">
                 <div class="card-head"><h3>What other chats get</h3></div>
-                <p class="card-desc">A chat remembered in another chat, through a connection or a binding, comes either as one <strong>synopsis</strong> or as its <strong>chapters</strong>. In chapters mode Sonnet divides a chat of three parts or more (81 messages and up) by event, and each connection or binding can leave chapters out: open its recap to choose. Both are written from the chat's part recaps, and part recaps already shorter than the target are passed on as they are.</p>
+                <p class="card-desc">A chat remembered in another chat, through a connection or a binding, comes either as one <strong>synopsis</strong> or as its <strong>chapters</strong>. In chapters mode Sonnet divides a chat of three parts or more (81 messages and up) by event, at the scene breaks its recaps mark, and each connection or binding can leave chapters out: open its recap to choose. Both are written from the chat's scene recaps, and scene recaps already shorter than the target are passed on as they are.</p>
                 <div class="toggle-group" style="margin-bottom:12px;">
                     <button class="toggle-btn" data-mem-mode="synopsis">Synopsis</button>
                     <button class="toggle-btn" data-mem-mode="chapters">Chapters</button>
@@ -2031,10 +2031,10 @@
                 <dd>Turn on Character Memory in Settings, and install the bridge's SillyTavern extension, Bridge Memory: run <code>st-extension/install.sh</code> from the bridge's folder and reload SillyTavern. The extension adds which chat, persona and character each request is for, which nothing else in a request says. Memory skips turns without it. The status at the top of this tab says whether it has been heard from.</dd>
 
                 <dt>Recaps</dt>
-                <dd>The bridge reads a chat's file from SillyTavern's folder, and Sonnet recaps it 40 messages at a time, each part with the previous part's recap for context. A part the character has a message in is recapped from their point of view. A part they have no message in is recapped as a plain account of what happened, which never puts them in it, and every character who isn't in that part shares the one account. Hidden and empty messages are left out. Recaps are built in the background when a chat that needs them is used or opened in SillyTavern, or when you ask here, and a reply uses whatever is ready; the rest arrives on later replies. A part is recapped again only when its messages change, and a branch shares its parent's recaps up to the branch point. Open a chat below to read what the character remembers of it; <strong>Recap</strong> beside a connected chat, or a chat in a binding, shows it in place. <strong>Edit</strong> lets you rewrite any part, the synopsis or a chapter; <strong>Redo</strong> has it written again. An edit of a synopsis or chapter lasts until a part it's written from changes.</dd>
+                <dd>The bridge reads a chat's file from SillyTavern's folder, and Sonnet recaps it 40 messages at a time, each part with the previous part's recap for context. A part the character has a message in is recapped from their point of view. A part they have no message in is recapped as a plain account of what happened, which never puts them in it, and every character who isn't in that part shares the one account. Hidden and empty messages are left out. A recap is written scene by scene, each paragraph opening with the number of the message its scene starts at, like <code>[#52]</code>; the model reads it without those marks. Recaps are built in the background when a chat that needs them is used or opened in SillyTavern, or when you ask here, and a reply uses whatever is ready; the rest arrives on later replies. A part is recapped again only when its messages change, and a branch shares its parent's recaps up to the branch point. Open a chat below to read what the character remembers of it; <strong>Recap</strong> beside a connected chat, or a chat in a binding, shows it in place. <strong>Edit</strong> lets you rewrite any part, the synopsis or a chapter; <strong>Redo</strong> has it written again. An edit of a synopsis or chapter lasts until a part it's written from changes.</dd>
 
                 <dt>Synopsis or chapters</dt>
-                <dd>Other chats don't get a chat's part recaps but what's written from them, set at the top of this tab. <strong>Synopsis</strong>: one recap of the whole chat in about the number of words you set. <strong>Chapters</strong>: Sonnet divides a chat of three parts or more (81 messages and up) into chapters by event, at part boundaries, once for every character, titles them, and writes each in about the number of words you set. A chat too short for chapters comes whole. When the chat grows, only its last chapter is divided again, so the earlier ones keep their place and what you chose for them. Untick chapters per connection (in its recap under Connections, or in the chat) and per binding; a binding's choice holds in all its chats. Part recaps already within the word target go as they are, with no call. Changing the mode or word target has each chat written again the next time it's needed; the division into chapters is kept when only the word target changes.</dd>
+                <dd>Other chats don't get a chat's part recaps but what's written from them, set at the top of this tab. <strong>Synopsis</strong>: one recap of the whole chat in about the number of words you set. <strong>Chapters</strong>: Sonnet divides a chat of three parts or more (81 messages and up) into chapters by event, at the scene breaks its recaps mark, so a chapter can start in the middle of a part, once for every character, titles them, and writes each in about the number of words you set. A chat too short for chapters comes as its synopsis. When the chat grows, only its last chapter is divided again, so the earlier ones keep their place and what you chose for them. Untick chapters per connection (in its recap under Connections, or in the chat) and per binding; a binding's choice holds in all its chats. Scene recaps already within the word target go as they are, with no call. Changing the mode or word target has each chat written again the next time it's needed; the division into chapters is kept when only the word target changes.</dd>
 
                 <dt>Earlier in a chat</dt>
                 <dd>When SillyTavern leaves a chat's oldest messages out to fit the context, the recap of those messages comes in instead.</dd>
@@ -2849,11 +2849,11 @@
         // A synopsis or chapter (a section of passed_on in memory.py): what it
         // is, the messages it covers, and how far it's written.
         function memSectionHead(p, s, i) {
-            const what = s.title ? `Chapter ${i + 1}: ${s.title}` : p.mode === 'chapters' ? 'The whole chat (too short for chapters)' : 'Synopsis';
+            const what = s.title ? `Chapter ${i + 1}: ${s.title}` : p.mode === 'chapters' ? 'Synopsis (not in chapters)' : 'Synopsis';
             const meta = [`messages #${s.from}–#${s.to}`];
             if (!s.ready) meta.push(s.parts_missing ? 'waiting for its parts' : 'not written yet');
             else if (s.edited) meta.push('edited');
-            else if (s.as_is) meta.push('the part recaps as they are');
+            else if (s.as_is) meta.push('the scene recaps as they are');
             if (!s.on) meta.push('left out here');
             return memEsc(`${what} · ${meta.join(' · ')}`);
         }
@@ -3229,7 +3229,7 @@
                 : p.mode === 'synopsis' ? (secs[0]?.ready ? (secs[0].as_is ? `Other chats get the part recaps as they are: they're within about ${p.words} words.` : 'Synopsis written.')
                     : unwritten ? 'Synopsis not written yet.' : '')
                 : p.chaptered ? `${secs.length} chapters${unwritten ? `, ${unwritten} not written yet` : ''}${p.complete || unwritten ? '' : '; the last is divided again once the chat\'s new parts are recapped'}.`
-                : r.parts >= 3 ? 'Not divided into chapters yet.' : 'Too short for chapters: other chats get it whole.';
+                : r.parts >= 3 ? 'Not divided into chapters yet.' : 'Too short for chapters: other chats get its synopsis.';
             const build = d.building ? '' : r.missing ? 'Recap missing parts'
                 : !p.complete ? (p.mode === 'synopsis' ? 'Write the synopsis' : 'Write the chapters') : '';
             parts.push(`<div class="mem-inline" style="margin-bottom:8px;"><span style="font-size:13px;color:var(--paper-dim);">${memEsc(status + absent)}${passedStatus ? ' ' + memEsc(passedStatus) : ''}</span>
@@ -3271,6 +3271,7 @@
                         <textarea rows="${s.title ? 5 : 7}" data-ckey="${memEsc(s.key)}" placeholder="Not written yet. Write it here, or have it written.">${memEsc(s.ready ? s.text : '')}</textarea></div>`);
                 });
                 if (secs.some(s => s.key)) parts.push('<div class="mem-sub">Part recaps</div>');
+                parts.push('<div class="list-item-meta" style="margin:0 0 8px;">Each paragraph of a part recap is a scene and opens with the number of the message it starts at, like [#52]. Chapters can start at those marks; a recap without them is one scene.</div>');
                 (d.parts || []).forEach(p => {
                     parts.push(`<div class="mem-part"><div class="mem-part-head"><span>Messages #${p.from}–#${p.to}${p.there === false ? ' · not in it: a plain account' : ''}${p.edited ? ' · edited' : ''}</span>
                         <span>${p.recap ? `<button class="toggle-btn sm" data-save="${memEsc(p.key)}">Save</button> <button class="toggle-btn sm" data-redo="${memEsc(p.key)}">Redo</button>` : ''}</span></div>

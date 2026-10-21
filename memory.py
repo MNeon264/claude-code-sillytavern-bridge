@@ -33,15 +33,17 @@ an edit only invalidates the part it's in. They're built in the background
 by one worker thread, when a chat that needs them is used or opened, or when
 the user asks on the Memory tab; a turn uses what's built so far.
 
-What another chat gets of a remembered chat is written from those part
-recaps (passed_on), in the mode the Memory tab sets: a synopsis of the
-whole chat of about a set number of words, or chapters, one per event,
-each of about a set number of words. Sonnet divides a chat of at least
-CHAPTER_MIN_PARTS parts into chapters by part, once per chat for every
-character, and when the chat grows only its last chapter is divided again,
-so earlier chapters keep their place and the choices made about them. Each
-connection and each binding can leave chapters out. Part recaps short
-enough already are passed on as they are.
+A part's recap is written scene by scene, each scene's paragraph opening
+with the number of the message it starts at ("[#52]"). What another chat
+gets of a remembered chat is written from those scene recaps (passed_on),
+in the mode the Memory tab sets: a synopsis of the whole chat of about a
+set number of words, or chapters, one per event, each of about a set
+number of words. Sonnet divides a chat of at least CHAPTER_MIN_PARTS parts
+into chapters at its scenes, so a chapter can start inside a part, once
+per chat for every character, and when the chat grows only its last
+chapter is divided again, so earlier chapters keep their place and the
+choices made about them. Each connection and each binding can leave
+chapters out. Scene recaps short enough already are passed on as they are.
 
 When a chat with sources starts, Sonnet compares its opening (and Author's
 Note) with the memories of chats the character was in. A conflict becomes
@@ -949,10 +951,12 @@ def _speaks(who: _Who, msgs: list[dict]) -> bool:
 def _segments(cf: ChatFile, who: _Who, upto: Optional[int] = None) -> list[dict]:
     """The chat's parts: SEGMENT_SIZE messages each from the start, cut at
     `upto` (a message index) when given. Hidden and empty messages are left
-    out of the text; a part with none left is skipped. A part the character
-    has a message in is recapped from their card (pov), any other as a plain
-    account (pov ""), which everyone who isn't in it shares: whoever reads
-    it was in other parts or none. Keyed by pov and text."""
+    out of the text; a part with none left is skipped. Each message is
+    headed by its index in the chat ("#52 Name: ..."), so a recap can mark
+    where its scenes start. A part the character has a message in is
+    recapped from their card (pov), any other as a plain account (pov ""),
+    which everyone who isn't in it shares: whoever reads it was in other
+    parts or none. Keyed by pov and text."""
     cache_key = (who, upto)
     if cache_key in cf.segs:
         return cf.segs[cache_key]
@@ -960,22 +964,72 @@ def _segments(cf: ChatFile, who: _Who, upto: Optional[int] = None) -> list[dict]
     out = []
     for start in range(0, n, SEGMENT_SIZE):
         end = min(start + SEGMENT_SIZE, n)
-        part = [m for m in cf.messages[start:end] if not m["hidden"] and m["text"].strip()]
+        part = [(i, m) for i, m in enumerate(cf.messages[start:end], start) if not m["hidden"] and m["text"].strip()]
         if not part:
             continue
-        text = "\n\n".join(f"{m['name'] or ('User' if m['user'] else 'Character')}: {_clean(m['text'])}"
-                           for m in part)
-        pov = who.pov if _speaks(who, part) else ""
-        out.append({"start": start, "end": end, "text": text, "pov": pov,
+        text = "\n\n".join(f"#{i} {m['name'] or ('User' if m['user'] else 'Character')}: {_clean(m['text'])}"
+                           for i, m in part)
+        pov = who.pov if _speaks(who, [m for _, m in part]) else ""
+        out.append({"start": start, "end": end, "text": text, "pov": pov, "first": part[0][0],
                     "key": _hash(f"{pov}\n{text}"), "full": end - start == SEGMENT_SIZE})
     cf.segs[cache_key] = out
     return out
 
 
 def _marked(seg: dict, recap: str, name: Optional[str]) -> str:
-    """A part's recap where it's read with the character's others: an
-    account of a part they weren't in says so."""
+    """A part's recap (or a scene of it) where it's read with the
+    character's others: an account of a part they weren't in says so."""
     return f"({name} wasn't there.) {recap}" if name and not seg["pov"] else recap
+
+
+# Where a scene starts in a part's recap: "[#52]" opening a paragraph.
+_SCENE_MARK = re.compile(r"^[ \t]*\[#\s*(\d+)\s*\][ \t]*", re.M)
+
+
+def _scenes(seg: dict, recap: str) -> list[dict]:
+    """A part's recap as its scenes, [{start, end, text}]: start is the
+    message a scene starts at, as the recap marks it ("[#52]" opening a
+    paragraph), end the one after its last. The first scene starts with the
+    part; a mark outside the part or out of order joins its text to the
+    scene before. A recap without marks (edited without them) is one scene."""
+    marks = list(_SCENE_MARK.finditer(recap))
+    pieces = [(None, recap[:marks[0].start()] if marks else recap)]
+    pieces += [(int(m.group(1)), recap[m.end():marks[k + 1].start() if k + 1 < len(marks) else len(recap)])
+               for k, m in enumerate(marks)]
+    scenes = []
+    for n, text in pieces:
+        text = text.strip()
+        if not text:
+            continue
+        if not scenes:
+            scenes.append({"start": seg["start"], "text": text})
+        elif n is not None and scenes[-1]["start"] < n < seg["end"]:
+            scenes.append({"start": n, "text": text})
+        else:
+            scenes[-1]["text"] += "\n\n" + text
+    scenes = scenes or [{"start": seg["start"], "text": recap.strip()}]
+    for k, s in enumerate(scenes):
+        s["end"] = scenes[k + 1]["start"] if k + 1 < len(scenes) else seg["end"]
+    return scenes
+
+
+def _plain(recap: str) -> str:
+    """A part's recap without its scene marks, as the model reads it."""
+    return _SCENE_MARK.sub("", recap).strip()
+
+
+def _units(segs: list[dict], have: dict) -> list[dict]:
+    """The scenes of these parts in order, what a chat is divided into
+    chapters by and its synopsis or chapters are written from: [{seg,
+    start, end, text}], one with text None for a part not recapped yet."""
+    out = []
+    for s in segs:
+        r = have.get(s["key"])
+        if r:
+            out += [{"seg": s, **x} for x in _scenes(s, r["recap"])]
+        else:
+            out.append({"seg": s, "start": s["start"], "end": s["end"], "text": None})
+    return out
 
 
 def _inchat_upto(cf: ChatFile, floor: int) -> int:
@@ -1047,11 +1101,12 @@ def _chat_people(cf: ChatFile, char_name: str) -> tuple[str, list[str]]:
 
 
 # A part the character is in.
-_RECAP_PROMPT = """You keep {char}'s memory of a roleplay. Below is part {part} of {total} of a chat{where}. {user} is the user's character.{others}
+_RECAP_PROMPT = """You keep {char}'s memory of a roleplay. Below is part {part} of {total} of a chat{where}, each message headed by its number. {user} is the user's character.{others}
 {before}
 Write a recap of this part as {char} would remember it:
 - What happened, in order: what {char} did, saw and learned; who was there; what was said that matters; promises, revelations, decisions and how things stand at the end of the part.
-- Past tense, third person, plain prose, at most {words} words. Use names, not "the user".
+- One paragraph per scene. A new scene starts where the story moves to another place or time, or turns to a new event; a part is often one scene, sometimes a few. Open each paragraph with the number of the message its scene starts at, in brackets: the first one [#{first}].
+- Past tense, third person, plain prose, at most {words} words in all. Use names, not "the user".
 - Only events. Don't describe anyone's looks or personality, and don't restate the setting or world lore unless something happened to it.
 - {char}'s own messages are the ones under {char}'s name. {char} was only where the text puts {char}: leave out what {char} wasn't there for and couldn't know, and don't place {char} in a scene the text doesn't.
 - Write only the recap: no heading, no preamble, no commentary.
@@ -1063,11 +1118,12 @@ Write a recap of this part as {char} would remember it:
 
 # A part the character isn't in: an account from no one's point of view,
 # shared by everyone who wasn't there.
-_ACCOUNT_PROMPT = """You keep the record of a roleplay. Below is part {part} of {total} of a chat{where}. {user} is the user's character.{others}
+_ACCOUNT_PROMPT = """You keep the record of a roleplay. Below is part {part} of {total} of a chat{where}, each message headed by its number. {user} is the user's character.{others}
 {before}
 Write a recap of this part as a plain account of what happened:
 - What happened, in order: who did what, saw and learned; who was there; what was said that matters; promises, revelations, decisions and how things stand at the end of the part.
-- Past tense, third person, plain prose, at most {words} words. Use names, not "the user".
+- One paragraph per scene. A new scene starts where the story moves to another place or time, or turns to a new event; a part is often one scene, sometimes a few. Open each paragraph with the number of the message its scene starts at, in brackets: the first one [#{first}].
+- Past tense, third person, plain prose, at most {words} words in all. Use names, not "the user".
 - Only events. Don't describe anyone's looks or personality, and don't restate the setting or world lore unless something happened to it.
 - Put people only where the text puts them: don't add anyone to a scene.
 - Write only the recap: no heading, no preamble, no commentary.
@@ -1079,8 +1135,8 @@ Write a recap of this part as a plain account of what happened:
 
 # Synopses and chapters are written as the character remembers the chat
 # (whose: from their point of view), or as a plain account of a chat they
-# weren't in at all. absent: the note on the parts they weren't in.
-_SYNOPSIS_PROMPT = """Below are recaps of the consecutive parts of a roleplay chat{where}{whose}. {user} is the user's character.{absent}
+# weren't in at all. absent: the note on the scenes they weren't in.
+_SYNOPSIS_PROMPT = """Below are recaps of the consecutive scenes of a roleplay chat{where}{whose}. {user} is the user's character.{absent}
 
 Write one synopsis of the whole chat from them, in about {words} words, {as_whom}:
 - What happened, in order: the key events, {deeds}, revelations, decisions and promises, and how things stood at the end.
@@ -1091,16 +1147,16 @@ Write one synopsis of the whole chat from them, in about {words} words, {as_whom
 {recaps}
 """
 
-_PLAN_PROMPT = """Below are recaps of the consecutive parts of a roleplay chat{where}, each covering about {size} messages. {user} is the user's character.{earlier}
+_PLAN_PROMPT = """Below are recaps of a roleplay chat{where}, part by part, each part about {size} messages and recapped scene by scene: a scene starts with the number of its first message, in brackets. {user} is the user's character.{earlier}
 
-Divide these parts into chapters: stretches of the story that each cover one event or episode, such as a journey, a fight, a festival, a night together or an investigation. Start a new chapter where the story moves on: a new place or day, a new goal or conflict, a time skip. A chapter is one or more whole parts; most span two to five, but follow the story. Give each chapter a short title, at most eight words, naming its event.
+Divide the chat into chapters: stretches of the story that each cover one event or episode, such as a journey, a fight, a festival, a night together or an investigation. Start a new chapter where the story moves on: a new place or day, a new goal or conflict, a time skip. A chapter is one or more whole scenes, and can start in the middle of a part. Most chapters span about 40 to 200 messages, but follow the story. Give each chapter a short title, at most eight words, naming its event.
 
-Answer with only a JSON object: {{"chapters": [{{"first_part": <number of its first part>, "title": "..."}}]}}, in order. The first chapter starts at part {first}.
+Answer with only a JSON object: {{"chapters": [{{"first_message": <the bracketed number of its first scene>, "title": "..."}}]}}, in order. The first chapter starts at message {first}.
 
 {recaps}
 """
 
-_CHAPTER_PROMPT = """Below are recaps of the consecutive parts of one chapter of a roleplay chat{where}{whose}: chapter {number} of {total}, "{title}". {user} is the user's character.{before}{absent}
+_CHAPTER_PROMPT = """Below are recaps of the consecutive scenes of one chapter of a roleplay chat{where}{whose}: chapter {number} of {total}, "{title}". {user} is the user's character.{before}{absent}
 
 Write one recap of this chapter from them, in about {words} words, {as_whom}:
 - What happened, in order: the key events, {deeds}, revelations, decisions and promises, and how things stood at the end of the chapter.
@@ -1115,10 +1171,10 @@ Write one recap of this chapter from them, in about {words} words, {as_whom}:
 def _voice(char: Optional[str], segs: list[dict]) -> dict:
     """The fields of _SYNOPSIS_PROMPT and _CHAPTER_PROMPT that say whose
     memory it is: `char`'s, or a plain account (char None: a chat they
-    weren't in at all)."""
+    weren't in at all). segs: the parts the scenes are from."""
     if not char:
         return {"whose": "", "absent": "", "as_whom": "as a plain account of what happened", "deeds": "who did what"}
-    absent = (f" {char} wasn't in the parts marked so: they're plain accounts. Keep what happened in them as events "
+    absent = (f" {char} wasn't in the scenes marked so: they're plain accounts. Keep what happened in them as events "
               f"{char} wasn't part of, and don't put {char} in them.") if any(not s["pov"] for s in segs) else ""
     return {"whose": f", from {char}'s point of view", "absent": absent, "as_whom": f"as {char} would remember it",
             "deeds": f"what {char} did, saw and learned"}
@@ -1148,10 +1204,10 @@ def _build_recaps(job: dict) -> None:
         if job.get("cancel"):
             return
         if s["key"] in have:
-            prev = have[s["key"]]["recap"]
+            prev = _plain(have[s["key"]]["recap"])
             continue
         before = f"\nWhat happened before this part, as recapped earlier:\n{prev}\n" if prev else ""
-        common = dict(part=idx + 1, total=len(segs), user=user, where=where, before=before,
+        common = dict(part=idx + 1, total=len(segs), user=user, where=where, before=before, first=s["first"],
                       words=250 if s["full"] else 180, text=s["text"])
         if s["pov"]:
             prompt = _RECAP_PROMPT.format(char=char, others=(f" Others in the chat: {', '.join(others[:12])}."
@@ -1170,7 +1226,7 @@ def _build_recaps(job: dict) -> None:
         _x("INSERT OR REPLACE INTO segments (key, pov, recap, edited, created_ts) VALUES (?, ?, ?, 0, ?)",
            (s["key"], s["pov"], recap, time.time()))
         have[s["key"]] = {"recap": recap, "edited": 0}
-        prev = recap
+        prev = _plain(recap)
         job["done"] += 1
     _x("UPDATE encounters SET built_ts = ?, error = NULL WHERE character_id = ? AND chat_id = ?",
        (time.time(), cid, chat_id))
@@ -1178,12 +1234,25 @@ def _build_recaps(job: dict) -> None:
         _write_passed_on(job, cid, row, cf, who, user)
 
 
-def _numbered(segs: list[dict], have: dict, number_from: int = 1, char: Optional[str] = None) -> str:
-    """Part recaps for a prompt: "Part 3 (messages 80–119):" and the recap;
-    with `char`, the parts they aren't in are marked."""
-    return "\n\n".join(f"Part {number_from + i} (messages {s['start']}–{s['end'] - 1}"
-                       + (f"; {char} wasn't there" if char and not s["pov"] else "") + "):\n"
-                       + (have.get(s["key"]) or {}).get("recap", "(not recapped)") for i, s in enumerate(segs))
+def _scene_list(units: list[dict], char: Optional[str] = None) -> str:
+    """Scene recaps for a synopsis or chapter prompt: "Messages 80–95:" and
+    the recap; with `char`, the scenes of parts they aren't in are marked."""
+    return "\n\n".join(f"Messages {u['start']}–{u['end'] - 1}"
+                       + (f" ({char} wasn't there)" if char and not u["seg"]["pov"] else "") + ":\n"
+                       + (u["text"] or "(not recapped)") for u in units)
+
+
+def _plan_list(units: list[dict], numbers: dict) -> str:
+    """Scene recaps for the division call, under their parts: "Part 3
+    (messages 80–119):", then "[#80] ..." for each scene. numbers: each
+    part's number, by its start."""
+    out, seg = [], None
+    for u in units:
+        if u["seg"] is not seg:
+            seg = u["seg"]
+            out.append(f"\nPart {numbers[seg['start']]} (messages {u['start']}–{seg['end'] - 1}):")
+        out.append(f"[#{u['start']}] {u['text'] or '(not recapped)'}")
+    return "\n".join(out).strip()
 
 
 def _write_passed_on(job: dict, cid: str, row: dict, cf: ChatFile, who: _Who, user: str):
@@ -1192,7 +1261,6 @@ def _write_passed_on(job: dict, cid: str, row: dict, cf: ChatFile, who: _Who, us
     first). What's written already, or short enough as it is, is kept. A
     chat the character isn't in at all is written as a plain account."""
     m = pass_mode()
-    target = word_target(m)
     where = f' ("{row["title"]}")' if row.get("title") else ""
     if m == "chapters" and not _plan_chapters(job, row, cf, who, user):
         return
@@ -1201,33 +1269,33 @@ def _write_passed_on(job: dict, cid: str, row: dict, cf: ChatFile, who: _Who, us
     char = who.name if mem["there"] else None
     todo = [s for s in secs if not s["ready"] and not s["parts_missing"]]
     job["stage"], job["total"], job["done"] = ("chapters" if m == "chapters" else "synopsis"), len(todo), 0
-    have = _segment_recaps([k for s in secs for k in s["keys"]])
     whose = who.name if char else f"account (without {who.name})"
     for s in todo:
         if job.get("cancel"):
             return
-        segs = [x for x in _segments(cf, who) if x["key"] in s["keys"]]
+        voice = _voice(char, [u["seg"] for u in s["units"]])
         if not s["title"]:
-            # The synopsis, or the one chapter of a chat too short for more.
-            prompt = _SYNOPSIS_PROMPT.format(where=where, user=user, words=target,
-                                             recaps=_numbered(segs, have, char=char), **_voice(char, segs))
+            # The synopsis, which is also what chapters mode passes on of a
+            # chat too short for chapters.
+            prompt = _SYNOPSIS_PROMPT.format(where=where, user=user, words=s["words"],
+                                             recaps=_scene_list(s["units"], char), **voice)
             label = f"Character Memory: synopsis {whose} — {row['title']}"
         else:
             n = secs.index(s)
             title = s["title"]
             prev = secs[n - 1]["title"] if n else None
             prompt = _CHAPTER_PROMPT.format(
-                where=where, user=user, words=target, number=n + 1, total=len(secs), title=title,
+                where=where, user=user, words=s["words"], number=n + 1, total=len(secs), title=title,
                 before=f' The chapter before it was "{prev}".' if prev else "",
-                recaps=_numbered(segs, have, char=char), **_voice(char, segs))
+                recaps=_scene_list(s["units"], char), **voice)
             label = f"Character Memory: chapter {whose} — {row['title']} ({n + 1}/{len(secs)}: {title})"
         text = _call_sonnet(prompt, timeout=RECAP_TIMEOUT, label=label)
         if not text or not text.strip():
-            job["error"] = f"writing the {'synopsis' if m == 'synopsis' else 'chapter'} failed (see the History tab)"
+            job["error"] = f"writing the {s['kind']} failed (see the History tab)"
             _x("UPDATE encounters SET error = ? WHERE character_id = ? AND chat_id = ?", (job["error"], cid, row["chat_id"]))
             return
         _x("INSERT OR REPLACE INTO condensed (key, kind, pov, recap, edited, created_ts) VALUES (?, ?, ?, ?, 0, ?)",
-           (s["key"], "synopsis" if m == "synopsis" else "chapter", who.pov if char else "", text.strip(), time.time()))
+           (s["key"], s["kind"], who.pov if char else "", text.strip(), time.time()))
         job["done"] += 1
 
 
@@ -1242,12 +1310,13 @@ def _plan(chat_id: str) -> Optional[dict]:
 
 
 def _plan_chapters(job: dict, row: dict, cf: ChatFile, who: _Who, user: str) -> bool:
-    """Divide a chat into chapters, by part, from this character's recaps;
-    every character uses the same division. A plan records each chapter's
-    start (the message index of its first part) and title, and `last`, the
-    start of the chat's last part then. When the chat has grown (or shrunk)
-    since, its last chapter is divided again with the parts after it, and
-    the earlier chapters stay as they are. False when the call failed."""
+    """Divide a chat into chapters at its scenes, from this character's
+    recaps; every character uses the same division. A plan records each
+    chapter's start (the message its first scene starts at, which can be
+    in the middle of a part) and title, and `last`, the start of the chat's
+    last part then. When the chat has grown (or shrunk) since, its last
+    chapter is divided again with the scenes after it, and the earlier
+    chapters stay as they are. False when the call failed."""
     segs = _segments(cf, who)
     if len(segs) < CHAPTER_MIN_PARTS:
         return True
@@ -1257,24 +1326,24 @@ def _plan_chapters(job: dict, row: dict, cf: ChatFile, who: _Who, user: str) -> 
         return True
     chapters = [c for c in (plan or {}).get("chapters", []) if c["start"] <= last]
     kept = chapters[:-1]
-    first = chapters[-1]["start"] if chapters else segs[0]["start"]
-    todo = [s for s in segs if s["start"] >= first] if kept else segs
-    have = _segment_recaps([s["key"] for s in todo])
-    if len(todo) == 1 and chapters:
+    units = _units(segs, _segment_recaps([s["key"] for s in segs]))
+    first = chapters[-1]["start"] if chapters else units[0]["start"]
+    todo = [u for u in units if u["start"] >= first] if kept else units
+    if len(todo) <= 1 and chapters:
         new = chapters[-1:]
     else:
         job["stage"], job["total"], job["done"] = "plan", 1, 0
-        number_from = segs.index(todo[0]) + 1
         earlier = ""
         if kept:
             earlier = ("\nThe chat's earlier chapters, already divided: "
                        + "; ".join(f'{i + 1}. "{c["title"]}"' for i, c in enumerate(kept))
-                       + ". Divide only the parts below, which come after them.")
+                       + ". Divide only the scenes below, which come after them.")
         reply = _call_sonnet(_PLAN_PROMPT.format(
             where=f' ("{row["title"]}")' if row.get("title") else "", user=user, size=SEGMENT_SIZE,
-            earlier=earlier, first=number_from, recaps=_numbered(todo, have, number_from)),
+            earlier=earlier, first=todo[0]["start"],
+            recaps=_plan_list(todo, {s["start"]: i + 1 for i, s in enumerate(segs)})),
             timeout=RECAP_TIMEOUT, label=f"Character Memory: chapters — {row['title']}")
-        new = _parse_plan(_extract_json(reply or ""), todo, number_from)
+        new = _parse_plan(_extract_json(reply or ""), todo)
         if new is None:
             job["error"] = "dividing the chat into chapters failed (see the History tab)"
             _x("UPDATE encounters SET error = ? WHERE character_id = ? AND chat_id = ?",
@@ -1289,23 +1358,38 @@ def _plan_chapters(job: dict, row: dict, cf: ChatFile, who: _Who, user: str) -> 
     return True
 
 
-def _parse_plan(obj: Optional[dict], segs: list[dict], number_from: int) -> Optional[list[dict]]:
-    """[{start, title}] from the planning call's answer: chapters in order,
-    each starting at a part among `segs` (numbered from number_from), the
-    first at the first part. None when it's unusable."""
+def _whole(v) -> Optional[int]:
+    """A whole number from a JSON answer: 52, 52.0, "52" or "#52"."""
+    if isinstance(v, bool):
+        return None
+    if isinstance(v, float) and v.is_integer():
+        return int(v)
+    if isinstance(v, str) and v.strip().lstrip("#").isdigit():
+        return int(v.strip().lstrip("#"))
+    return v if isinstance(v, int) else None
+
+
+def _parse_plan(obj: Optional[dict], units: list[dict]) -> Optional[list[dict]]:
+    """[{start, title}] from the division call's answer: chapters in order,
+    each starting at one of these scenes. A number inside a scene counts as
+    its start, and the same scene named twice as one chapter. None when
+    it's unusable."""
     items = (obj or {}).get("chapters")
     if not isinstance(items, list) or not items:
         return None
+    starts = [u["start"] for u in units]
     out = []
     for item in items:
-        n = item.get("first_part") if isinstance(item, dict) else None
-        if isinstance(n, bool) or not isinstance(n, int):
+        n = _whole(item.get("first_message")) if isinstance(item, dict) else None
+        if n is None or n >= units[-1]["end"]:
             return None
-        i = n - number_from
-        if not 0 <= i < len(segs) or (out and segs[i]["start"] <= out[-1]["start"]):
+        at = max([x for x in starts if x <= n], default=starts[0])
+        if out and at < out[-1]["start"]:
             return None
+        if out and at == out[-1]["start"]:
+            continue
         title = " ".join(str(item.get("title") or "").split())[:80]
-        out.append({"start": segs[i]["start"], "title": title or f"Messages from #{segs[i]['start']}"})
+        out.append({"start": at, "title": title or f"Messages from #{at}"})
     return out
 
 
@@ -1322,21 +1406,22 @@ def passed_on(cid: str, row: dict, cf: Optional[ChatFile] = None, off=(), m: Opt
     """What another chat gets of this chat for the character, in mode `m`
     (default: the current one): {mode, words, chaptered, complete, there,
     sections}. A section is the synopsis, or a chapter: start (its id: the
-    message index it starts at),
-    title (None for a synopsis, or a chat too short for chapters), from/to
-    (message numbers), keys (its parts), key (of its condensed text), text,
-    ready (False while a part or its condensed text is missing; text is
-    then the part recaps there are), as_is (the part recaps, short enough),
-    edited, parts_missing, on (not in `off`, a connection's or binding's
-    choice). chaptered: the chat is divided into chapters, so they can be
-    chosen. complete: nothing is left to build. there: the character is in
-    some part of it; if not, it's all plain accounts, which everyone else
-    who wasn't there shares, and if so, those of the parts they aren't in
-    say so."""
+    message its first scene starts at), title (None for the synopsis, which
+    is also what chapters mode passes on of a chat too short for chapters
+    or not divided yet), kind ("synopsis" or "chapter"), words (its word
+    target), from/to (message numbers), keys (its parts; a part can be
+    split between two chapters), units (its scenes, see _units), key (of
+    its condensed text), text, ready (False while a part or its condensed
+    text is missing; text is then the scene recaps there are), as_is (the
+    scene recaps, short enough), edited, parts_missing, on (not in `off`, a
+    connection's or binding's choice). chaptered: the chat is divided into
+    chapters, so they can be chosen. complete: nothing is left to build.
+    there: the character is in some part of it; if not, it's all plain
+    accounts, which everyone else who wasn't there shares, and if so,
+    those of the parts they aren't in say so."""
     cf = cf or read_chat(row["rel"])
     m = m or pass_mode()
-    target = word_target(m)
-    out = {"mode": m, "words": target, "chaptered": False, "complete": True, "there": False, "sections": []}
+    out = {"mode": m, "words": word_target(m), "chaptered": False, "complete": True, "there": False, "sections": []}
     if not cf:
         out["complete"] = False
         return out
@@ -1346,39 +1431,41 @@ def passed_on(cid: str, row: dict, cf: Optional[ChatFile] = None, off=(), m: Opt
         return out
     out["there"] = any(s["pov"] for s in segs)
     pov, name = (who.pov, who.name) if out["there"] else ("", None)
-    groups = [(segs[0]["start"], None, segs)]
+    have = _segment_recaps([s["key"] for s in segs])
+    units = _units(segs, have)
+    groups = [(segs[0]["start"], None, units)]
     if m == "chapters" and len(segs) >= CHAPTER_MIN_PARTS:
         plan = _plan(row["chat_id"])
         if not plan or plan.get("last") != segs[-1]["start"]:
             out["complete"] = False
         if plan:
-            # A part belongs to the last chapter starting at or before it;
-            # parts before the first chapter (unhidden since) to the first.
+            # A scene belongs to the last chapter starting at or before it;
+            # scenes before the first chapter (unhidden since) to the first.
             starts = sorted({c["start"] for c in plan["chapters"]})
             titles = {c["start"]: c["title"] for c in plan["chapters"]}
             by_start: dict = {}
-            for s in segs:
-                at = max([x for x in starts if x <= s["start"]] or starts[:1])
-                by_start.setdefault(at, []).append(s)
+            for u in units:
+                at = max([x for x in starts if x <= u["start"]] or starts[:1])
+                by_start.setdefault(at, []).append(u)
             groups = [(at, titles[at], by_start[at]) for at in starts if at in by_start]
             out["chaptered"] = True
-    have = _segment_recaps([s["key"] for s in segs])
-    kind = "synopsis" if m == "synopsis" else "chapter"
-    for start, title, part in groups:
-        recaps = [_marked(s, have[s["key"]]["recap"], name) for s in part if s["key"] in have]
-        missing = len(part) - len(recaps)
-        full = "\n\n".join(recaps)
+    for start, title, us in groups:
+        parts = list({id(u["seg"]): u["seg"] for u in us}.values())
+        missing = sum(1 for s in parts if s["key"] not in have)
+        full = "\n\n".join(_marked(u["seg"], u["text"], name) for u in us if u["text"])
+        kind = "chapter" if title else "synopsis"
+        words = word_target("chapters" if title else "synopsis")
         out["sections"].append({
-            "start": start, "title": title, "from": part[0]["start"], "to": part[-1]["end"] - 1,
-            "keys": [s["key"] for s in part],
-            "key": None if missing else _hash(f"{kind}\n{pov}\n{target}\n{full}"),
+            "start": start, "title": title, "kind": kind, "words": words,
+            "from": us[0]["start"], "to": us[-1]["end"] - 1, "keys": [s["key"] for s in parts], "units": us,
+            "key": None if missing else _hash(f"{kind}\n{pov}\n{words}\n{full}"),
             "text": full, "ready": False, "as_is": False, "edited": False, "parts_missing": missing,
             "on": not (out["chaptered"] and start in off)})
     done = _condensed([s["key"] for s in out["sections"]])
     for s in out["sections"]:
         if s["key"] in done:
             s.update(text=done[s["key"]]["recap"], ready=True, edited=bool(done[s["key"]]["edited"]))
-        elif s["key"] and len(s["text"].split()) <= target * WORDS_SLACK:
+        elif s["key"] and len(s["text"].split()) <= s["words"] * WORDS_SLACK:
             s.update(ready=True, as_is=True)
         if not s["ready"]:
             out["complete"] = False
@@ -1432,33 +1519,45 @@ def set_segment_recap(key: str, recap: Optional[str]) -> bool:
     return _x("UPDATE segments SET recap = ?, edited = 1 WHERE key = ?", (recap.strip(), key)) > 0
 
 
+def _section(cid: str, row: dict, key: str) -> Optional[tuple[dict, dict]]:
+    """(the passed_on() it's in, the section) of a synopsis or chapter by
+    its key, in either mode."""
+    cf = read_chat(row["rel"])
+    for m in MODES:
+        mem = passed_on(cid, row, cf, m=m)
+        sec = next((s for s in mem["sections"] if s["key"] == key), None)
+        if sec:
+            return mem, sec
+    return None
+
+
 def set_condensed(cid: str, chat_id: str, key: str, recap: Optional[str]) -> bool:
     """Rewrite the chat's synopsis or one of its chapters (by its key; see
     passed_on), or (None) drop it: a written one is written again, an edit
-    of part recaps passed on as they are goes back to them. An edit lasts
+    of scene recaps passed on as they are goes back to them. An edit lasts
     while the part recaps it's made from stay the same."""
     row = get_chat(chat_id, rescan_for=cid)
-    if not row or not any(s["key"] == key for s in passed_on(cid, row)["sections"]):
+    found = _section(cid, row, key) if row else None
+    if not found:
         return False
     if recap is None:
         _x("DELETE FROM condensed WHERE key = ?", (key,))
         return True
-    mem = passed_on(cid, row)
+    mem, sec = found
     _x("INSERT OR REPLACE INTO condensed (key, kind, pov, recap, edited, created_ts) VALUES (?, ?, ?, ?, 1, ?)",
-       (key, "synopsis" if mem["mode"] == "synopsis" else "chapter", _pov(cid, row)[0] if mem["there"] else "",
-        recap.strip(), time.time()))
+       (key, sec["kind"], _pov(cid, row)[0] if mem["there"] else "", recap.strip(), time.time()))
     return True
 
 
 def clear_recap(cid: str, chat_id: str):
     """Forget a chat's recaps for a character: its parts (the accounts of
     those they aren't in too, which others who weren't there share) and
-    synopsis or chapters. They're built again when needed. The division
+    synopsis and chapters. They're built again when needed. The division
     into chapters is the chat's, and stays."""
     row = get_chat(chat_id, rescan_for=cid)
     cf = read_chat(row["rel"]) if row else None
     if cf:
-        keys = [s["key"] for s in passed_on(cid, row, cf)["sections"] if s["key"]]
+        keys = [s["key"] for m in MODES for s in passed_on(cid, row, cf, m=m)["sections"] if s["key"]]
         keys += [s["key"] for s in _segments(cf, _who(cid, row))]
         for i in range(0, len(keys), 500):
             chunk = keys[i:i + 500]
@@ -1749,7 +1848,7 @@ class TurnMemory:
             if any(s["key"] not in have for s in segs):
                 schedule_recap(self.cid, self.chat_id, upto, self.chat_row.get("title") or "")
                 self.incomplete.add("inchat")
-            texts = [_marked(s, have[s["key"]]["recap"], self.name) for s in segs if s["key"] in have]
+            texts = [_marked(s, _plain(have[s["key"]]["recap"]), self.name) for s in segs if s["key"] in have]
             own_keys |= {s["key"] for s in segs}
             if texts:
                 overlap = (" Its end can overlap the first messages of the transcript; where the two differ, "
@@ -2351,7 +2450,8 @@ def _recap_parts(cid: str, row: dict) -> list[dict]:
             for s in segs]
 
 
-_SECTION_KEYS = ("start", "title", "from", "to", "key", "text", "ready", "as_is", "edited", "parts_missing", "on")
+_SECTION_KEYS = ("start", "title", "kind", "words", "from", "to", "key", "text", "ready", "as_is", "edited",
+                 "parts_missing", "on")
 
 
 def _passed_view(mem: dict) -> dict:
