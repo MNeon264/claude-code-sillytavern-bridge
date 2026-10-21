@@ -4585,6 +4585,35 @@
             return w.delta <= 0 ? '<1%' : '+' + fmtPct(w.delta);
         }
 
+        // The CLI's rate-limit warning or rejection for a call. A warning is
+        // Claude Code's early warning that a window is being used faster than
+        // it refills (e.g. half the week's limit in under 35% of the week),
+        // not that the limit is close; the tooltip says how far the window
+        // was and when it resets.
+        const HIST_LIMIT_WINDOWS = {
+            five_hour: ['5-hour', 18000], seven_day: ['Weekly', 604800],
+            seven_day_opus: ['Opus weekly', 604800], seven_day_sonnet: ['Sonnet weekly', 604800],
+            seven_day_overage_included: ['Weekly', 604800],
+        };
+
+        function histLimitPill(c) {
+            const st = c.rate_limit_status;
+            if (st !== 'allowed_warning' && st !== 'rejected') return '';
+            const w = c.rate_limit_window || {};
+            const [name, span] = HIST_LIMIT_WINDOWS[w.type] || [w.type === 'overage' ? 'Extra usage' : '', 0];
+            const pct = w.utilization != null ? fmtPct(w.utilization * 100) : '';
+            const tip = [];
+            if (pct && name) tip.push(`${pct} of the ${name.toLowerCase()} limit used`);
+            if (span && w.resets_at) {
+                const left = Math.max(0, Math.min(1, (w.resets_at - c.started) / span));
+                if (st === 'allowed_warning') tip.push(`with ${Math.round(left * 100)}% of the window still to go`);
+                tip.push(`resets ${fmtWhen(w.resets_at, false)}`);
+            }
+            const title = tip.length ? ` title="${hEsc(tip.join(', '))}"` : '';
+            if (st === 'rejected') return `<span class="pv-pill bad"${title}>✕ ${hEsc(name ? name + ' limit' : 'Limit')} reached</span>`;
+            return `<span class="pv-pill when"${title}>⚠ ${hEsc(name ? name + ' pace' : 'Usage pace')}${pct ? ' · ' + pct : ''}</span>`;
+        }
+
         function histHeadHtml(c) {
             const kind = HIST_KINDS[c.kind] || c.kind;
             const title = c.label || (c.kind === 'chat' ? 'Roleplay turn' : kind);
@@ -4594,8 +4623,8 @@
             const pills = [`<span class="pv-pill">${hEsc(kind)}</span>`];
             if (c.status === 'error') pills.push('<span class="pv-pill bad">✕ Error</span>');
             if (c.status === 'cancelled') pills.push('<span class="pv-pill when">■ Cancelled</span>');
-            if (c.rate_limit_status === 'allowed_warning') pills.push('<span class="pv-pill when">⚠ Near limit</span>');
-            if (c.rate_limit_status === 'rejected') pills.push('<span class="pv-pill bad">✕ Limit reached</span>');
+            const limitPill = histLimitPill(c);
+            if (limitPill) pills.push(limitPill);
 
             const metrics = c.tokens_total
                 ? `in <b>${fmtTok(c.input_tokens)}</b> · cache read <b>${fmtTok(c.cache_read_tokens)}</b> · cache write <b>${fmtTok(c.cache_creation_tokens)}</b> · out <b>${fmtTok(c.output_tokens)}</b> · total <b>${fmtTok(c.tokens_total)}</b>${c.cost_usd ? ' · ' + fmtCost(c.cost_usd) : ''}`

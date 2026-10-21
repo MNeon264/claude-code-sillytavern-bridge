@@ -768,6 +768,12 @@ def _summary(row) -> dict:
     rate_limit = json.loads(d.pop("rate_limit_json")) if d.get("rate_limit_json") else None
     d.pop("rate_limit_json", None)
     d["rate_limit_status"] = (rate_limit or {}).get("status")
+    # Which window a warning or rejection is about, for the History list.
+    d["rate_limit_window"] = {
+        "type": rate_limit.get("rateLimitType"),
+        "utilization": _num(rate_limit.get("utilization")),
+        "resets_at": _num(rate_limit.get("resetsAt")),
+    } if rate_limit and rate_limit.get("status") in ("allowed_warning", "rejected") else None
     d["duration"] = round(d["finished"] - d["started"], 1) if d.get("finished") else None
     d["tokens_total"] = sum(d.get(k) or 0 for k in (
         "input_tokens", "output_tokens", "cache_read_tokens", "cache_creation_tokens"))
