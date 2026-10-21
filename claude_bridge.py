@@ -34,7 +34,7 @@ from flask_cors import CORS
 # Keeping it in the source file (rather than deriving from git) means it Just
 # Works for users who download a zip instead of cloning — no git metadata
 # required at runtime.
-__version__ = "2026.10.3"
+__version__ = "2026.10.4"
 
 # =============================================================================
 # CLAUDE CLI RESOLUTION
@@ -2604,9 +2604,10 @@ memory_last_turn = {}
 
 
 def _memory_state(mem_turn, floor, pieces) -> dict:
-    """The memory a session has received: the card it's for, the chat
-    message its recap of this chat stops at, and each section's hash and
-    title (so a dropped one can be named)."""
+    """The memory a session has received: the card it's for, its floor
+    (the first chat message it got, which places its recap of this chat;
+    see memory._inchat_upto), and each section's hash and title (so a
+    dropped one can be named)."""
     return {
         "pov": mem_turn.pov,
         "floor": floor,
@@ -3055,11 +3056,12 @@ Use the Read tool to view each, then weave the visual details into your scene wi
                     prev = memory_state if (memory_state or {}).get("pov") == mem_turn.pov else {}
                     pieces = mem_turn.pieces(prev.get("floor"))
                     had = prev.get("delivered") or {}
-                    # A section still being recapped stays as the session has it.
-                    kept = {p[0] for p in pieces if p[0] in had and p[0] in mem_turn.incomplete}
+                    # A section still being recapped stays as the session has
+                    # it, also while none of it is recapped yet.
+                    kept = {pid for pid in had if pid in mem_turn.incomplete}
                     changed = [p for p in pieces if p[0] not in kept
                                and (had.get(p[0]) or [None])[0] != memory.piece_hash(p)]
-                    ids = {p[0] for p in pieces}
+                    ids = {p[0] for p in pieces} | kept
                     removed = [v[1] for k, v in had.items() if k not in ids]
                     update = memory.render_update(mem_turn.name, changed, removed)
                     if update:
@@ -3099,7 +3101,7 @@ Use the Read tool to view each, then weave the visual details into your scene wi
 
     # A new CLI session (or no session reuse) gets the whole memory, before
     # the transcript. Its floor is the first chat message SillyTavern sent:
-    # the recap of this chat covers what came before it.
+    # the recap of this chat covers what came before it, in whole parts.
     if mem_turn is not None and not resume_session_id:
         floor = mem_turn.first_in_context
         pieces = mem_turn.pieces(floor)

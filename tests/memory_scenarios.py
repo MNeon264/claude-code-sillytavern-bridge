@@ -411,22 +411,69 @@ def conflict(ctx):
     ctx.check("a chat added after the decision is checked on its own", shown == ["Mira - rooftop"], str(shown))
 
 
+def recap_calls(ctx, since):
+    with ctx.api.lock:
+        return sum("memory of a roleplay. Below is part" in _text(m.get("content"))
+                   for b in ctx.api.calls[since:] for m in b.get("messages", []) if m.get("role") == "user")
+
+
+def swipe(chat):
+    """Drop the chat's last message (the reply), so the next turn starts a new session."""
+    with open(chat.path) as f:
+        lines = f.readlines()
+    with open(chat.path, "w") as f:
+        f.writelines(lines[:-1])
+
+
 def in_chat(ctx):
     w = ctx.world
     chat = w.chat("Alice", "Alice - long", scripted(90, "Alice", "p1.png", "LEVT"))
     view, last = ctx.turn(chat, "Alice", "p1.png", first=70, user_text="Where were we?")
     ctx.wait_jobs()
     _, detail, _ = ctx.get(f"/api/memory/chat?character=Alice.png&chat={urllib.request.quote(chat.chat_id)}")
-    # Swipe: drop the reply and ask again, which starts a new session.
-    with open(chat.path) as f:
-        lines = f.readlines()
-    with open(chat.path, "w") as f:
-        f.writelines(lines[:-1])
+    ctx.check("the Memory tab shows the chat's own parts as recapped",
+              (detail.get("recap") or {}).get("done") == 2 and [p["recap"] is not None for p in detail.get("parts", [])]
+              == [True, True, False], json.dumps(detail.get("recap")))
+    swipe(chat)
     view, last = ctx.turn(chat, "Alice", "p1.png", first=70)
     block = memory_block(last)
     ctx.check("a new session gets the recap of the messages before the context",
               'source="earlier in this chat"' in block and "LEVT0" in block and "LEVT69" in block, block[:300])
-    ctx.check("and not of the messages it has", "LEVT70" not in block)
+    ctx.check("up to the end of the part the context starts in",
+              "LEVT79" in block and "LEVT80" not in block and "can overlap" in block, block[-300:])
+    swipe(chat)
+    n = ctx.api.count()
+    view, last = ctx.turn(chat, "Alice", "p1.png", first=75)
+    ctx.wait_jobs()
+    ctx.check("a context start that moves within the part needs no new recap",
+              recap_calls(ctx, n) == 0 and "LEVT79" in memory_block(last), f"{recap_calls(ctx, n)} recap call(s)")
+    swipe(chat)
+    ctx.turn(chat, "Alice", "p1.png", first=85)
+    ctx.wait_jobs()
+    swipe(chat)
+    view, last = ctx.turn(chat, "Alice", "p1.png", first=85)
+    block = memory_block(last)
+    ctx.check("while that part is unfinished, the recap stops at the context",
+              "LEVT84" in block and "LEVT85" not in block and "can overlap" not in block, block[-300:])
+
+    # A resumed session keeps its recap while it's rebuilt, even with none of it ready.
+    chat = w.chat("Alice", "Alice - kept", scripted(60, "Alice", "p1.png", "KEVT"))
+    ctx.turn(chat, "Alice", "p1.png", first=30, user_text="Hello again.")
+    ctx.wait_jobs()
+    view, last = ctx.turn(chat, "Alice", "p1.png", user_text="And then?", first=30)
+    ctx.check("a resumed session gets the recap once it's built",
+              "<character_memory_update" in last and "KEVT0" in last, last[:300])
+    with open(chat.path) as f:
+        lines = f.readlines()
+    lines[1] = lines[1].replace("KEVT0 ", "ZEVT0 rewritten, ")
+    with open(chat.path, "w") as f:
+        f.writelines(lines)
+    view, last = ctx.turn(chat, "Alice", "p1.png", user_text="Still there?", first=30)
+    ctx.check("an edit before the context doesn't drop the recap while it's redone",
+              "<character_memory_update" not in last and 'removed="yes"' not in last, last[:300])
+    ctx.wait_jobs()
+    view, last = ctx.turn(chat, "Alice", "p1.png", user_text="Now?", first=30)
+    ctx.check("then the redone recap replaces it", "<character_memory_update" in last and "ZEVT0" in last, last[:300])
 
 
 def budget(ctx):

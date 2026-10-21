@@ -7,7 +7,8 @@ one character's point of view. Nothing is recorded per turn.
 
 What a character remembers in a chat (their "sources"):
   - Earlier in the same chat: recaps of the messages SillyTavern no longer
-    sends because they don't fit the context.
+    sends because they don't fit the context, in whole parts, so the last
+    part overlaps the start of the transcript.
   - Connected chats (links): chats the user connected to this chat for this
     character on the Memory tab.
   - A persona binding: once a character is bound to a persona, every chat
@@ -878,6 +879,17 @@ def _segments(cf: ChatFile, pov: str, upto: Optional[int] = None) -> list[dict]:
     return out
 
 
+def _inchat_upto(cf: ChatFile, floor: int) -> int:
+    """Where the recap of a chat's earlier part ends, for a CLI session whose
+    transcript starts at message `floor`: at the end of the part the floor
+    falls in. So it's made of whole parts, the ones the chat's own recap and
+    its branches use, and a floor that moves within a part needs no new
+    recap; the last part overlaps the start of the transcript. While that
+    part isn't complete (the chat doesn't reach its end yet), at the floor."""
+    end = -(-floor // SEGMENT_SIZE) * SEGMENT_SIZE
+    return end if end <= len(cf.messages) else floor
+
+
 def _segment_recaps(keys: list[str]) -> dict:
     if not keys:
         return {}
@@ -1316,9 +1328,10 @@ class TurnMemory:
         self.incomplete: set = set()
 
     def pieces(self, floor: Optional[int]) -> list[tuple[str, str, str]]:
-        """[(piece id, title, text)]: the recap of this chat before `floor`
-        (the first message the CLI session has), then the other chats'
-        recaps. Missing recaps are scheduled; what exists is used."""
+        """[(piece id, title, text)]: the recap of this chat up to `floor`
+        (the first message the CLI session has; see _inchat_upto), then the
+        other chats' recaps. Missing recaps are scheduled; what exists is
+        used."""
         out = []
         self.incomplete = set()
         cf = read_chat(self.chat_row["rel"]) if self.chat_row else None
@@ -1326,17 +1339,20 @@ class TurnMemory:
         # (a connected parent of a branch).
         own_keys = {s["key"] for s in _segments(cf, self.pov)} if cf else set()
         if cf and floor and floor > 0:
-            segs = _segments(cf, self.pov, floor)
+            upto = _inchat_upto(cf, floor)
+            segs = _segments(cf, self.pov, upto)
             have = _segment_recaps([s["key"] for s in segs])
             if any(s["key"] not in have for s in segs):
-                schedule_recap(self.cid, self.chat_id, floor, self.chat_row.get("title") or "")
+                schedule_recap(self.cid, self.chat_id, upto, self.chat_row.get("title") or "")
                 self.incomplete.add("inchat")
             texts = [have[s["key"]]["recap"] for s in segs if s["key"] in have]
             own_keys |= {s["key"] for s in segs}
             if texts:
+                overlap = (" Its end can overlap the first messages of the transcript; where the two differ, "
+                           "the transcript is right.") if upto > floor else ""
                 out.append(("inchat", "earlier in this chat",
                             '<memory source="earlier in this chat">\nWhat happened in this chat before the '
-                            'part of the transcript shown here.\n\n' + "\n\n".join(texts) + "\n</memory>"))
+                            f'part of the transcript shown here.{overlap}\n\n' + "\n\n".join(texts) + "\n</memory>"))
         # Other chats, newest first while allocating the budget, oldest first in the text.
         rows = []
         for s in self.sources:
