@@ -3912,6 +3912,13 @@
             dialogueExamples: "The card's example dialogues, each introduced by the example separator.",
         };
 
+        // Used by the prompt preview and the Lorebook tab. Doesn't escape quotes.
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
         async function loadPromptPreview() {
             const box = document.getElementById('promptPreview');
             try {
@@ -4527,6 +4534,42 @@
             } finally {
                 btn.textContent = originalText;
                 btn.disabled = false;
+            }
+        }
+
+        // ===== Test tab =====
+        async function sendTestMessage() {
+            const system = document.getElementById('testSystem').value;
+            const message = document.getElementById('testMessage').value;
+            if (!message.trim()) return alert('Please enter a message');
+
+            const loader = document.getElementById('testLoader');
+            const result = document.getElementById('testResult');
+            loader.style.display = 'inline-block';
+            result.style.display = 'none';
+
+            try {
+                const messages = [];
+                if (system.trim()) {
+                    messages.push({role: 'system', content: system});
+                }
+                messages.push({role: 'user', content: message});
+
+                const response = await fetch('/v1/chat/completions', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({messages, stream: false})
+                });
+
+                const data = await response.json();
+                const content = data.choices?.[0]?.message?.content || JSON.stringify(data, null, 2);
+                result.textContent = content;
+                result.style.display = 'block';
+            } catch (e) {
+                result.textContent = 'Error: ' + e.message;
+                result.style.display = 'block';
+            } finally {
+                loader.style.display = 'none';
             }
         }
 
