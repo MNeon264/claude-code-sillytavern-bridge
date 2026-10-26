@@ -9,9 +9,18 @@
  * asks the bridge whether a character's memories from other chats conflict
  * with how this chat starts, and lets you keep them or drop some here.
  *
+ * It also adds a "Group reply" reply strategy to group chats: one reply
+ * written jointly by every unmuted member, from their joined cards, with
+ * {{char}} as their names joined by commas. SillyTavern has no hook for a
+ * reply strategy, so the extension changes the group in memory around each
+ * turn and puts it back (see groupReplyStart).
+ *
  * Installed by st-extension/install.sh into data/<user>/extensions/.
  */
+import { setCharacterName } from '../../../../script.js';
+import { editGroup, group_activation_strategy, group_generation_mode, groups, is_group_generating, openGroupId } from '../../../group-chats.js';
 import { user_avatar } from '../../../personas.js';
+import { power_user } from '../../../power-user.js';
 
 const MODULE = 'bridge_memory';
 const VERSION = '1';
@@ -41,6 +50,9 @@ function settings() {
     }
     if (typeof s.bridgeUrl !== 'string') {
         s.bridgeUrl = '';
+    }
+    if (!s.groupReply || typeof s.groupReply !== 'object') {
+        s.groupReply = {};
     }
     return s;
 }
@@ -343,7 +355,143 @@ async function showMemories() {
         context().POPUP_TYPE.TEXT, '', { wider: true, allowVerticalScrolling: true });
 }
 
+const GROUP_REPLY = 'bridge_group_reply';
+const STRATEGY_SELECT = 'rm_group_activation_strategy';
+
+// What a group-reply turn changed, to put back: the group, its strategy, muted
+// members and generation mode, and the group trimming setting.
+let pending = null;
+
+function groupReplyOn(groupId) {
+    return !!(groupId && settings().groupReply[groupId]);
+}
+
+/** The group's unmuted members whose cards exist, as {avatar, name}. */
+function unmutedMembers(group) {
+    const characters = context().characters;
+    return group.members
+        .filter(avatar => !group.disabled_members.includes(avatar))
+        .map(avatar => characters.find(c => c.avatar === avatar))
+        .filter(Boolean)
+        .map(c => ({ avatar: c.avatar, name: c.name }));
+}
+
+/** Show Group reply as the strategy of the group whose panel is open; SillyTavern resets the select whenever the panel opens. */
+function syncGroupReplySelect() {
+    const select = $(`#${STRATEGY_SELECT}`);
+    const on = groupReplyOn(openGroupId);
+    if (on && select.val() !== GROUP_REPLY) {
+        select.val(GROUP_REPLY);
+    }
+    $('#bridge_group_reply_note').toggle(on);
+}
+
+/** Before SillyTavern's own handler: Group reply is stored here, any other choice clears it and goes on to SillyTavern. */
+function onStrategyChange(event) {
+    if (event.target?.id !== STRATEGY_SELECT) {
+        return;
+    }
+    const groupId = openGroupId;
+    if (!groupId) {
+        return;
+    }
+    const s = settings();
+    if (event.target.value === GROUP_REPLY) {
+        event.stopImmediatePropagation();
+        s.groupReply[groupId] = true;
+    } else {
+        delete s.groupReply[groupId];
+    }
+    context().saveSettingsDebounced();
+    syncGroupReplySelect();
+}
+
+/**
+ * A group turn is about to choose its speakers. For a new reply, only the first
+ * unmuted member is left unmuted for that choice, under List order, so one reply
+ * is generated; groupReplyDrafted puts the real muted list back before the
+ * prompt is built. Every group-reply turn joins the cards (exclude muted) and
+ * keeps SillyTavern from cutting the reply at the other members' "Name:" lines.
+ */
+function groupReplyStart(type, options, dryRun) {
+    if (is_group_generating || dryRun) {
+        return;
+    }
+    groupReplyRestore();
+    const groupId = context().groupId;
+    if (!groupReplyOn(groupId) || typeof options?.force_chid === 'number') {
+        return;
+    }
+    const newReply = ['normal', 'regenerate', undefined].includes(type);
+    if (!newReply && !['swipe', 'continue'].includes(type)) {
+        return;
+    }
+    const group = groups.find(g => g.id === groupId);
+    const unmuted = group ? unmutedMembers(group) : [];
+    if (!unmuted.length) {
+        return;
+    }
+    pending = {
+        group,
+        names: unmuted.map(m => m.name).join(', '),
+        strategy: group.activation_strategy,
+        disabled: group.disabled_members,
+        mode: group.generation_mode,
+        trimming: power_user.disable_group_trimming,
+        started: false,
+    };
+    if (newReply) {
+        group.activation_strategy = group_activation_strategy.LIST;
+        group.disabled_members = group.members.filter(avatar => avatar !== unmuted[0].avatar);
+    }
+    group.generation_mode = group_generation_mode.APPEND;
+    power_user.disable_group_trimming = true;
+    // A turn can still stop before the group's own generation starts (no server, no connection).
+    const mine = pending;
+    setTimeout(() => {
+        if (pending === mine && !mine.started) {
+            groupReplyRestore();
+        }
+    }, 30000);
+}
+
+/** The speaker is chosen: the real muted list goes back for the joined cards, and {{char}} names everyone. */
+function groupReplyDrafted() {
+    if (!pending) {
+        return;
+    }
+    pending.group.activation_strategy = pending.strategy;
+    pending.group.disabled_members = pending.disabled;
+    setCharacterName(pending.names);
+}
+
+/** The turn ended (or never started): put everything back, and save the group if SillyTavern saved it meanwhile. */
+function groupReplyRestore() {
+    if (!pending) {
+        return;
+    }
+    const { group, mode } = pending;
+    group.activation_strategy = pending.strategy;
+    group.disabled_members = pending.disabled;
+    power_user.disable_group_trimming = pending.trimming;
+    const changed = group.generation_mode !== mode;
+    group.generation_mode = mode;
+    pending = null;
+    if (changed) {
+        editGroup(group.id, true, false).catch(error => console.warn('[Bridge Memory] could not save the group', error));
+    }
+}
+
 jQuery(() => {
+    $(`#${STRATEGY_SELECT}`).append(`<option value="${GROUP_REPLY}">Group reply (all unmuted)</option>`);
+    $(`#${STRATEGY_SELECT}`).closest('div').append(
+        '<small id="bridge_group_reply_note" style="display:none">One joint reply from every unmuted member; their cards are joined (exclude muted) whatever the handling mode says.</small>');
+    document.addEventListener('change', onStrategyChange, true);
+    const panel = document.getElementById('rm_group_chats_block');
+    if (panel) {
+        new MutationObserver(syncGroupReplySelect).observe(panel, { attributes: true, attributeFilter: ['style', 'class'] });
+    }
+
     const html = `
         <div class="bridge-memory-settings">
             <div class="inline-drawer">
@@ -372,5 +520,18 @@ jQuery(() => {
     const { eventSource, eventTypes } = context();
     eventSource.on(eventTypes.CHAT_COMPLETION_SETTINGS_READY, onSettingsReady);
     eventSource.on(eventTypes.CHAT_CHANGED, () => scheduleRefresh([800, 30000, 90000]));
+    eventSource.on(eventTypes.CHAT_CHANGED, syncGroupReplySelect);
+    eventSource.on(eventTypes.GROUP_UPDATED, syncGroupReplySelect);
+    eventSource.on(eventTypes.GENERATION_AFTER_COMMANDS, groupReplyStart);
+    eventSource.on(eventTypes.GROUP_WRAPPER_STARTED, () => {
+        if (pending) {
+            pending.started = true;
+        }
+    });
+    eventSource.on(eventTypes.GROUP_MEMBER_DRAFTED, groupReplyDrafted);
+    eventSource.on(eventTypes.GROUP_WRAPPER_FINISHED, () => {
+        groupReplyRestore();
+        syncGroupReplySelect();
+    });
     eventSource.on(eventTypes.MESSAGE_RECEIVED, () => scheduleRefresh([1500, 20000, 60000]));
 });
