@@ -3337,7 +3337,7 @@
             pos: new Map(), k: 1, tx: 0, ty: 0, fitted: false,
             kinds: new Set(['char', 'group', 'persona']), showAll: false, extra: new Set(),
             nodes: [], edges: [], adj: new Map(), alpha: 0, raf: 0,
-            ptrs: new Map(), drag: null, hover: null, connect: null,
+            ptrs: new Map(), drag: null, hover: null, connect: null, autoFit: false,
         };
         // Rest lengths of the lines, in graph units.
         const MEM_G_LEN = {member: 60, binding: 80, memory: 110};
@@ -3408,26 +3408,44 @@
                 memG.adj.get(e.a).push(e.b);
                 memG.adj.get(e.b).push(e.a);
             });
-            // New nodes start next to a neighbour already placed, or spread
-            // around the middle.
-            const spread = 30 * Math.sqrt(memG.nodes.length + 1);
-            let added = 0;
-            memG.nodes.forEach(n => {
-                if (memG.pos.has(n.id)) return;
-                const near = memG.adj.get(n.id).map(o => memG.pos.get(o)).find(Boolean);
-                const a = Math.random() * Math.PI * 2, r = near ? 20 + Math.random() * 30 : spread * Math.sqrt(Math.random());
-                memG.pos.set(n.id, {x: (near ? near.x : 0) + Math.cos(a) * r, y: (near ? near.y : 0) + Math.sin(a) * r, vx: 0, vy: 0});
-                added++;
-            });
+            // New nodes start next to a neighbour already placed, the rest on
+            // a spiral around the middle (an even start the layout settles
+            // from quickly). Nodes with placed neighbours go first, so chains
+            // of new nodes start near each other.
+            const fresh = memG.nodes.filter(n => !memG.pos.has(n.id));
+            let spiral = memG.pos.size;
+            for (let round = 0; round < 2; round++) {
+                fresh.forEach(n => {
+                    if (memG.pos.has(n.id)) return;
+                    const near = memG.adj.get(n.id).map(o => memG.pos.get(o)).find(Boolean);
+                    if (!near && !round) return;
+                    let x, y;
+                    if (near) {
+                        const a = Math.random() * Math.PI * 2, r = 25 + Math.random() * 25;
+                        x = near.x + Math.cos(a) * r;
+                        y = near.y + Math.sin(a) * r;
+                    } else {
+                        const r = 22 * Math.sqrt(spiral + 0.5), a = spiral * 2.39996;
+                        x = Math.cos(a) * r;
+                        y = Math.sin(a) * r;
+                        spiral++;
+                    }
+                    memG.pos.set(n.id, {x, y, vx: 0, vy: 0});
+                });
+            }
+            const added = fresh.length;
             memG.nodes.forEach(n => { n.r = 5 + Math.min(9, Math.sqrt(memG.adj.get(n.id).length) * 1.6); });
             if (added) {
                 memG.alpha = 1;
-                memGWarm(added > 20 ? 220 : 60);
+                // A few new nodes settle before they're drawn; many settle on
+                // screen, a slice of each frame, the view fitted as they go.
+                if (added <= 30) memGWarm(80);
+                else memG.autoFit = true;
             }
             memGShowEmpty(memG.nodes.length ? '' : memGraph.nodes.length
                 ? 'Nothing has memory or a persona binding yet. Tap Connect to draw a connection, Show all to see every character, group chat and persona, or search for one.'
                 : 'No characters, group chats or personas were found in SillyTavern.');
-            if (added && memG.w && (!memG.fitted || added > 20)) {
+            if (added && memG.w && !memG.fitted) {
                 memGFit();
                 memG.fitted = true;
             }
@@ -3440,44 +3458,61 @@
             el.style.display = msg ? 'flex' : 'none';
         }
 
-        // One step of the layout: nodes push each other apart (exactly
-        // within neighbouring grid cells, by cell beyond), lines pull their
-        // ends to their length, and a weak pull holds everything near the
-        // middle.
+        // A Barnes-Hut quadtree of the nodes' positions: each cell holds its
+        // count (m) and centre of mass (cx, cy), a leaf its points.
+        function memGQuad(pts, x0, y0, size, depth = 0) {
+            const node = {m: pts.length, cx: 0, cy: 0, size, pts: null, kids: null};
+            pts.forEach(p => { node.cx += p.x; node.cy += p.y; });
+            node.cx /= pts.length;
+            node.cy /= pts.length;
+            if (pts.length <= 2 || depth >= 18) {
+                node.pts = pts;
+                return node;
+            }
+            const h = size / 2, quads = [[], [], [], []];
+            pts.forEach(p => quads[(p.x >= x0 + h ? 1 : 0) + (p.y >= y0 + h ? 2 : 0)].push(p));
+            node.kids = quads.map((q, i) => q.length ? memGQuad(q, x0 + (i & 1) * h, y0 + (i >> 1) * h, h, depth + 1) : null)
+                .filter(Boolean);
+            return node;
+        }
+
+        // One step of the layout: nodes push each other apart (far groups
+        // of them as one, by the quadtree), lines pull their ends to their
+        // length, and a weak pull holds everything near the middle. Pushes
+        // have a floor on distance and speeds a cap, so it can't blow up.
         function memGTick() {
-            const P = memG.pos, a = memG.alpha, cell = 100, cells = new Map();
+            const P = memG.pos, a = memG.alpha;
             const pts = memG.nodes.map(n => P.get(n.id));
+            if (!pts.length) return;
+            let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
             pts.forEach(p => {
-                p.cx = Math.floor(p.x / cell);
-                p.cy = Math.floor(p.y / cell);
-                const key = `${p.cx},${p.cy}`;
-                let c = cells.get(key);
-                if (!c) cells.set(key, c = {cx: p.cx, cy: p.cy, x: 0, y: 0, m: 0, pts: []});
-                c.x += p.x;
-                c.y += p.y;
-                c.m++;
-                c.pts.push(p);
+                x0 = Math.min(x0, p.x); y0 = Math.min(y0, p.y);
+                x1 = Math.max(x1, p.x); y1 = Math.max(y1, p.y);
             });
-            const cl = [...cells.values()];
-            cl.forEach(c => { c.x /= c.m; c.y /= c.m; });
-            const S = 70 * a;
-            pts.forEach(p => {
-                for (const c of cl) {
-                    if (Math.abs(c.cx - p.cx) <= 1 && Math.abs(c.cy - p.cy) <= 1) {
-                        for (const q of c.pts) {
-                            if (q === p) continue;
-                            let dx = p.x - q.x, dy = p.y - q.y, d2 = dx * dx + dy * dy;
-                            if (d2 < 1) { dx = Math.random() - 0.5; dy = Math.random() - 0.5; d2 = 1; }
-                            p.vx += dx * S / d2;
-                            p.vy += dy * S / d2;
-                        }
-                    } else {
-                        const dx = p.x - c.x, dy = p.y - c.y, d2 = dx * dx + dy * dy;
-                        p.vx += dx * S * c.m / d2;
-                        p.vy += dy * S * c.m / d2;
+            const root = memGQuad(pts, x0, y0, Math.max(x1 - x0, y1 - y0, 1) + 1);
+            const S = 45 * a, theta2 = 0.81, MIN2 = 36;
+            const push = (p, node) => {
+                if (node.pts) {
+                    for (const q of node.pts) {
+                        if (q === p) continue;
+                        let dx = p.x - q.x, dy = p.y - q.y;
+                        if (!dx && !dy) { dx = Math.random() - 0.5; dy = Math.random() - 0.5; }
+                        const f = S / Math.max(dx * dx + dy * dy, MIN2);
+                        p.vx += dx * f;
+                        p.vy += dy * f;
                     }
+                    return;
                 }
-            });
+                const dx = p.x - node.cx, dy = p.y - node.cy, d2 = dx * dx + dy * dy;
+                if (node.size * node.size < theta2 * d2) {
+                    const f = S * node.m / Math.max(d2, MIN2);
+                    p.vx += dx * f;
+                    p.vy += dy * f;
+                    return;
+                }
+                for (const kid of node.kids) push(p, kid);
+            };
+            pts.forEach(p => push(p, root));
             memG.edges.forEach(e => {
                 const p = P.get(e.a), q = P.get(e.b);
                 const dx = q.x - p.x, dy = q.y - p.y, d = Math.sqrt(dx * dx + dy * dy) || 1;
@@ -3485,15 +3520,18 @@
                 p.vx += dx * s; p.vy += dy * s;
                 q.vx -= dx * s; q.vy -= dy * s;
             });
+            const VMAX = 40;
             pts.forEach(p => {
-                p.vx -= p.x * 0.015 * a;
-                p.vy -= p.y * 0.015 * a;
+                p.vx -= p.x * 0.02 * a;
+                p.vy -= p.y * 0.02 * a;
                 if (p.fixed) {
                     p.vx = p.vy = 0;
                     return;
                 }
                 p.vx *= 0.6;
                 p.vy *= 0.6;
+                const v = Math.hypot(p.vx, p.vy);
+                if (v > VMAX) { p.vx *= VMAX / v; p.vy *= VMAX / v; }
                 p.x += p.vx;
                 p.y += p.vy;
             });
@@ -3504,19 +3542,27 @@
             for (let i = 0; i < n && memG.alpha > 0.01; i++) memGTick();
         }
 
+        // Each frame runs the layout for up to ~12 ms, then draws.
+        // autoFit: keep the whole graph in view while it settles (until the
+        // user pans or zooms).
         function memGKick() {
             if (memG.raf || !memG.canvas) return;
             memG.raf = requestAnimationFrame(() => {
                 memG.raf = 0;
                 if (memG.alpha > 0.01) {
-                    memGTick();
+                    const end = performance.now() + 12;
+                    let n = 0;
+                    do { memGTick(); n++; } while (memG.alpha > 0.01 && n < 12 && performance.now() < end);
+                    if (memG.autoFit) memGFit(false);
                     memGKick();
+                } else {
+                    memG.autoFit = false;
                 }
                 memGDraw();
             });
         }
 
-        function memGFit() {
+        function memGFit(kick = true) {
             if (!memG.nodes.length || !memG.w) return;
             let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
             memG.nodes.forEach(n => {
@@ -3528,7 +3574,7 @@
             memG.k = Math.max(0.1, Math.min(2.2, (memG.w - pad) / (x1 - x0 || 1), (memG.h - pad) / (y1 - y0 || 1)));
             memG.tx = memG.w / 2 - (x0 + x1) / 2 * memG.k;
             memG.ty = memG.h / 2 - (y0 + y1) / 2 * memG.k;
-            memGKick();
+            if (kick) memGKick();
         }
 
         function memGCenterOn(id) {
@@ -3627,16 +3673,31 @@
             ctx.setTransform(dpr * k, 0, 0, dpr * k, dpr * memG.tx, dpr * memG.ty);
             const focus = memGFocus();
             const px = v => v / k;
-            const order = {member: 0, binding: 1, memory: 2};
-            const edges = [...memG.edges].sort((x, y) => order[x.kind] - order[y.kind]);
+            // Membership lines, the most numerous, in two strokes: lit and dim.
+            for (const lit of [false, true]) {
+                ctx.beginPath();
+                let any = false;
+                for (const e of memG.edges) {
+                    if (e.kind !== 'member' || (focus ? focus.edge(e) : true) !== lit) continue;
+                    const p = memG.pos.get(e.a), q = memG.pos.get(e.b);
+                    ctx.moveTo(p.x, p.y);
+                    ctx.lineTo(q.x, q.y);
+                    any = true;
+                }
+                if (!any) continue;
+                ctx.globalAlpha = lit ? (focus ? 1 : 0.7) : 0.08;
+                ctx.strokeStyle = C.member;
+                ctx.lineWidth = px(focus && lit ? 1.4 : 1);
+                ctx.stroke();
+            }
+            const edges = memG.edges.filter(e => e.kind !== 'member').sort((x, y) => (x.kind === 'memory') - (y.kind === 'memory'));
             for (const e of edges) {
                 const {p, q, c} = memGEdgeGeom(e);
                 const lit = focus ? focus.edge(e) : true;
                 ctx.globalAlpha = lit ? 1 : 0.12;
                 ctx.setLineDash(e.kind === 'binding' ? [px(6), px(4)] : []);
                 ctx.strokeStyle = C[e.kind];
-                ctx.lineWidth = px(e.kind === 'memory' ? (memSelEdge() === e ? 3.5 : 2.4) : e.kind === 'binding' ? 1.8 : (focus && lit ? 1.4 : 1));
-                if (e.kind === 'member' && !(focus && lit)) ctx.globalAlpha *= 0.7;
+                ctx.lineWidth = px(e.kind === 'memory' ? (memSelEdge() === e ? 3.5 : 2.4) : 1.8);
                 ctx.beginPath();
                 ctx.moveTo(p.x, p.y);
                 if (c) ctx.quadraticCurveTo(c.x, c.y, q.x, q.y); else ctx.lineTo(q.x, q.y);
@@ -3756,6 +3817,7 @@
         }
 
         function memGPointerDown(e) {
+            memG.autoFit = false;
             const pt = memGLocal(e);
             memG.canvas.setPointerCapture(e.pointerId);
             memG.ptrs.set(e.pointerId, pt);
@@ -3837,6 +3899,7 @@
 
         function memGWheel(e) {
             e.preventDefault();
+            memG.autoFit = false;
             const pt = memGLocal(e);
             memGZoomAt(pt.x, pt.y, memG.k * Math.exp(-e.deltaY * (e.deltaMode ? 0.05 : 0.0015)));
         }
@@ -4191,6 +4254,9 @@
                 memG.showAll = !memG.showAll;
                 e.currentTarget.classList.toggle('active', memG.showAll);
                 memGRebuild();
+                // The nodes left settle together again, kept in view.
+                memG.alpha = Math.max(memG.alpha, 0.4);
+                memG.autoFit = true;
                 memGFit();
             });
             document.getElementById('memGFit').addEventListener('click', memGFit);
