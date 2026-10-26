@@ -34,7 +34,7 @@ from flask_cors import CORS
 # Keeping it in the source file (rather than deriving from git) means it Just
 # Works for users who download a zip instead of cloning — no git metadata
 # required at runtime.
-__version__ = "2026.10.8"
+__version__ = "2026.10.9"
 
 # =============================================================================
 # CLAUDE CLI RESOLUTION
