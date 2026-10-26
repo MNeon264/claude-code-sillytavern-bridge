@@ -1118,9 +1118,104 @@ def no_summaries(ctx):
     ctx.check("and so are its settings", not any(k.startswith(("auto_summary", "chunking")) for k in s), str(list(s)))
 
 
+def graph(ctx):
+    """The Memory tab's graph: characters, groups and personas, joined by
+    membership, bindings and one memory line per pair of nodes, whose
+    direction can be mirrored or turned round."""
+    w = ctx.world
+    for name in ("Gia", "Hal", "Ivo"):
+        w.card(name)
+    g1 = w.chat("Gia", "Gia - dock", scripted(4, "Gia", "p1.png", "KEVT"))
+    g2 = w.chat("Gia", "Gia - dock - Branch #1", scripted(4, "Gia", "p1.png", "KEVT"), main_chat="Gia - dock")
+    h1 = w.chat("Hal", "Hal - tower", scripted(4, "Hal", "p1.png", "LEVT"))
+    w.group("ggraph", "Crew", ["Gia.png", "Ivo.png"], ["Crew - night"])
+    crew = w.chat(None, "Crew - night", [("Ivo", False, "Night shift.", None, None)], group="ggraph")
+    time.sleep(5.2)
+    ctx.post("/api/memory/link", {"target": h1.chat_id, "source": g1.chat_id, "on": True})
+    ctx.post("/api/memory/link", {"target": h1.chat_id, "source": g2.chat_id, "on": True})
+    ctx.post("/api/memory/link", {"target": g2.chat_id, "source": g1.chat_id, "on": True})
+    ctx.post("/api/memory/binding", {"character": "Hal.png", "persona": "p2.png", "action": "add"})
+    ctx.wait_jobs()
+
+    _, g, _ = ctx.get("/api/memory/graph")
+    nodes = {n["id"]: n for n in g.get("nodes", [])}
+    ctx.check("characters, groups and personas are nodes",
+              {"char:Gia.png", "char:Hal.png", "char:Ivo.png", "group:ggraph", "persona:p1.png", "persona:p2.png"} <= set(nodes)
+              and nodes["group:ggraph"]["type"] == "group" and nodes["group:ggraph"]["chat_ids"] == [crew.chat_id],
+              json.dumps(sorted(nodes))[:300])
+    edges = g.get("edges", [])
+    ctx.check("a group is joined to each member",
+              sorted(e["b"] for e in edges if e["kind"] == "member" and e["a"] == "group:ggraph")
+              == ["char:Gia.png", "char:Ivo.png"])
+    ctx.check("a persona to the character bound to it",
+              any(e["kind"] == "binding" and e["a"] == "persona:p2.png" and e["b"] == "char:Hal.png" for e in edges))
+    mem = [e for e in edges if e["kind"] == "memory" and {e["a"], e["b"]} == {"char:Gia.png", "char:Hal.png"}]
+    line = mem[0] if len(mem) == 1 else {}
+    gia_to_hal = line.get("ab") if line.get("a") == "char:Gia.png" else line.get("ba")
+    hal_to_gia = line.get("ba") if line.get("a") == "char:Gia.png" else line.get("ab")
+    ctx.check("both chats of Gia's remembered in Hal's are one line, from Gia to Hal",
+              len(line.get("pairs", [])) == 2 and gia_to_hal and not hal_to_gia, json.dumps(mem)[:400])
+    ctx.check("a connection between a node's own chats is counted on it, not drawn",
+              nodes["char:Gia.png"]["self_links"] == 1 and nodes["char:Gia.png"]["linked"] and not nodes["char:Ivo.png"]["linked"])
+
+    _, found, _ = ctx.get("/api/memory/chats?node=" + urllib.parse.quote("char:Gia.png"))
+    ctx.check("the chat search can be limited to a node's own chats",
+              sorted(c["chat_id"] for c in found.get("chats", [])) == sorted([g1.chat_id, g2.chat_id]), json.dumps(found)[:300])
+    _, found, _ = ctx.get("/api/memory/chats?node=" + urllib.parse.quote("group:ggraph"))
+    ctx.check("or a group's", [c["chat_id"] for c in found.get("chats", [])] == [crew.chat_id])
+
+    ab = {"a": "char:Gia.png", "b": "char:Hal.png"}
+    _, pv, _ = ctx.get("/api/memory/edge/preview?" + urllib.parse.urlencode({**ab, "direction": "mutual"}))
+    ctx.check("mutual would mirror both connections",
+              sorted((x["target"], x["source"]) for x in pv.get("add", [])) == sorted([(g1.chat_id, h1.chat_id), (g2.chat_id, h1.chat_id)])
+              and not pv.get("remove") and isinstance(pv.get("calls"), int), json.dumps(pv)[:400])
+    status, _ = ctx.post("/api/memory/edge", {**ab, "direction": "mutual"})
+    ctx.wait_jobs()
+    _, g, _ = ctx.get("/api/memory/graph")
+    line = next((e for e in g["edges"] if e["kind"] == "memory" and {e["a"], e["b"]} == {"char:Gia.png", "char:Hal.png"}), {})
+    ctx.check("and does: the line goes both ways", status == 200 and line.get("ab") and line.get("ba")
+              and len(line.get("pairs", [])) == 4, json.dumps(line)[:300])
+    _, d, _ = ctx.get(f"/api/memory/chat?character=Gia.png&chat={q(g1)}")
+    ctx.check("Gia's chat now remembers Hal's", h1.chat_id in [x["chat_id"] for x in d.get("sources", [])],
+              json.dumps(d.get("sources"))[:300])
+
+    ctx.post("/api/memory/edge", {"a": "char:Hal.png", "b": "char:Gia.png", "direction": "ab"})
+    _, g, _ = ctx.get("/api/memory/graph")
+    line = next((e for e in g["edges"] if e["kind"] == "memory" and {e["a"], e["b"]} == {"char:Gia.png", "char:Hal.png"}), {})
+    flows = {(p["from"], p["to"]) for p in line.get("pairs", [])}
+    ctx.check("one way only: Hal's chat remembered in Gia's, the other way gone",
+              flows == {("char:Hal.png", "char:Gia.png")} and len(line.get("pairs", [])) == 2, json.dumps(line)[:300])
+    _, conns, _ = ctx.get("/api/memory/connections")
+    ctx.check("the self-link of Gia's own chats is left alone",
+              any(c["target"]["chat_id"] == g2.chat_id and any(s["chat"]["chat_id"] == g1.chat_id for s in c["sources"])
+                  for c in conns.get("connections", [])))
+    ctx.post("/api/memory/edge", {**ab, "direction": "none"})
+    _, g, _ = ctx.get("/api/memory/graph")
+    ctx.check("remove takes the line away",
+              not any(e["kind"] == "memory" and {e["a"], e["b"]} == {"char:Gia.png", "char:Hal.png"} for e in g["edges"]))
+    status, _ = ctx.post("/api/memory/edge", {**ab, "direction": "sideways"})
+    ctx.check("an unknown direction is a 400", status == 400, str(status))
+
+
+def no_lorebook(ctx):
+    """The auto-lorebook and its routes are gone."""
+    for method, path in (("GET", "/api/lorebook"), ("POST", "/api/lorebook/deep-analyze"),
+                         ("POST", "/api/lorebook/quick-analyze"), ("GET", "/api/chats/list")):
+        req = urllib.request.Request(f"http://127.0.0.1:{ctx.bridge.port}{path}", method=method,
+                                     data=b"{}" if method == "POST" else None, headers={"Content-Type": "application/json"})
+        try:
+            with urllib.request.urlopen(req, timeout=30) as r:
+                status = r.status
+        except urllib.error.HTTPError as e:
+            status = e.code
+        ctx.check(f"{path} is gone", status in (404, 405), str(status))
+    _, s, _ = ctx.get("/api/settings")
+    ctx.check("and so are its settings", not any(k.startswith("lorebook") for k in s), str(list(s)))
+
+
 SCENARIOS = {f.__name__: f for f in (no_extension, link, binding, group, conflict, in_chat, budget, dashboard,
                                      chat_names, recap_views, identity, synopsis, chapters, absent, everyone,
-                                     shared_plan, scenes, modes, no_summaries)}
+                                     shared_plan, scenes, modes, no_summaries, graph, no_lorebook)}
 
 
 def main():

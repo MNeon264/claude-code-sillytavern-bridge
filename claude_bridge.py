@@ -648,808 +648,6 @@ def get_character_key(messages):
 
 
 # =============================================================================
-# LOREBOOK / WORLD INFO SUPPORT
-# =============================================================================
-
-def get_lorebook_path():
-    """Get the full path to the lorebook file."""
-    worlds_path = runtime_settings.get("lorebook_path", "")
-    lorebook_name = runtime_settings.get("lorebook_name", "claude_auto_lore.json")
-    return os.path.join(worlds_path, lorebook_name)
-
-
-def get_lorebook():
-    """Read the lorebook file. Creates it if it doesn't exist."""
-    path = get_lorebook_path()
-
-    if not os.path.exists(path):
-        # Create a new empty lorebook
-        return {
-            "entries": {},
-            "name": "Claude Auto-Lore",
-            "originalData": {
-                "entries": {},
-                "name": "Claude Auto-Lore"
-            }
-        }
-
-    try:
-        with open(path, 'r', encoding='utf-8') as f:
-            return json.load(f)
-    except Exception as e:
-        log(f"Error reading lorebook: {e}", "ERROR")
-        return {"entries": {}, "name": "Claude Auto-Lore", "originalData": {"entries": {}, "name": "Claude Auto-Lore"}}
-
-
-def save_lorebook(lorebook):
-    """Save the lorebook to disk."""
-    path = get_lorebook_path()
-    worlds_dir = runtime_settings.get("lorebook_path", "")
-
-    # Ensure directory exists
-    if not os.path.exists(worlds_dir):
-        log(f"Lorebook directory does not exist: {worlds_dir}", "ERROR")
-        return False
-
-    try:
-        with open(path, 'w', encoding='utf-8') as f:
-            json.dump(lorebook, f, ensure_ascii=False, indent=2)
-        log(f"Lorebook saved: {path}", "SUCCESS")
-        return True
-    except Exception as e:
-        log(f"Error saving lorebook: {e}", "ERROR")
-        return False
-
-
-def add_lorebook_entry(keywords, content, comment="", position=0, order=100,
-                       case_sensitive=False, match_whole_words=False,
-                       constant=False, selective=False, secondary_keys=None,
-                       force=False):
-    """
-    Add a new entry to the lorebook.
-
-    Args:
-        keywords: List of trigger keywords
-        content: The lore content to inject
-        comment: Entry name/description
-        position: 0=before char, 1=after char, 2=before AN, 3=after AN, 4=at depth
-        order: Insertion order (lower = earlier)
-        case_sensitive: Match case
-        match_whole_words: Only match whole words
-        constant: Always active (no keywords needed)
-        selective: Require secondary key match
-        secondary_keys: List of secondary keywords (for selective mode)
-        force: If True, add even if lorebook is disabled (for deep analysis)
-
-    Returns:
-        The new entry's UID, or None on failure
-    """
-    if not force and not runtime_settings.get("lorebook_enabled", False):
-        log("Lorebook disabled, skipping entry", "WARN")
-        return None
-
-    lorebook = get_lorebook()
-    entries = lorebook.get("entries", {})
-
-    # Find next available UID
-    existing_uids = [int(uid) for uid in entries.keys() if uid.isdigit()]
-    new_uid = max(existing_uids, default=-1) + 1
-
-    # Check for duplicate entries - only merge if entry NAME matches
-    # This allows "Morgan - Profile" and "Morgan & Jess - Relationship" to coexist
-    new_name_lower = comment.lower().strip() if comment else ""
-    for uid, entry in entries.items():
-        existing_name = entry.get("comment", "").lower().strip()
-        # Only merge if names are the same (updating same entry)
-        if new_name_lower and existing_name and new_name_lower == existing_name:
-            log(f"Updating existing entry '{existing_name}' (UID {uid})", "INFO")
-            # Merge keywords and update content
-            existing_keys = entry.get("key", [])
-            new_keys = keywords if isinstance(keywords, list) else [keywords]
-            merged_keys = list(dict.fromkeys(existing_keys + new_keys))  # Preserve order, remove dupes
-            entries[uid]["content"] = content
-            entries[uid]["key"] = merged_keys
-            lorebook["entries"] = entries
-            save_lorebook(lorebook)
-            return int(uid)
-
-    # Create new entry
-    entry = {
-        "uid": new_uid,
-        "key": keywords if isinstance(keywords, list) else [keywords],
-        "keysecondary": secondary_keys or [],
-        "comment": comment,
-        "content": content,
-        "constant": constant,
-        "selective": selective,
-        "order": order,
-        "position": position,
-        "disable": False,
-        "addMemo": True,
-        "excludeRecursion": False,
-        "probability": 100,
-        "useProbability": True,
-        "depth": 4,
-        "group": "",
-        "scanDepth": None,
-        "caseSensitive": case_sensitive,
-        "matchWholeWords": match_whole_words,
-        "automationId": "",
-        "role": None,
-        "vectorized": False
-    }
-
-    entries[str(new_uid)] = entry
-    lorebook["entries"] = entries
-
-    # Update originalData too
-    if "originalData" not in lorebook:
-        lorebook["originalData"] = {"entries": {}, "name": lorebook.get("name", "Claude Auto-Lore")}
-    lorebook["originalData"]["entries"] = entries
-
-    if save_lorebook(lorebook):
-        log(f"Added lorebook entry: {comment or keywords} (UID {new_uid})", "SUCCESS")
-        return new_uid
-    return None
-
-
-def parse_lorebook_entries(response_text, force=False):
-    """
-    Parse Claude's response for lorebook entry suggestions.
-    Format:
-    [LOREBOOK_ENTRY]
-    keywords: keyword1, keyword2
-    name: Entry Name
-    position: before_char (optional, default)
-    content: The actual lore content here
-    [/LOREBOOK_ENTRY]
-
-    Args:
-        response_text: The text to parse
-        force: If True, parse even if lorebook is disabled (for deep analysis)
-
-    Returns: (cleaned_response, list_of_entries)
-    """
-    if not force and not runtime_settings.get("lorebook_enabled", False):
-        return response_text, []
-
-    # Try standard format first
-    pattern = r'\[LOREBOOK_ENTRY\](.*?)\[/LOREBOOK_ENTRY\]'
-    matches = re.findall(pattern, response_text, re.DOTALL | re.IGNORECASE)
-
-    # If no matches, try alternate formats (single line, missing closing tag)
-    if not matches:
-        # Try matching from [LOREBOOK_ENTRY] to the next [LOREBOOK or end
-        alt_pattern = r'\[LOREBOOK_ENTRY\]\s*(.*?)(?=\[LOREBOOK|\[/LOREBOOK|$)'
-        matches = re.findall(alt_pattern, response_text, re.DOTALL | re.IGNORECASE)
-
-    entries = []
-    for match in matches:
-        entry_data = {}
-        lines = match.strip().split('\n')
-
-        current_field = None
-        content_lines = []
-
-        for line in lines:
-            line = line.strip()
-            if not line:
-                continue
-
-            # Check for field markers
-            if line.lower().startswith('keywords:'):
-                current_field = 'keywords'
-                entry_data['keywords'] = [k.strip() for k in line[9:].split(',') if k.strip()]
-            elif line.lower().startswith('name:'):
-                current_field = 'name'
-                entry_data['name'] = line[5:].strip()
-            elif line.lower().startswith('position:'):
-                current_field = 'position'
-                pos_str = line[9:].strip().lower()
-                # Map position strings to values
-                pos_map = {
-                    'before_char': 0, 'before char': 0, '0': 0,
-                    'after_char': 1, 'after char': 1, '1': 1,
-                    'before_an': 2, 'before an': 2, '2': 2,
-                    'after_an': 3, 'after an': 3, '3': 3,
-                    'at_depth': 4, 'at depth': 4, '4': 4
-                }
-                entry_data['position'] = pos_map.get(pos_str, 0)
-            elif line.lower().startswith('content:'):
-                current_field = 'content'
-                content_start = line[8:].strip()
-                if content_start:
-                    content_lines.append(content_start)
-            elif current_field == 'content':
-                content_lines.append(line)
-
-        if content_lines:
-            entry_data['content'] = '\n'.join(content_lines)
-
-        if entry_data.get('keywords') and entry_data.get('content'):
-            entries.append(entry_data)
-
-    # Remove lorebook blocks from response
-    cleaned = re.sub(pattern, '', response_text, flags=re.DOTALL | re.IGNORECASE).strip()
-
-    return cleaned, entries
-
-
-def process_lorebook_entries(entries, force=False):
-    """Process and add parsed lorebook entries to the lorebook file."""
-    if not entries:
-        return
-
-    log_section("Lorebook Updates")
-    for entry in entries:
-        keywords = entry.get('keywords', [])
-        content = entry.get('content', '')
-        name = entry.get('name', keywords[0] if keywords else 'Auto Entry')
-        position = entry.get('position', 0)
-
-        uid = add_lorebook_entry(
-            keywords=keywords,
-            content=content,
-            comment=name,
-            position=position,
-            force=force
-        )
-
-        if uid is not None:
-            log(f"  + {name}: {len(content)} chars, triggers: {keywords}", "SUCCESS")
-
-
-# =============================================================================
-# BACKGROUND LOREBOOK ANALYSIS
-# =============================================================================
-
-# Track last analyzed message count to avoid re-analyzing
-LOREBOOK_LAST_ANALYZED = {"count": 0}
-
-
-def analyze_for_lorebook_background(messages):
-    """
-    Background thread function to analyze messages for lore-worthy content.
-    Uses a separate Claude call to extract lore entries.
-    """
-    if not runtime_settings.get("lorebook_enabled", False):
-        return
-
-    try:
-        log_section("Background Lorebook Analysis")
-        log("Analyzing recent messages for lore-worthy content...", "INFO")
-
-        # Get existing entries for context
-        lorebook = get_lorebook()
-        existing_entries = []
-        for uid, entry in lorebook.get("entries", {}).items():
-            existing_entries.append({
-                "uid": uid,
-                "name": entry.get("comment", ""),
-                "keywords": entry.get("key", []),
-                "content_preview": entry.get("content", "")[:150]
-            })
-
-        # Format recent messages for analysis (last 10 exchanges)
-        conv_messages = [m for m in messages if m.get("role") != "system"]
-        recent = conv_messages[-20:]  # Last 20 messages (10 exchanges)
-
-        if len(recent) < 2:
-            log("Not enough messages to analyze", "INFO")
-            return
-
-        msg_text = ""
-        for msg in recent:
-            role = msg.get("role", "user").upper()
-            content = msg.get("content", "")
-            # Truncate very long messages
-            if len(content) > 2000:
-                content = content[:2000] + "..."
-            msg_text += f"[{role}]: {content}\n\n"
-
-        # Build existing entries summary
-        existing_summary = ""
-        if existing_entries:
-            existing_summary = "EXISTING ENTRIES (can update with [LOREBOOK_UPDATE:uid] or add new):\n"
-            for e in existing_entries:
-                existing_summary += f"- [{e['uid']}] {e['name']}: {e['content_preview']}...\n"
-        else:
-            existing_summary = "No existing entries yet."
-
-        analysis_prompt = f"""Analyze this roleplay conversation for lore-worthy information.
-
-{existing_summary}
-
-RECENT CONVERSATION:
-{msg_text}
-
----
-
-KEYWORD RULES (STRICT):
-- Keywords must be SPECIFIC TO THE ENTRY'S TOPIC, not just character names
-- 2-5 keywords max per entry
-- NO generic words: adjectives, common nouns, emotions, actions
-
-KEYWORD EXAMPLES:
-- Profile: "Morgan", "MorganPlays" (name IS the topic)
-- Family: "Morgan's parents", "Morgan's mom" (NOT just "Morgan")
-- Event: "Stream Incident", "the leak" (event-specific)
-- Relationship: "Morgan and Cody" (relationship-specific)
-- Location: "Cody's bedroom", "the apartment" (place-specific)
-
-BAD: All entries using "Morgan" (everything fires at once)
-GOOD: Each entry has topic-specific trigger words
-
-ENTRY STRUCTURE:
-- Create FOCUSED entries for specific topics
-- Each entry needs TOPIC-SPECIFIC keywords
-
-Examples with keywords:
-  - "Morgan - Profile" → keywords: Morgan, MorganPlays
-  - "Morgan's Family" → keywords: Morgan's parents, Morgan's mom
-  - "Morgan's Streaming Career" → keywords: MorganPlays, her stream
-  - "The Leak Incident" → keywords: leak incident, the leak
-  - "Morgan & Jake" → keywords: Morgan and Jake, Jake
-
-For NEW entries:
-[LOREBOOK_ENTRY]
-keywords: UniqueIdentifier1, UniqueIdentifier2
-name: Specific Entry Name
-content: Focused description of this specific topic
-[/LOREBOOK_ENTRY]
-
-To UPDATE existing entry (only if adding to SAME topic):
-[LOREBOOK_UPDATE:uid]
-keywords: keep existing unique identifiers only
-name: Entry Name
-content: Updated description for this specific topic
-[/LOREBOOK_UPDATE]
-
-PREFER creating NEW focused entries over cramming into existing ones.
-If nothing new: output NO_NEW_LORE"""
-
-        # Call Claude for analysis (using a lighter model for efficiency)
-        log("Calling Claude for lore extraction...", "INFO")
-
-        cmd = [
-            CLAUDE_EXE,
-            "-p",
-            "--output-format", "stream-json",
-            "--verbose",
-            "--model", "sonnet",  # Use Sonnet for background analysis (faster/cheaper)
-            "--tools", "",
-            "--setting-sources", "user",
-        ]
-        with prompt_history.start_call("lorebook", "Auto-lorebook", argv=cmd, prompt=analysis_prompt) as hist:
-            process = subprocess.Popen(
-                cmd,
-                stdin=subprocess.PIPE,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                encoding="utf-8",
-            )
-
-            stdout, stderr = process.communicate(input=analysis_prompt, timeout=120)
-            hist.observe_stdout(stdout, process.returncode, stderr)
-
-        # Parse the response
-        response_text = ""
-        for line in stdout.strip().split('\n'):
-            if not line:
-                continue
-            try:
-                event = json.loads(line)
-                if event.get("type") == "result":
-                    response_text = event.get("result", "")
-                    break
-                elif event.get("type") == "assistant":
-                    for block in event.get("message", {}).get("content", []):
-                        if block.get("type") == "text":
-                            response_text = block.get("text", "")
-            except json.JSONDecodeError:
-                continue
-
-        if not response_text or "NO_NEW_LORE" in response_text:
-            log("No new lore entries found", "INFO")
-            return
-
-        # Parse updates first
-        update_pattern = r'\[LOREBOOK_UPDATE:(\d+)\](.*?)\[/LOREBOOK_UPDATE\]'
-        updates = re.findall(update_pattern, response_text, re.DOTALL | re.IGNORECASE)
-
-        if updates:
-            lorebook = get_lorebook()
-            for uid, update_content in updates:
-                entry_data = parse_single_entry(update_content)
-                if entry_data and entry_data.get('content') and uid in lorebook.get("entries", {}):
-                    lorebook["entries"][uid]["key"] = entry_data.get('keywords', lorebook["entries"][uid].get("key", []))
-                    lorebook["entries"][uid]["comment"] = entry_data.get('name', lorebook["entries"][uid].get("comment", ""))
-                    lorebook["entries"][uid]["content"] = entry_data['content']
-                    log(f"  ~ Updated [{uid}]: {entry_data.get('name', 'Unknown')}", "SUCCESS")
-
-            if "originalData" in lorebook:
-                lorebook["originalData"]["entries"] = lorebook["entries"]
-            save_lorebook(lorebook)
-
-        # Parse new lorebook entries from the response
-        _, entries = parse_lorebook_entries(response_text)
-
-        if entries:
-            log(f"Found {len(entries)} new lore entries", "SUCCESS")
-            process_lorebook_entries(entries)
-        elif not updates:
-            log("No parseable entries in response", "INFO")
-
-    except subprocess.TimeoutExpired:
-        log("Lorebook analysis timed out", "WARN")
-    except Exception as e:
-        log(f"Lorebook analysis error: {str(e)}", "ERROR")
-
-
-def trigger_lorebook_analysis(messages):
-    """
-    Trigger background lorebook analysis if conditions are met.
-    Called after responding to a user message.
-    Tracks last user message to ignore rewrites/regenerates.
-    """
-    if not runtime_settings.get("lorebook_enabled", False):
-        return
-
-    # Get user messages, filtering out system-like markers
-    user_messages = []
-    for m in messages:
-        if m.get("role") != "user":
-            continue
-        content = m.get("content", "")
-        if isinstance(content, list):
-            content = str(content)
-        # Skip ST instruction wrappers - they're the same every time
-        if content.startswith("<turn>") or content.startswith("<latest_turn"):
-            continue
-        if len(content) < 10:  # Skip very short markers
-            continue
-        user_messages.append(content)
-
-    if not user_messages:
-        log(f"[AUTO-LORE] No user content found (only markers)", "INFO")
-        return
-
-    # Use the last actual user message
-    last_user_msg = user_messages[-1]
-
-    # Hash it
-    msg_hash = hashlib.md5(last_user_msg[:500].encode()).hexdigest()[:16]
-
-    # Check if this is a rewrite (same user message as before)
-    if msg_hash == LOREBOOK_LAST_ANALYZED.get("last_hash"):
-        log(f"[AUTO-LORE] Skipping - rewrite/regenerate detected", "INFO")
-        return
-
-    # New message - update hash and increment counter
-    LOREBOOK_LAST_ANALYZED["last_hash"] = msg_hash
-    LOREBOOK_LAST_ANALYZED["calls"] = LOREBOOK_LAST_ANALYZED.get("calls", 0) + 1
-    call_count = LOREBOOK_LAST_ANALYZED["calls"]
-
-    log(f"[AUTO-LORE] New message #{call_count}: '{last_user_msg[:40]}...'", "INFO")
-
-    # Trigger every 4 new messages
-    if call_count % 4 == 0:
-        log(f"[AUTO-LORE] Triggering analysis!", "SUCCESS")
-
-        # Run analysis in background thread
-        thread = threading.Thread(
-            target=analyze_for_lorebook_background,
-            args=(messages.copy(),),  # Copy to avoid mutation
-            daemon=True
-        )
-        thread.start()
-    else:
-        log(f"[AUTO-LORE] Next trigger at msg #{((call_count // 4) + 1) * 4}", "INFO")
-
-
-def deep_lorebook_analysis(messages, use_opus=False):
-    """
-    Perform a thorough lorebook analysis - checks all messages and can update existing entries.
-    Supports chunking for very long conversations.
-    Called manually via API.
-
-    Args:
-        messages: List of conversation messages
-        use_opus: If True, use Opus for higher quality. If False (default), use Sonnet for speed.
-    """
-    if not messages:
-        return {"error": "No messages provided"}
-
-    model = "opus" if use_opus else "sonnet"
-
-    try:
-        log_section("Deep Lorebook Analysis")
-        log(f"Model: {model.upper()}", "INFO")
-
-        # Get conversation messages only
-        conv_messages = [m for m in messages if m.get("role") != "system"]
-        total_chars = sum(len(m.get("content", "")) for m in conv_messages)
-
-        log(f"Analyzing {len(conv_messages)} messages ({total_chars:,} chars)...", "INFO")
-
-        # Chunk size: ~100K chars (~25K tokens) to leave room for prompt and response
-        CHUNK_SIZE = 100000
-        chunks = []
-        current_chunk = []
-        current_size = 0
-
-        for msg in conv_messages:
-            msg_size = len(msg.get("content", ""))
-            if current_size + msg_size > CHUNK_SIZE and current_chunk:
-                chunks.append(current_chunk)
-                current_chunk = []
-                current_size = 0
-            current_chunk.append(msg)
-            current_size += msg_size
-
-        if current_chunk:
-            chunks.append(current_chunk)
-
-        log(f"Split into {len(chunks)} chunk(s) for analysis", "INFO")
-
-        # Track totals across chunks
-        total_new = 0
-        total_updated = 0
-
-        for chunk_idx, chunk in enumerate(chunks, 1):
-            log(f"Processing chunk {chunk_idx}/{len(chunks)}...", "INFO")
-
-            # Get current existing entries (refresh each chunk as we may have added some)
-            lorebook = get_lorebook()
-            existing_entries = []
-            for uid, entry in lorebook.get("entries", {}).items():
-                existing_entries.append({
-                    "uid": uid,
-                    "name": entry.get("comment", ""),
-                    "keywords": entry.get("key", []),
-                    "content_preview": entry.get("content", "")[:200]
-                })
-
-            existing_summary = ""
-            if existing_entries:
-                existing_summary = "EXISTING LOREBOOK ENTRIES (you can UPDATE these with new info or add NEW entries):\n"
-                for e in existing_entries:
-                    existing_summary += f"- [{e['uid']}] {e['name']} (keywords: {', '.join(e['keywords'])})\n  Preview: {e['content_preview']}...\n"
-
-            # Format chunk messages
-            msg_text = ""
-            for msg in chunk:
-                role = msg.get("role", "user").upper()
-                content = msg.get("content", "")
-                if len(content) > 3000:
-                    content = content[:3000] + "..."
-                msg_text += f"[{role}]: {content}\n\n"
-
-            chunk_label = f"(Part {chunk_idx} of {len(chunks)})" if len(chunks) > 1 else ""
-
-            analysis_prompt = f"""Perform a THOROUGH analysis of this roleplay conversation {chunk_label} to extract and update lorebook entries.
-
-{existing_summary}
-
-CONVERSATION TO ANALYZE:
-{msg_text}
-
----
-
-KEYWORD RULES (STRICT - FOLLOW EXACTLY):
-- Keywords should be SPECIFIC TO THE ENTRY'S TOPIC, not just the character name
-- 2-5 keywords MAX per entry
-- NO generic words: adjectives, common nouns, emotions, clothing, food, actions
-
-KEYWORD EXAMPLES BY ENTRY TYPE:
-- Profile entry: "Morgan", "MorganPlays" (character name IS the topic)
-- Family entry: "Morgan's parents", "Morgan's mom", "Morgan's family" (NOT just "Morgan")
-- Career entry: "MorganPlays", "Morgan's stream", "Morgan streaming" (topic-specific)
-- Event entry: "Stream Incident", "the leak", "naked stream" (event-specific terms)
-- Relationship entry: "Morgan and Cody", "Mordy" (relationship identifiers)
-- Location entry: "Cody's apartment", "Morgan's bedroom" (place-specific)
-
-BAD: Every Morgan-related entry using just "Morgan" (causes all to fire at once)
-GOOD: Each entry has keywords specific to WHEN it should trigger
-
-ENTRY STRUCTURE (IMPORTANT):
-- Create SEPARATE FOCUSED entries for different topics
-- Each entry needs TOPIC-SPECIFIC keywords (not just character name)
-
-EXAMPLES WITH KEYWORDS:
-  - "Morgan - Profile" → keywords: Morgan, MorganPlays
-  - "Morgan's Family" → keywords: Morgan's parents, Morgan's mom, Morgan's dad
-  - "Morgan's Streaming Career" → keywords: MorganPlays, Morgan's stream, her channel
-  - "Morgan & Cody - Relationship" → keywords: Morgan and Cody, Mordy
-  - "The Stream Incident" → keywords: Stream Incident, naked stream, the leak
-  - "Cody's Bedroom" → keywords: Cody's bedroom, Cody's room
-
-The goal: Entry only triggers when its SPECIFIC topic is mentioned, not every time the character name appears.
-
-OUTPUT FORMAT:
-
-For NEW entries (PREFERRED - create focused entries):
-[LOREBOOK_ENTRY]
-keywords: UniqueName1, UniqueName2
-name: Specific Focused Entry Name
-content: Detailed description of THIS SPECIFIC TOPIC ONLY
-[/LOREBOOK_ENTRY]
-
-For UPDATING existing entry (ONLY if truly same topic):
-[LOREBOOK_UPDATE:uid]
-keywords: keep only unique identifiers
-name: Entry Name
-content: Updated description staying focused on original topic
-[/LOREBOOK_UPDATE]
-
-ALWAYS prefer creating NEW focused entries over updating.
-If nothing new worth adding: output NO_NEW_LORE"""
-
-            # Call Claude for this chunk
-            log(f"  Calling Claude ({model.capitalize()}) for chunk {chunk_idx}...", "INFO")
-
-            cmd = [
-                CLAUDE_EXE,
-                "-p",
-                "--output-format", "stream-json",
-                "--verbose",
-                "--model", model,
-                "--tools", "",
-                "--setting-sources", "user",
-            ]
-            with prompt_history.start_call(
-                "lorebook", f"Deep lorebook analysis, chunk {chunk_idx}/{len(chunks)}", argv=cmd, prompt=analysis_prompt,
-            ) as hist:
-                process = subprocess.Popen(
-                    cmd,
-                    stdin=subprocess.PIPE,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                    text=True,
-                    encoding="utf-8",
-                )
-
-                stdout, stderr = process.communicate(input=analysis_prompt, timeout=300)
-                hist.observe_stdout(stdout, process.returncode, stderr)
-
-            # Parse the response
-            response_text = ""
-            for line in stdout.strip().split('\n'):
-                if not line:
-                    continue
-                try:
-                    event = json.loads(line)
-                    if event.get("type") == "result":
-                        response_text = event.get("result", "")
-                        break
-                    elif event.get("type") == "assistant":
-                        for block in event.get("message", {}).get("content", []):
-                            if block.get("type") == "text":
-                                response_text = block.get("text", "")
-                except json.JSONDecodeError:
-                    continue
-
-            if not response_text:
-                log(f"  Chunk {chunk_idx}: Empty response", "WARN")
-                continue
-
-            # Debug: show what we got
-            if runtime_settings.get("debug_output"):
-                preview = response_text[:300].replace('\n', ' ')
-                log(f"  Chunk {chunk_idx} response preview: {preview}...", "INFO")
-
-            if "NO_NEW_LORE" in response_text:
-                log(f"  Chunk {chunk_idx}: No new lore found", "INFO")
-                continue
-
-            # Parse updates
-            update_pattern = r'\[LOREBOOK_UPDATE:(\d+)\](.*?)\[/LOREBOOK_UPDATE\]'
-            updates = re.findall(update_pattern, response_text, re.DOTALL | re.IGNORECASE)
-
-            chunk_updated = 0
-            lorebook = get_lorebook()  # Refresh
-            for uid, update_content in updates:
-                entry_data = parse_single_entry(update_content)
-                if entry_data and entry_data.get('content'):
-                    if uid in lorebook.get("entries", {}):
-                        lorebook["entries"][uid]["key"] = entry_data.get('keywords', lorebook["entries"][uid].get("key", []))
-                        lorebook["entries"][uid]["comment"] = entry_data.get('name', lorebook["entries"][uid].get("comment", ""))
-                        lorebook["entries"][uid]["content"] = entry_data['content']
-                        chunk_updated += 1
-                        log(f"    ~ Updated [{uid}]: {entry_data.get('name', 'Unknown')}", "SUCCESS")
-
-            if chunk_updated > 0:
-                if "originalData" in lorebook:
-                    lorebook["originalData"]["entries"] = lorebook["entries"]
-                save_lorebook(lorebook)
-                total_updated += chunk_updated
-
-            # Parse new entries (force=True for deep analysis)
-            _, new_entries = parse_lorebook_entries(response_text, force=True)
-            if runtime_settings.get("debug_output"):
-                log(f"    Parsed {len(new_entries)} entries from response", "INFO")
-            if new_entries:
-                log(f"    + {len(new_entries)} new entries from chunk {chunk_idx}", "SUCCESS")
-                process_lorebook_entries(new_entries, force=True)
-                total_new += len(new_entries)
-            else:
-                log(f"    No entries parsed from chunk {chunk_idx}", "WARN")
-
-        log_section("Deep Analysis Complete")
-        log(f"New entries: {total_new} | Updated: {total_updated}", "SUCCESS")
-
-        return {
-            "status": "ok",
-            "message": f"Analysis complete ({len(chunks)} chunks processed)",
-            "new_entries": total_new,
-            "updated_entries": total_updated,
-            "chunks_processed": len(chunks)
-        }
-
-    except subprocess.TimeoutExpired:
-        log("Deep analysis timed out", "WARN")
-        return {"error": "Analysis timed out"}
-    except Exception as e:
-        log(f"Deep analysis error: {str(e)}", "ERROR")
-        return {"error": str(e)}
-
-
-def parse_single_entry(content):
-    """Parse a single lorebook entry content block. Handles both multiline and single-line formats."""
-    entry_data = {}
-
-    # First, try to normalize single-line format to multiline
-    # Pattern: "keywords: X name: Y content: Z" -> split into lines
-    content = content.strip()
-
-    # Check if it's a single-line format (no newlines but has all fields)
-    if '\n' not in content or content.count('\n') < 2:
-        # Use regex to split on field markers
-        # Insert newlines before each field marker
-        content = re.sub(r'\s+(keywords:|name:|content:)', r'\n\1', content, flags=re.IGNORECASE)
-
-    lines = content.split('\n')
-
-    current_field = None
-    content_lines = []
-
-    for line in lines:
-        line = line.strip()
-        if not line:
-            continue
-
-        lower_line = line.lower()
-        if lower_line.startswith('keywords:'):
-            current_field = 'keywords'
-            entry_data['keywords'] = [k.strip() for k in line[9:].split(',') if k.strip()]
-        elif lower_line.startswith('name:'):
-            current_field = 'name'
-            # Handle case where content: might be on same line after name
-            name_part = line[5:].strip()
-            if ' content:' in name_part.lower():
-                idx = name_part.lower().index(' content:')
-                entry_data['name'] = name_part[:idx].strip()
-                # Don't lose the content part
-                content_lines.append(name_part[idx+9:].strip())
-                current_field = 'content'
-            else:
-                entry_data['name'] = name_part
-        elif lower_line.startswith('content:'):
-            current_field = 'content'
-            content_start = line[8:].strip()
-            if content_start:
-                content_lines.append(content_start)
-        elif current_field == 'content':
-            content_lines.append(line)
-
-    if content_lines:
-        entry_data['content'] = '\n'.join(content_lines)
-
-    return entry_data
-
-
-# =============================================================================
 # TOOL CALLING SUPPORT
 # =============================================================================
 
@@ -1567,6 +765,9 @@ elif BRIDGE_HOST in _ALL_INTERFACES:
 #                                 Basic auth with this password, any username
 BRIDGE_API_KEY = os.environ.get("BRIDGE_API_KEY", "")
 BRIDGE_DASHBOARD_PASSWORD = os.environ.get("BRIDGE_DASHBOARD_PASSWORD", "")
+# SillyTavern's user data folder (data/default-user), when SillyTavern isn't
+# next to the bridge's folder.
+BRIDGE_SILLYTAVERN_DIR = os.path.expanduser(os.environ.get("BRIDGE_SILLYTAVERN_DIR", "").strip())
 
 
 def _secret_matches(given: str, expected: str) -> bool:
@@ -1651,7 +852,7 @@ AVAILABLE_MODEL_IDS = {model_id for model_id, _ in AVAILABLE_MODELS}
 # request" instead of a fixed model picked in the GUI.
 MODEL_FROM_REQUEST = "from_request"
 # Used in that mode when the request names no known model, and for background
-# calls (lorebook, utility calls) that have no request model of their own.
+# utility calls that have no request model of their own.
 FALLBACK_MODEL = "opus"
 
 
@@ -1795,13 +996,6 @@ runtime_settings = {
     "model": "opus",
     # Tool calling support for extensions like TunnelVision
     "tool_calling_enabled": True,
-    # Lorebook settings
-    "lorebook_enabled": False,
-    # Path to SillyTavern's worlds directory — set this in the Lorebook tab
-    # on first run. Leave empty by default so new users don't see someone
-    # else's hardcoded drive path.
-    "lorebook_path": "",
-    "lorebook_name": "claude_auto_lore.json",
     # Optional style notes added to every roleplay system prompt, after the
     # bridge frame and before SillyTavern's prompt. Empty = none. The GUI's
     # Prompts tab edits it (and can load UPSTREAM_STYLE_PROMPT).
@@ -1853,7 +1047,7 @@ SETTINGS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "bridge
 
 PERSISTED_SETTING_KEYS = {
     "effort_level", "include_thinking", "show_thinking_console", "debug_output",
-    "model", "tool_calling_enabled", "lorebook_enabled", "lorebook_path", "lorebook_name",
+    "model", "tool_calling_enabled",
     "system_prompt_override",
     "creativity", "creativity_prompts", "bridge_port",
     "cli_session_reuse", "update_check_enabled",
@@ -1971,8 +1165,8 @@ _SECTION_WIDTH = 52
 def log_section(title: str):
     """Print a lightweight single-line section marker.
 
-    Used for standalone section boundaries in the log ("Thinking",
-    "Lorebook Updates", etc.) where a full 3-line box is overkill. For
+    Used for standalone section boundaries in the log ("Thinking")
+    where a full 3-line box is overkill. For
     structured stats, use log_box(title, stats) instead.
     """
     title_str = f" {title.upper()} "
@@ -2210,7 +1404,7 @@ def _chat_msgs(messages: list) -> list:
 def _msg_sig(m: dict) -> str:
     """Identity of one chat message: its role and whole text. System
     messages are never compared: SillyTavern moves and rewrites them every
-    turn (lorebook entries, depth notes), and the session gets the changed
+    turn (World Info entries, depth notes), and the session gets the changed
     ones as <sillytavern_update>."""
     return _block_hash(f"{m.get('role')}\0{_norm_text(_msg_text(m))}")
 
@@ -3497,9 +2691,6 @@ def chat_completions():
         if not messages:
             return jsonify({"error": "No messages provided"}), 400
 
-        # Store messages for potential deep analysis later
-        LAST_MESSAGES_FOR_ANALYSIS["messages"] = messages.copy()
-
         # Labels the CLI session and the History entry.
         try:
             char_key = get_character_key(messages)
@@ -3649,7 +2840,6 @@ def chat_completions():
                         "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
                     }
                     log(f"Tool call response JSON: {json.dumps(response_obj)[:500]}...")
-                    trigger_lorebook_analysis(messages)
                     yield json.dumps(response_obj)
                     return
 
@@ -3699,7 +2889,6 @@ def chat_completions():
                             "INFO",
                         )
                         log(f"FINAL tail: {sent_tail}", "INFO")
-                trigger_lorebook_analysis(messages)
 
                 # Thinking that didn't stream goes out whole, unless reply text
                 # already did (SillyTavern's reasoning block comes first).
@@ -3817,13 +3006,10 @@ def get_default_system_prompt():
 
 
 def _sillytavern_user_dir():
-    """SillyTavern's user data folder (data/default-user): the parent of the
-    Lorebook tab's worlds folder when that is set, else a SillyTavern checkout
-    next to the bridge's folder. None when neither has a settings.json."""
-    candidates = []
-    worlds = (runtime_settings.get("lorebook_path") or "").strip()
-    if worlds:
-        candidates.append(os.path.dirname(os.path.normpath(worlds)))
+    """SillyTavern's user data folder (data/default-user): BRIDGE_SILLYTAVERN_DIR
+    when that is set, else a SillyTavern checkout next to the bridge's folder.
+    None when neither has a settings.json."""
+    candidates = [BRIDGE_SILLYTAVERN_DIR] if BRIDGE_SILLYTAVERN_DIR else []
     bridge_dir = os.path.dirname(os.path.abspath(__file__))
     candidates.append(os.path.join(os.path.dirname(bridge_dir), "SillyTavern", "data", "default-user"))
     for path in candidates:
@@ -3838,7 +3024,7 @@ def _sillytavern_prompt_tree() -> dict:
     history) have no content here; SillyTavern fills them per chat."""
     user_dir = _sillytavern_user_dir()
     if not user_dir:
-        return {"found": False, "error": "SillyTavern's settings.json wasn't found. Set the Lorebook tab's worlds folder so the bridge can locate SillyTavern."}
+        return {"found": False, "error": "SillyTavern's settings.json wasn't found. Put the bridge next to SillyTavern, or set BRIDGE_SILLYTAVERN_DIR to its data/default-user folder."}
     path = os.path.join(user_dir, "settings.json")
     try:
         with open(path, encoding="utf-8") as f:
@@ -3990,7 +3176,7 @@ def update_settings():
                                          f"to {memory.WORDS_MAX}"}), 400
             data[key] = int(v)
 
-    for key in ["effort_level", "include_thinking", "show_thinking_console", "debug_output", "model", "tool_calling_enabled", "lorebook_enabled", "lorebook_path", "lorebook_name", "system_prompt_override", "creativity", "bridge_port", "cli_session_reuse", "update_check_enabled", "character_memory_enabled", "memory_mode", "memory_synopsis_words", "memory_chapter_words"]:
+    for key in ["effort_level", "include_thinking", "show_thinking_console", "debug_output", "model", "tool_calling_enabled", "system_prompt_override", "creativity", "bridge_port", "cli_session_reuse", "update_check_enabled", "character_memory_enabled", "memory_mode", "memory_synopsis_words", "memory_chapter_words"]:
         if key in data:
             # Coerce bridge_port to int and bounds-check. Invalid values are rejected.
             if key == "bridge_port":
@@ -4009,13 +3195,7 @@ def update_settings():
     # Persist the updated settings to disk so they survive bridge restarts.
     save_persisted_settings()
 
-    # Log which features are active
-    features = []
-    if runtime_settings.get('lorebook_enabled'):
-        features.append('lorebook')
-    feature_str = f", features=[{', '.join(features)}]" if features else ""
-
-    log(f"Settings updated: model={runtime_settings['model']}, effort={runtime_settings['effort_level']}{feature_str}", "SUCCESS")
+    log(f"Settings updated: model={runtime_settings['model']}, effort={runtime_settings['effort_level']}", "SUCCESS")
     return jsonify({"status": "ok", "settings": runtime_settings})
 
 
@@ -4142,17 +3322,50 @@ def memory_binding_chats():
 
 @app.route("/api/memory/chats", methods=["GET"])
 def memory_chats():
-    """Any chats in SillyTavern matching a search (q), last written first."""
+    """Any chats in SillyTavern matching a search (q), last written first
+    (node: only a graph node's chats)."""
     try:
         limit = max(1, min(100, int(request.args.get("limit") or 30)))
     except ValueError:
         limit = 30
-    return jsonify(memory.find_chats(request.args.get("q", ""), limit))
+    return jsonify(memory.find_chats(request.args.get("q", ""), limit, request.args.get("node") or None))
 
 
 @app.route("/api/memory/connections", methods=["GET"])
 def memory_connections():
     return jsonify({"connections": memory.connections()})
+
+
+@app.route("/api/memory/graph", methods=["GET"])
+def memory_graph():
+    """The Memory tab's graph: characters, groups and personas, and the
+    membership, binding and memory lines between them."""
+    return jsonify(memory.graph())
+
+
+def _mem_direction(data) -> tuple:
+    """(a, b, direction) of a memory line, or aborts with 400."""
+    a, b, direction = (data.get(k) for k in ("a", "b", "direction"))
+    if not all(isinstance(v, str) and v for v in (a, b)) or a == b:
+        abort(Response(json.dumps({"error": "a and b are two nodes"}), 400, mimetype="application/json"))
+    if direction not in memory.DIRECTIONS:
+        abort(Response(json.dumps({"error": f"direction is one of: {', '.join(memory.DIRECTIONS)}"}), 400,
+                       mimetype="application/json"))
+    return a, b, direction
+
+
+@app.route("/api/memory/edge/preview", methods=["GET"])
+def memory_edge_preview():
+    """What setting a memory line's direction would add and remove, and
+    about how many calls recapping the added connections takes."""
+    return jsonify(memory.direction_preview(*_mem_direction(request.args)))
+
+
+@app.route("/api/memory/edge", methods=["POST"])
+def memory_edge():
+    """Set which way memory flows between two nodes' chats: ab (from a's
+    into b's only), ba, mutual (every connection mirrored) or none."""
+    return jsonify({"status": "ok", **memory.set_direction(*_mem_direction(_mem_body()))})
 
 
 @app.route("/api/memory/connect/preview", methods=["GET"])
@@ -4344,281 +3557,6 @@ def health():
         "message": "Claude Code Bridge is running",
         "settings": runtime_settings
     })
-
-
-# =============================================================================
-# LOREBOOK API ENDPOINTS
-# =============================================================================
-
-@app.route("/api/lorebook", methods=["GET"])
-def get_lorebook_api():
-    """Get lorebook entries and status."""
-    path = get_lorebook_path()
-    exists = os.path.exists(path)
-
-    lorebook = get_lorebook() if exists else {"entries": {}}
-    entries = lorebook.get("entries", {})
-
-    # Format entries for display
-    formatted = []
-    for uid, entry in entries.items():
-        formatted.append({
-            "uid": uid,
-            "name": entry.get("comment", "Unnamed"),
-            "keywords": entry.get("key", []),
-            "content": entry.get("content", ""),
-            "position": entry.get("position", 0),
-            "enabled": not entry.get("disable", False),
-            "constant": entry.get("constant", False)
-        })
-
-    # Sort by UID
-    formatted.sort(key=lambda x: int(x["uid"]) if x["uid"].isdigit() else 0)
-
-    return jsonify({
-        "enabled": runtime_settings.get("lorebook_enabled", False),
-        "path": runtime_settings.get("lorebook_path", ""),
-        "filename": runtime_settings.get("lorebook_name", "claude_auto_lore.json"),
-        "full_path": path,
-        "exists": exists,
-        "entry_count": len(entries),
-        "entries": formatted
-    })
-
-
-@app.route("/api/lorebook/entry", methods=["POST"])
-def add_lorebook_entry_api():
-    """Manually add a lorebook entry."""
-    data = request.json
-
-    keywords = data.get("keywords", [])
-    if isinstance(keywords, str):
-        keywords = [k.strip() for k in keywords.split(",") if k.strip()]
-
-    content = data.get("content", "")
-    name = data.get("name", "")
-    position = int(data.get("position", 0))
-
-    if not keywords or not content:
-        return jsonify({"error": "Keywords and content are required"}), 400
-
-    # Temporarily enable lorebook for this operation
-    was_enabled = runtime_settings.get("lorebook_enabled", False)
-    runtime_settings["lorebook_enabled"] = True
-
-    uid = add_lorebook_entry(
-        keywords=keywords,
-        content=content,
-        comment=name,
-        position=position
-    )
-
-    runtime_settings["lorebook_enabled"] = was_enabled
-
-    if uid is not None:
-        return jsonify({"status": "ok", "uid": uid, "message": f"Entry added with UID {uid}"})
-    else:
-        return jsonify({"error": "Failed to add entry"}), 500
-
-
-@app.route("/api/lorebook/entry/<uid>", methods=["DELETE"])
-def delete_lorebook_entry_api(uid):
-    """Delete a lorebook entry."""
-    lorebook = get_lorebook()
-    entries = lorebook.get("entries", {})
-
-    if uid not in entries:
-        return jsonify({"error": f"Entry {uid} not found"}), 404
-
-    del entries[uid]
-    lorebook["entries"] = entries
-
-    # Update originalData too
-    if "originalData" in lorebook:
-        lorebook["originalData"]["entries"] = entries
-
-    if save_lorebook(lorebook):
-        log(f"Deleted lorebook entry: {uid}", "SUCCESS")
-        return jsonify({"status": "ok", "message": f"Entry {uid} deleted"})
-    else:
-        return jsonify({"error": "Failed to save lorebook"}), 500
-
-
-@app.route("/api/lorebook/clear", methods=["POST"])
-def clear_lorebook_api():
-    """Clear all lorebook entries."""
-    lorebook = {
-        "entries": {},
-        "name": "Claude Auto-Lore",
-        "originalData": {
-            "entries": {},
-            "name": "Claude Auto-Lore"
-        }
-    }
-
-    if save_lorebook(lorebook):
-        log("Lorebook cleared", "SUCCESS")
-        return jsonify({"status": "ok", "message": "Lorebook cleared"})
-    else:
-        return jsonify({"error": "Failed to clear lorebook"}), 500
-
-
-@app.route("/api/lorebook/toggle/<uid>", methods=["POST"])
-def toggle_lorebook_entry_api(uid):
-    """Toggle a lorebook entry on/off."""
-    lorebook = get_lorebook()
-    entries = lorebook.get("entries", {})
-
-    if uid not in entries:
-        return jsonify({"error": f"Entry {uid} not found"}), 404
-
-    entries[uid]["disable"] = not entries[uid].get("disable", False)
-    lorebook["entries"] = entries
-
-    if "originalData" in lorebook:
-        lorebook["originalData"]["entries"] = entries
-
-    if save_lorebook(lorebook):
-        state = "disabled" if entries[uid]["disable"] else "enabled"
-        return jsonify({"status": "ok", "enabled": not entries[uid]["disable"], "message": f"Entry {uid} {state}"})
-    else:
-        return jsonify({"error": "Failed to save lorebook"}), 500
-
-
-# Store messages for deep analysis (updated on each request)
-LAST_MESSAGES_FOR_ANALYSIS = {"messages": []}
-
-
-def load_chat_from_file(file_path):
-    """
-    Load messages from a SillyTavern chat file (JSONL format).
-    Returns list of messages in OpenAI format.
-    """
-    messages = []
-    try:
-        with open(file_path, 'r', encoding='utf-8') as f:
-            for line in f:
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    msg = json.loads(line)
-                    # SillyTavern format: has 'mes' for content, 'is_user' for role
-                    if 'mes' in msg:
-                        role = 'user' if msg.get('is_user', False) else 'assistant'
-                        # Skip if it's a system/narrator message
-                        if msg.get('is_system', False):
-                            role = 'system'
-                        messages.append({
-                            'role': role,
-                            'content': msg.get('mes', '')
-                        })
-                except json.JSONDecodeError:
-                    continue
-        log(f"Loaded {len(messages)} messages from chat file", "SUCCESS")
-        return messages
-    except Exception as e:
-        log(f"Error loading chat file: {e}", "ERROR")
-        return []
-
-
-@app.route("/api/lorebook/deep-analyze", methods=["POST"])
-def deep_analyze_lorebook_api():
-    """Trigger a deep lorebook analysis. Can use in-memory messages or a chat file."""
-    data = request.json or {}
-    chat_file = data.get("chat_file", "")
-    use_opus = data.get("use_opus", False)  # Default to Sonnet for speed
-
-    messages = []
-
-    # Try chat file first if provided
-    if chat_file and os.path.exists(chat_file):
-        messages = load_chat_from_file(chat_file)
-
-    # Fall back to in-memory messages
-    if not messages:
-        messages = LAST_MESSAGES_FOR_ANALYSIS.get("messages", [])
-
-    if not messages:
-        return jsonify({"error": "No conversation available. Provide a chat file path or send at least one message first."}), 400
-
-    model_name = "Opus" if use_opus else "Sonnet"
-
-    # Run in background thread
-    def run_analysis():
-        result = deep_lorebook_analysis(messages, use_opus=use_opus)
-        log(f"Deep analysis complete: {result}", "SUCCESS")
-
-    thread = threading.Thread(target=run_analysis, daemon=True)
-    thread.start()
-
-    return jsonify({
-        "status": "ok",
-        "message": f"Deep analysis started ({len(messages)} messages, using {model_name}). Check back in a moment."
-    })
-
-
-@app.route("/api/lorebook/quick-analyze", methods=["POST"])
-def quick_analyze_lorebook_api():
-    """Trigger a quick lorebook analysis on current in-memory messages (same as auto-trigger)."""
-    messages = LAST_MESSAGES_FOR_ANALYSIS.get("messages", [])
-
-    if not messages:
-        return jsonify({"error": "No messages in memory. Send at least one message first."}), 400
-
-    # Run the background analysis directly
-    thread = threading.Thread(
-        target=analyze_for_lorebook_background,
-        args=(messages.copy(),),
-        daemon=True
-    )
-    thread.start()
-
-    return jsonify({
-        "status": "ok",
-        "message": f"Quick analysis started on {len(messages)} messages"
-    })
-
-
-@app.route("/api/chats/list", methods=["GET"])
-def list_chat_files():
-    """List available SillyTavern chat files."""
-    # SillyTavern chats are in: SillyTavern/data/default-user/chats/[character]/
-    st_path = runtime_settings.get("lorebook_path", "")
-
-    # Go up from worlds to data/default-user, then into chats
-    if "worlds" in st_path:
-        chats_base = st_path.replace("worlds", "chats")
-    else:
-        return jsonify({"error": "Could not determine chats path", "chats": []})
-
-    if not os.path.exists(chats_base):
-        return jsonify({"error": f"Chats folder not found: {chats_base}", "chats": []})
-
-    chats = []
-    try:
-        for char_folder in os.listdir(chats_base):
-            char_path = os.path.join(chats_base, char_folder)
-            if os.path.isdir(char_path):
-                for chat_file in os.listdir(char_path):
-                    if chat_file.endswith('.jsonl'):
-                        full_path = os.path.join(char_path, chat_file)
-                        # Get file size and mod time
-                        stat = os.stat(full_path)
-                        chats.append({
-                            "character": char_folder,
-                            "filename": chat_file,
-                            "path": full_path,
-                            "size": stat.st_size,
-                            "modified": datetime.fromtimestamp(stat.st_mtime).isoformat()
-                        })
-    except Exception as e:
-        return jsonify({"error": str(e), "chats": []})
-
-    # Sort by modified date, newest first
-    chats.sort(key=lambda x: x["modified"], reverse=True)
-
-    return jsonify({"chats": chats, "base_path": chats_base})
 
 
 if __name__ == "__main__":

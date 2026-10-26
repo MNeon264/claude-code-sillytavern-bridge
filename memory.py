@@ -2734,16 +2734,20 @@ def all_chats() -> list[dict]:
     return out
 
 
-def find_chats(q: str = "", limit: int = 30) -> dict:
+def find_chats(q: str = "", limit: int = 30, node: Optional[str] = None) -> dict:
     """Any chats in SillyTavern matching a search, last written first: by
     card or group name, group member, file name, and for a chat read before,
-    its last message and personas. Only the ones returned are read.
-    {chats: [view], more: how many others match}."""
+    its last message and personas. Only the ones returned are read. node:
+    only that graph node's chats (node_chats). {chats: [view], more: how
+    many others match}."""
     words = (q or "").casefold().split()
     cards = _all_card_names()
     stored = {r["chat_id"]: r for r in _q("SELECT chat_id, last_msg, personas FROM chats")} if words else {}
+    only = node_chats(node) if node else None
     hits = []
     for f in all_chats():
+        if only is not None and f["rel"] not in only:
+            continue
         if words:
             g = f["group"]
             text = [os.path.basename(f["rel"])[:-len(".jsonl")]]
@@ -2846,3 +2850,212 @@ def connect_preview(target: str, source: str, who: Optional[list] = None, mode: 
             "who": [r["character_id"] for r in rows if r["character_id"]],
             "mode": current, "default_mode": pass_mode(),
             "calls": estimate(cids, source, mode if mode in MODES else current) if cids else 0}
+
+
+# ---------------------------------------------------------------------------
+# The relations graph (the Memory tab)
+# ---------------------------------------------------------------------------
+# Nodes are characters ("char:<id>"), groups ("group:<id>") and personas
+# ("persona:<avatar>"). A chat belongs to the node of its card's character
+# or its group, read from its path alone. A memory line stands for every
+# connection between two nodes' chats: memory flows from the chat
+# remembered (source) to the chat that remembers it (target).
+
+def _card_cids() -> dict:
+    """{avatar: character id} for the cards memory knows."""
+    return {r["avatar"]: r["character_id"] for r in _q("SELECT avatar, character_id FROM cards")}
+
+
+def _group_of_stem() -> dict:
+    return {stem: g for g in list_groups() for stem in g["chats"]}
+
+
+def chat_node(chat_id: str, cids: Optional[dict] = None, stems: Optional[dict] = None) -> Optional[str]:
+    """The node a chat belongs to, from its path."""
+    parts = chat_id.split("/")
+    if len(parts) == 3 and parts[0] == "chats":
+        avatar = f"{parts[1]}.png"
+        cids = _card_cids() if cids is None else cids
+        return f"char:{cids.get(avatar, avatar)}"
+    if len(parts) == 2 and parts[0] == "group chats" and parts[1].endswith(".jsonl"):
+        stems = _group_of_stem() if stems is None else stems
+        g = stems.get(parts[1][:-len(".jsonl")])
+        if g:
+            return f"group:{g['id']}"
+        row = _q1("SELECT group_id FROM chats WHERE chat_id = ?", (chat_id,))
+        return f"group:{row['group_id']}" if row and row["group_id"] else None
+    return None
+
+
+def _link_pairs() -> list[dict]:
+    """Every connection: target, source, everyone, who (character ids),
+    mode, the oldest row's created_ts."""
+    pairs: "OrderedDict[tuple, dict]" = OrderedDict()
+    for r in _q("SELECT character_id, target_chat, source_chat, created_ts, mode FROM links ORDER BY created_ts"):
+        p = pairs.setdefault((r["target_chat"], r["source_chat"]), {
+            "target": r["target_chat"], "source": r["source_chat"], "everyone": False, "who": [],
+            "mode": _mode(r["mode"]), "created_ts": r["created_ts"]})
+        if r["character_id"]:
+            p["who"].append(r["character_id"])
+        else:
+            p["everyone"] = True
+    return list(pairs.values())
+
+
+def graph() -> dict:
+    """Nodes and lines for the Memory tab's graph. nodes: [{id, type (char,
+    group, persona), name, ...}], a group's with its chat_ids; edges: [{kind, a, b, ...}]: member (a
+    group, b a member), binding (a persona, b a character; mode, chats),
+    memory (ab / ba: memory flows from a's chats into b's / the other way;
+    pairs: the connections it stands for, each with from and to nodes).
+    Connections between a node's own chats aren't lines: self_links on the
+    node counts them."""
+    cids = _card_cids()
+    stems = _group_of_stem()
+    names = _all_card_names()
+    nodes: "OrderedDict[str, dict]" = OrderedDict()
+
+    def char_node(cid: str, name: str = "") -> dict:
+        nid = f"char:{cid}"
+        if nid not in nodes:
+            nodes[nid] = {"id": nid, "type": "char", "cid": cid, "name": name or names.get(cid) or _stem(cid),
+                          "cards": [], "chats": 0, "alerts": 0, "self_links": 0}
+        return nodes[nid]
+
+    for r in _q("SELECT id, name FROM characters ORDER BY name COLLATE NOCASE"):
+        char_node(r["id"], r["name"])
+    for c in list_cards():
+        char_node(cids.get(c["avatar"], c["avatar"]), c["name"])["cards"].append(c["avatar"])
+    for g in list_groups():
+        nodes[f"group:{g['id']}"] = {"id": f"group:{g['id']}", "type": "group", "gid": g["id"],
+                                     "name": g["name"] or "Group", "chats": 0, "chat_ids": [], "self_links": 0,
+                                     "members": [f"char:{cids.get(a, a)}" for a in g["members"]]}
+    for p in list_personas():
+        nodes[f"persona:{p['avatar']}"] = {"id": f"persona:{p['avatar']}", "type": "persona",
+                                           "avatar": p["avatar"], "name": p["name"] or _stem(p["avatar"]),
+                                           "title": p["title"]}
+    for f in all_chats():
+        nid = f"group:{f['group']['id']}" if f["group"] else f"char:{cids.get(f['avatar'], f['avatar'])}"
+        if nid in nodes:
+            nodes[nid]["chats"] += 1
+            if f["group"]:
+                nodes[nid]["chat_ids"].append(f["rel"])
+    for r in _q("SELECT character_id, COUNT(*) AS n FROM checks WHERE status = 'open' GROUP BY character_id"):
+        if f"char:{r['character_id']}" in nodes:
+            nodes[f"char:{r['character_id']}"]["alerts"] = r["n"]
+
+    edges = []
+    for g in list_groups():
+        for m in dict.fromkeys(nodes[f"group:{g['id']}"]["members"]):
+            char_node(m[len("char:"):], names.get(m[len("char:"):], ""))
+            edges.append({"kind": "member", "a": f"group:{g['id']}", "b": m})
+    for b in _q("SELECT character_id, persona, persona_name, mode FROM bindings ORDER BY created_ts"):
+        pid = f"persona:{b['persona']}"
+        if pid not in nodes:
+            nodes[pid] = {"id": pid, "type": "persona", "avatar": b["persona"],
+                          "name": b["persona_name"] or _stem(b["persona"]), "title": ""}
+        char_node(b["character_id"])
+        n = _q1("SELECT COUNT(*) AS n FROM binding_chats WHERE character_id = ? AND persona = ? AND how != 'removed'",
+                (b["character_id"], b["persona"]))["n"]
+        edges.append({"kind": "binding", "a": pid, "b": f"char:{b['character_id']}", "mode": _mode(b["mode"]),
+                      "chats": n})
+
+    lines: "OrderedDict[tuple, dict]" = OrderedDict()
+    for p in _link_pairs():
+        frm, to = chat_node(p["source"], cids, stems), chat_node(p["target"], cids, stems)
+        if not frm or not to:
+            continue
+        for nid in (frm, to):
+            if nid not in nodes:
+                if nid.startswith("char:"):
+                    char_node(nid[len("char:"):])
+                else:
+                    nodes[nid] = {"id": nid, "type": "group", "gid": nid[len("group:"):], "name": "Group",
+                                  "chats": 0, "chat_ids": [], "self_links": 0, "members": []}
+        if frm == to:
+            nodes[frm]["self_links"] += 1
+            continue
+        a, b = sorted((frm, to))
+        line = lines.setdefault((a, b), {"kind": "memory", "a": a, "b": b, "ab": False, "ba": False, "pairs": []})
+        line["ab" if frm == a else "ba"] = True
+        line["pairs"].append({**p, "from": frm, "to": to,
+                              "who": [{"id": c, "name": character_name(c)} for c in p["who"]],
+                              "target_chat": _brief(None, p["target"], names),
+                              "source_chat": _brief(None, p["source"], names)})
+    edges += lines.values()
+    linked = {n for e in edges if e["kind"] != "member" for n in (e["a"], e["b"])}
+    for n in nodes.values():
+        n["linked"] = n["id"] in linked
+    return {"nodes": list(nodes.values()), "edges": edges}
+
+
+DIRECTIONS = ("ab", "ba", "mutual", "none")
+
+
+def _direction_plan(a: str, b: str, direction: str) -> tuple[list[dict], list[dict]]:
+    """What setting the line between nodes a and b to `direction` adds and
+    removes: ab, memory flows only from a's chats into b's (connections the
+    other way are turned round); ba, the reverse; mutual, every connection
+    gets its mirror; none, all go. ([add], [remove]) of {target, source,
+    mode}."""
+    cids, stems = _card_cids(), _group_of_stem()
+    pairs = []
+    for p in _link_pairs():
+        frm, to = chat_node(p["source"], cids, stems), chat_node(p["target"], cids, stems)
+        if {frm, to} == {a, b} and frm != to:
+            pairs.append({**p, "from": frm})
+    have = {(p["target"], p["source"]) for p in pairs}
+    add, remove = [], []
+    for p in pairs:
+        mirror = {"target": p["source"], "source": p["target"], "mode": p["mode"]}
+        flows_ab = p["from"] == a
+        if direction == "none" or (direction == "ab" and not flows_ab) or (direction == "ba" and flows_ab):
+            remove.append({"target": p["target"], "source": p["source"], "mode": p["mode"]})
+        if direction == "mutual" or (direction == "ab" and not flows_ab) or (direction == "ba" and flows_ab):
+            key = (mirror["target"], mirror["source"])
+            if key not in have:
+                have.add(key)
+                add.append(mirror)
+    return add, remove
+
+
+def direction_preview(a: str, b: str, direction: str) -> dict:
+    """Before set_direction: the connections it adds and removes (chats
+    named), and about how many Sonnet calls recapping the added ones takes."""
+    add, remove = _direction_plan(a, b, direction)
+    names = _card_names()
+    calls = 0
+    for p in add:
+        ids = [m["id"] for m in rememberers(p["target"])]
+        if ids:
+            calls += estimate(ids, p["source"], p["mode"])
+    view = lambda p: {**p, "target_chat": _brief(None, p["target"], names),
+                      "source_chat": _brief(None, p["source"], names)}
+    return {"add": [view(p) for p in add], "remove": [view(p) for p in remove], "calls": calls}
+
+
+def set_direction(a: str, b: str, direction: str) -> dict:
+    """Set which way memory flows on the line between nodes a and b (see
+    _direction_plan). An added mirror is for everyone in the chat that
+    remembers it, passing on what the connection it mirrors does, and is
+    recapped as connect does."""
+    add, remove = _direction_plan(a, b, direction)
+    for p in add:
+        connect(p["target"], p["source"], mode=p["mode"])
+    for p in remove:
+        disconnect(p["target"], p["source"])
+    return {"added": len(add), "removed": len(remove)}
+
+
+def node_chats(node: str) -> Optional[set]:
+    """The chat ids of a node, from the folder listings: a character's own
+    chats (their group chats are the group's), or a group's chats. None for
+    anything else."""
+    if node.startswith("char:"):
+        cid = node[len("char:"):]
+        avatars = {c["avatar"] for c in character_cards(cid)} or {cid}
+        return {f["rel"] for f in all_chats() if not f["group"] and f["avatar"] in avatars}
+    if node.startswith("group:"):
+        gid = node[len("group:"):]
+        return {f["rel"] for f in all_chats() if f["group"] and f["group"]["id"] == gid}
+    return None

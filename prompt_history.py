@@ -14,7 +14,7 @@ Usage comes from the endpoint behind Claude Code's /usage
 file: when the token has expired, the next `claude` call renews it. The
 endpoint reports whole percents, so a per-turn figure is approximate, and it
 counts everything that used the account in that time (other Claude apps,
-background memory and lorebook calls).
+background memory calls).
 
 The bridge calls set_logger() and init() once at startup. Every function
 here is thread-safe and never raises into the caller's code path.
@@ -393,7 +393,7 @@ class Call:
 
 def start_call(kind, label=None, **kwargs) -> Call:
     """Start recording a CLI call. kind is one of chat, utility, summary,
-    image, lorebook, memory. track_usage=True also records the account's
+    image, memory. track_usage=True also records the account's
     usage windows before and after the call (roleplay turns)."""
     return Call(kind, label, **kwargs)
 

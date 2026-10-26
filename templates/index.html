@@ -37,6 +37,14 @@
             --st: #86a6dc;
             --st-tint: rgba(134, 166, 220, 0.12);
 
+            /* Memory graph: node kinds and line kinds */
+            --g-char: #86a6dc;
+            --g-group: #d9a548;
+            --g-persona: #b392d6;
+            --g-member: #4a4d55;
+            --g-binding: #b392d6;
+            --g-memory: #d97757;
+
             --success: #5cb88a;
             --warn: #d9a548;
             --error: #e0645c;
@@ -642,7 +650,7 @@
             color: #e2c07f;
         }
 
-        /* ========== EXPANDABLE LIST ITEMS (lorebook, persona bindings) ========== */
+        /* ========== EXPANDABLE LIST ITEMS (persona bindings) ========== */
         .list-item {
             background: var(--ink-sunk);
             border: 1px solid var(--rule);
@@ -808,14 +816,7 @@
 
         .plain-list li + li { margin-top: 6px; }
 
-        /* ========== WELCOME ========== */
-        .panel .prose p {
-            color: var(--paper-dim);
-            line-height: 1.65;
-            max-width: 75ch;
-            margin: 0 0 14px;
-        }
-
+        /* ========== PROSE LISTS (Memory: How it works) ========== */
         .panel dl.prose-dl {
             display: grid;
             grid-template-columns: 170px 1fr;
@@ -847,18 +848,6 @@
             color: var(--paper-dim);
             font-size: 13.5px;
             line-height: 1.6;
-        }
-
-        .welcome-footer {
-            margin-top: 48px;
-            padding-top: 20px;
-            border-top: 1px solid var(--rule);
-            font-size: 12px;
-            color: var(--paper-ghost);
-            display: flex;
-            justify-content: space-between;
-            flex-wrap: wrap;
-            gap: 12px;
         }
 
         /* ========== PROMPT PREVIEW ========== */
@@ -1376,6 +1365,70 @@
         .mem-who-list { margin-left: 24px; }
         .mem-row-wrap > .mem-recap-box .mem-recap { margin-top: -2px; }
 
+
+        /* ========== MEMORY GRAPH ========== */
+        .mem-graph-wrap { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; align-items: start; margin-bottom: 16px; }
+        .mem-graph-card { margin-bottom: 0; padding: 12px; }
+        .mem-gbar { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; margin-bottom: 10px; }
+        .mem-gsearch { position: relative; flex: 1 1 220px; min-width: 0; }
+        .mem-gsearch input { width: 100%; }
+        .mem-gsearch-results { position: absolute; z-index: 20; top: calc(100% + 4px); left: 0; right: 0; max-height: 320px; overflow-y: auto; background: var(--ink-raised); border: 1px solid var(--rule-strong); border-radius: var(--radius-sm); box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4); }
+        .mem-gsearch-hit { display: flex; align-items: center; gap: 8px; width: 100%; padding: 8px 10px; border: 0; background: none; color: var(--paper); font: inherit; font-size: 13px; text-align: left; cursor: pointer; }
+        .mem-gsearch-hit:hover { background: var(--ink-hover); }
+        .mem-gsearch-hit > span:nth-child(2) { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .mem-gsearch-hit small { color: var(--paper-ghost); }
+        .mem-gchips { display: flex; flex-wrap: wrap; gap: 6px; }
+        .mem-gdot { display: inline-block; width: 9px; height: 9px; margin-right: 6px; flex: 0 0 auto; vertical-align: 0; }
+        .mem-gdot.char { border-radius: 50%; background: var(--g-char); }
+        .mem-gdot.group { border-radius: 2px; background: var(--g-group); }
+        .mem-gdot.persona { width: 8px; height: 8px; margin: 0 7px 0 1px; transform: rotate(45deg); background: var(--g-persona); }
+        .toggle-btn:not(.active) .mem-gdot { opacity: 0.35; }
+        .mem-gcanvas-box { position: relative; height: 560px; border: 1px solid var(--rule); border-radius: var(--radius-sm); background: var(--ink-sunk); overflow: hidden; }
+        .mem-gcanvas-box canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; cursor: grab; }
+        .mem-gbanner { position: absolute; top: 8px; left: 8px; right: 8px; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 10px; border: 1px solid rgba(217, 119, 87, 0.55); border-radius: var(--radius-sm); background: rgba(23, 24, 27, 0.94); font-size: 13px; color: var(--paper-dim); }
+        .mem-gbanner b { color: var(--paper); font-weight: 600; }
+        .mem-gempty { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; padding: 24px; text-align: center; font-size: 13px; color: var(--paper-faint); pointer-events: none; }
+        .mem-glegend { display: flex; flex-wrap: wrap; gap: 6px 16px; margin-top: 8px; font-size: 12px; color: var(--paper-faint); }
+        .mem-glegend span { display: inline-flex; align-items: center; gap: 6px; }
+        .mem-glegend .lg-member { stroke: var(--g-member); stroke-width: 1.5; }
+        .mem-glegend .lg-binding { stroke: var(--g-binding); stroke-width: 2; stroke-dasharray: 5 3; }
+        .mem-glegend .lg-memory { stroke: var(--g-memory); stroke-width: 2.5; }
+        .mem-glegend .lg-head { fill: var(--g-memory); }
+
+        .mem-graph-wrap.has-panel { grid-template-columns: minmax(0, 1fr) 380px; }
+        .mem-panel { position: sticky; top: 12px; max-height: calc(100vh - 24px); overflow-y: auto; padding: 14px 16px; border: 1px solid var(--rule); border-radius: var(--radius); background: var(--ink-raised); min-width: 0; }
+        .mem-panel-grip { display: none; }
+        .mem-panel-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; margin-bottom: 10px; }
+        .mem-panel-title { flex: 1; min-width: 0; font-size: 15px; font-weight: 600; overflow-wrap: anywhere; }
+        .mem-panel-title .mem-gdot { width: 11px; height: 11px; }
+        .mem-arrow { color: var(--g-memory); }
+        .mem-psec + .mem-psec { margin-top: 6px; padding-top: 4px; border-top: 1px solid var(--rule-faint); }
+        .mem-nlinks { display: flex; flex-wrap: wrap; gap: 6px; }
+        .mem-nlink { display: inline-flex; align-items: center; padding: 3px 9px; border: 1px solid var(--rule); border-radius: 999px; background: var(--ink-sunk); color: var(--paper-dim); font: inherit; font-size: 12.5px; cursor: pointer; }
+        .mem-nlink:hover { color: var(--paper); border-color: var(--rule-strong); }
+        p .mem-nlink { vertical-align: 1px; }
+        .mem-edge-list { display: flex; flex-direction: column; gap: 4px; margin-bottom: 8px; }
+        .mem-edge-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 4px 10px; padding: 6px 8px; border: 1px solid var(--rule-faint); border-radius: var(--radius-sm); cursor: pointer; }
+        .mem-edge-row:hover { background: var(--ink-hover); }
+        .mem-dir { display: grid; grid-template-columns: minmax(0, 1fr); }
+        .mem-dir > .toggle-btn { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .mem-panel .mem-conn { padding: 8px 10px; }
+        .mem-panel .mem-source, .mem-panel .mem-chosen { flex-direction: column; align-items: stretch; gap: 8px; }
+        .mem-panel .mem-source-acts { justify-content: flex-start; }
+
+        details.mem-fold > summary { list-style: none; cursor: pointer; }
+        details.mem-fold > summary::-webkit-details-marker { display: none; }
+        details.mem-fold > summary h3::before { content: '▸ '; color: var(--paper-ghost); }
+        details.mem-fold[open] > summary h3::before { content: '▾ '; }
+        details.mem-fold:not([open]) > summary.card-head { margin-bottom: 0; }
+        .mem-how > summary { margin: 24px 0 12px; }
+        .mem-how > summary h3 { margin: 0; }
+
+        @media (max-width: 960px) {
+            .mem-graph-wrap.has-panel { grid-template-columns: minmax(0, 1fr); }
+            .mem-panel { position: static; max-height: none; }
+        }
+
         /* ========== RESPONSIVE ========== */
         @media (max-width: 720px) {
             .container { padding: 0 16px 56px; }
@@ -1404,6 +1457,18 @@
             .mem-source, .mem-chosen { flex-direction: column; align-items: stretch; gap: 8px; }
             .mem-source-acts { justify-content: flex-start; }
             .mem-pick-list { max-height: 60vh; }
+
+            .mem-graph-card { padding: 10px; }
+            .mem-gbar { gap: 8px; }
+            .mem-gsearch { flex-basis: 100%; }
+            .mem-gchips .toggle-btn.sm { height: 34px; padding: 0 11px; font-size: 12.5px; }
+            .mem-gcanvas-box { height: 60vh; min-height: 320px; }
+            /* The panel is a sheet over the bottom of the screen. */
+            .mem-panel { position: fixed; z-index: 900; left: 0; right: 0; bottom: 0; top: auto; max-height: 65vh; padding: 6px 16px calc(16px + env(safe-area-inset-bottom)); border-radius: 14px 14px 0 0; border-bottom: 0; box-shadow: 0 -10px 30px rgba(0, 0, 0, 0.5); overscroll-behavior: contain; }
+            .mem-panel-grip { display: block; width: 40px; height: 4px; margin: 4px auto 10px; border-radius: 2px; background: var(--rule-strong); }
+            .mem-panel-head { position: sticky; top: -6px; z-index: 1; margin: 0 -16px 10px; padding: 6px 16px 8px; background: var(--ink-raised); border-bottom: 1px solid var(--rule-faint); }
+            .mem-panel-head .toggle-btn.sm { height: 32px; padding: 0 12px; }
+            .mem-graph-wrap.has-panel { padding-bottom: 40vh; }
         }
     </style>
 </head>
@@ -1434,93 +1499,16 @@
         </header>
 
         <nav class="tabs">
-            <button class="tab active" onclick="showTab('welcome')">Welcome</button>
-            <button class="tab" onclick="showTab('settings')">Settings</button>
+            <button class="tab active" onclick="showTab('settings')">Settings</button>
             <button class="tab" onclick="showTab('system')">Prompts</button>
             <button class="tab" onclick="showTab('history')">History</button>
             <button class="tab" onclick="showTab('usage')">Usage</button>
-            <button class="tab" onclick="showTab('lorebook')">Lorebook</button>
             <button class="tab" onclick="showTab('memory')">Memory</button>
             <button class="tab" onclick="showTab('test')">Test</button>
         </nav>
 
-        <!-- Welcome Panel -->
-        <div id="welcome" class="panel active">
-            <h3>Welcome</h3>
-            <div class="prose">
-                <p>
-                    A subprocess bridge between <strong>SillyTavern</strong> and <strong>Claude Code CLI</strong>. SillyTavern sends OpenAI-compatible requests to this server; the bridge translates them, frames SillyTavern's prompt for the CLI, pipes the result through <code>claude -p</code>, and returns the response. Everything in this interface controls how that translation works.
-                </p>
-            </div>
-
-            <h3>Getting started</h3>
-            <dl class="prose-dl">
-                <dt>Endpoint</dt>
-                <dd>Point SillyTavern's Chat Completion API (Custom, OpenAI-compatible) at <code>http://localhost:5001/v1</code>. When the bridge runs with <code>BRIDGE_API_KEY</code> set, use that key as the API key.</dd>
-
-                <dt>Model</dt>
-                <dd>Choose the model in the Settings tab, or pick "Use SillyTavern's model" there to take the one selected in SillyTavern's connection.</dd>
-
-                <dt>Start command</dt>
-                <dd>Run <code>run_bridge.bat</code> (or <code>python claude_bridge.py</code>) and keep the terminal visible — structured logs appear there while the bridge is running.</dd>
-
-                <dt>Changing the port</dt>
-                <dd>The bridge binds <code>:5001</code> by default. Change it in the Settings tab — the value persists to <code>bridge_settings.json</code>, but you'll need to restart the bridge for the new port to take effect (the GUI shows a <em>Restart bridge</em> reminder when there's a pending change).</dd>
-            </dl>
-
-            <h3>The tabs</h3>
-            <dl class="prose-dl">
-                <dt>Welcome</dt>
-                <dd>This page. Documentation, orientation, reference.</dd>
-
-                <dt>Settings</dt>
-                <dd>Model selection, effort level, creativity mode (a prompt-based stand-in for temperature, since Claude Code CLI doesn't expose the real parameter), and toggles for thinking visibility, debug logging, and tool calling.</dd>
-
-                <dt>Prompts</dt>
-                <dd>Optional style notes added to every roleplay's system prompt, the Creativity modes' texts, and a preview of how the bridge assembles a turn from your SillyTavern prompt: where its own text goes, and where SillyTavern's prompts end up.</dd>
-
-                <dt>History</dt>
-                <dd>Every call the bridge made to the Claude CLI (roleplay turns, memory, lorebook and image calls) with the exact command, system prompt and input text it passed, the reply, the tokens it used, and how much of your 5-hour and weekly limits each roleplay turn took.</dd>
-
-                <dt>Usage</dt>
-                <dd>Your plan's current usage limits (the same numbers as Claude Code's <code>/usage</code>) and the tokens the bridge used in the current 5-hour and weekly windows.</dd>
-
-                <dt>Lorebook</dt>
-                <dd>Auto-generates World Info entries in the background after each RP message, using Sonnet for efficiency. Deep Analysis scans a full chat file for a more thorough pass. Manual Entry lets you add lore by hand.</dd>
-
-                <dt>Memory</dt>
-                <dd>Character Memory: whether it's set up, how it works, the chats connected to each other, and per character the persona bindings and every chat's recap to read and edit.</dd>
-
-                <dt>Test</dt>
-                <dd>Send a message directly at the bridge without going through SillyTavern. Useful when debugging or checking that a new system prompt is wired up correctly.</dd>
-            </dl>
-
-            <h3>Tips &amp; gotchas</h3>
-            <dl class="prose-dl">
-                <dt>Images</dt>
-                <dd>SillyTavern sends base64 images. The bridge saves them to <code>temp_images/</code> and has a separate Claude call describe them before the turn; the descriptions are cached and added to the turn as text.</dd>
-
-                <dt>Tool calling</dt>
-                <dd>Extensions like TunnelVision route through the tool-calling toggle. Disable it if you're getting strange outputs or the extension is in an odd state.</dd>
-
-                <dt>Streaming</dt>
-                <dd>With streaming on in SillyTavern, the reply streams as Claude writes it: the thinking summary first (shown when "Request model reasoning" is on and Include Thinking is enabled), then the reply. Requests with tool calling or a JSON schema arrive in one piece at the end.</dd>
-
-                <dt>Character key</dt>
-                <dd>The History tab and the bridge's log label each roleplay turn with a key for its character: 16 characters of MD5 over the character's name as SillyTavern wraps the card's fields, or else over the first 2000 characters of the greeting.</dd>
-
-                <dt>Debug logs</dt>
-                <dd>Enable Debug Output in Settings to see every incoming request structure, image detection passes, and prompt sizes in the bridge terminal. Essential when wiring up new SillyTavern extensions.</dd>
-            </dl>
-
-            <div class="welcome-footer">
-                <span>Claude Code ↔ SillyTavern Bridge</span>
-                <span>Flask · Claude Code CLI</span>
-            </div>
-        </div>
-
         <!-- Settings Panel -->
-        <div id="settings" class="panel">
+        <div id="settings" class="panel active">
             <h3>Settings</h3>
             <p>Changes save as you make them.</p>
 
@@ -1759,7 +1747,7 @@
         <div id="history" class="panel">
             <h3>History</h3>
             <p>
-                Every call the bridge makes to the Claude CLI, newest first. Open one to see the exact command, system prompt and input text it passed, and the reply. Roleplay turns also show how much of your 5-hour and weekly limits they took: the change in your account's usage from just before the turn to a few seconds after it. The usage endpoint reports whole percents, so a turn that used less shows "&lt;1%", and anything else using your account at the same time (other Claude apps, background memory or lorebook calls) is counted too.
+                Every call the bridge makes to the Claude CLI, newest first. Open one to see the exact command, system prompt and input text it passed, and the reply. Roleplay turns also show how much of your 5-hour and weekly limits they took: the change in your account's usage from just before the turn to a few seconds after it. The usage endpoint reports whole percents, so a turn that used less shows "&lt;1%", and anything else using your account at the same time (other Claude apps, background memory calls) is counted too.
             </p>
 
             <div class="hist-toolbar">
@@ -1767,7 +1755,6 @@
                     <option value="">All calls</option>
                     <option value="chat">Roleplay turns</option>
                     <option value="memory">Character Memory</option>
-                    <option value="lorebook">Lorebook</option>
                     <option value="image">Images</option>
                     <option value="summary">Summaries</option>
                     <option value="utility">Other</option>
@@ -1821,195 +1808,91 @@
             </div>
         </div>
 
-        <!-- Lorebook Panel -->
-        <div id="lorebook" class="panel">
-            <h3>Auto-Lorebook</h3>
-            <p>
-                Automatically generates World Info entries from your roleplay. Runs in the <strong>background</strong> after you send a new message (meaning you accepted the previous response). Uses a separate Claude call with Sonnet for efficiency — zero impact on your RP response time.
-            </p>
-
-            <div class="settings-grid">
-                <div class="setting-card">
-                    <div class="card-head">
-                        <h3>Auto-Lorebook</h3>
-                        <div class="switch-container">
-                            <span id="lorebookStatus">Disabled</span>
-                            <label class="switch">
-                                <input type="checkbox" id="lorebookEnabled">
-                                <span class="slider"></span>
-                            </label>
-                        </div>
-                    </div>
-                    <p>
-                        When enabled, Claude will automatically add lore entries for significant new information.
-                    </p>
-                    <div id="lorebookStatusBox" class="notice">
-                        <div style="display:flex;align-items:flex-start;gap:10px;">
-                            <span id="lorebookDot" class="status-dot" style="background:var(--paper-faint);margin-top:6px;"></span>
-                            <span id="lorebookPathStatus" style="min-width:0;overflow-wrap:anywhere;">Loading...</span>
-                        </div>
-                        <p style="color:var(--paper-faint);font-size:12px;margin:8px 0 0;">
-                            Auto: Runs every 4 messages using Sonnet (recent only). <strong>Deep Analysis</strong>: Full conversation with chunking support for long RPs, uses Opus, can update existing entries.
-                        </p>
-                    </div>
-                </div>
-
-                <div class="setting-card">
-                    <h3>SillyTavern Path</h3>
-                    <p>Path to SillyTavern worlds folder</p>
-                    <div class="form-group">
-                        <label for="lorebookPath">Worlds folder</label>
-                        <input type="text" id="lorebookPath" placeholder="e.g. D:\Sillytavern\SillyTavern\data\default-user\worlds">
-                    </div>
-                    <div class="form-group">
-                        <label for="lorebookName">Lorebook filename</label>
-                        <input type="text" id="lorebookName" value="claude_auto_lore.json">
-                    </div>
-                    <button class="btn btn-secondary" onclick="saveLorebookSettings()">Save Path</button>
-                </div>
-            </div>
-
-            <div class="setting-card">
-                <h3>Deep Analysis</h3>
-                <p>
-                    Analyze a full conversation for lore. Can read directly from SillyTavern chat files.
-                </p>
-
-                <div class="form-group">
-                    <label for="chatFileSelect">Chat file (select or paste path)</label>
-                    <select id="chatFileSelect" style="margin-bottom:8px;" onchange="updateChatFilePath()">
-                        <option value="">-- Select a chat file --</option>
-                    </select>
-                    <input type="text" id="chatFilePath" placeholder="Or paste full path to .jsonl chat file">
-                </div>
-
-                <div class="form-group">
-                    <label>Model for analysis</label>
-                    <div class="toggle-group" style="max-width:360px;">
-                        <button class="toggle-btn active" data-setting="deep-model" data-value="sonnet">Sonnet (Fast)</button>
-                        <button class="toggle-btn" data-setting="deep-model" data-value="opus">Opus (Thorough)</button>
-                    </div>
-                </div>
-
-                <div class="btn-row">
-                    <button class="btn" onclick="triggerQuickAnalysis()">Quick Analyze Now</button>
-                    <button class="btn" onclick="triggerDeepAnalysis()" id="deepAnalyzeBtn">Run Deep Analysis</button>
-                    <button class="btn btn-secondary" onclick="loadChatFiles()">Refresh Chats</button>
-                </div>
-            </div>
-
-            <div class="setting-card">
-                <h3>Manual Entry</h3>
-                <p>Add a lorebook entry manually</p>
-
-                <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:0 14px;">
-                    <div class="form-group">
-                        <label for="entryKeywords">Keywords (comma-separated)</label>
-                        <input type="text" id="entryKeywords" placeholder="Morgan, Morgan Henderson">
-                    </div>
-                    <div class="form-group">
-                        <label for="entryName">Entry name</label>
-                        <input type="text" id="entryName" placeholder="Morgan Henderson">
-                    </div>
-                    <div class="form-group">
-                        <label for="entryPosition">Position</label>
-                        <select id="entryPosition">
-                            <option value="0">Before Character Definition</option>
-                            <option value="1">After Character Definition</option>
-                            <option value="4">At Depth</option>
-                        </select>
-                    </div>
-                </div>
-                <div class="form-group">
-                    <label for="entryContent">Content</label>
-                    <textarea id="entryContent" style="min-height:110px;" placeholder="Detailed lore content..."></textarea>
-                </div>
-                <button class="btn" onclick="addLorebookEntry()">Add Entry</button>
-            </div>
-
-            <div class="setting-card">
-                <div class="card-head" style="margin-bottom:14px;">
-                    <div>
-                        <h3>Current Entries</h3>
-                        <div class="card-desc" style="margin:0;">Entries in your auto-lorebook (click to expand)</div>
-                    </div>
-                    <div class="btn-row">
-                        <button class="btn btn-secondary btn-sm" onclick="refreshLorebook()">Refresh</button>
-                        <button class="btn btn-danger btn-sm" onclick="clearLorebook()">Clear All</button>
-                    </div>
-                </div>
-                <div id="lorebookEntries">
-                    Loading entries...
-                </div>
-            </div>
-        </div>
-
-
         <!-- Memory Panel (Character Memory, memory.py) -->
         <div id="memory" class="panel">
             <h3>Character Memory</h3>
-            <p>A character remembers another chat only where you ask for it: connect that chat to the chat it should be remembered in, or bind the character to a persona so they remember the chats with that persona you pick, and every new one. The bridge reads those chats from SillyTavern's folder, and Sonnet recaps them from each character's point of view where the character is in them, and as a plain account where they aren't. Memories count over what the card says about the character's history. <a href="#memHowItWorks">How it works</a> is below.</p>
+            <p>A character remembers another chat only where you ask for it: draw a connection from one character or group chat to another and pick the chats, or bind the character to a persona so they remember the chats with that persona you pick, and every new one. Sonnet recaps those chats from each character's point of view where the character is in them, and as a plain account where they aren't. Memories count over what the card says about the character's history. <a href="#memHowItWorks" onclick="document.getElementById('memHowItWorks').open = true;">How it works</a> is below.</p>
 
             <div id="memStatus" class="notice" style="margin-bottom:12px;display:none;"></div>
             <div id="memJobs" class="notice" style="margin-bottom:16px;display:none;"></div>
 
-            <div class="setting-card">
-                <div class="card-head">
-                    <h3>Connections</h3>
-                    <button class="toggle-btn sm primary" id="memConnNewBtn">Connect chats</button>
-                </div>
-                <p class="card-desc">Each box is a chat, with the chats it remembers joined under it. Any chat in SillyTavern can be connected to any other, a group chat too. A character who wasn't in the remembered chat gets it as background. In a group chat everyone remembers it, unless you pick who.</p>
-                <div id="memConnFormTop" class="mem-form-slot"></div>
-                <div id="memConns"></div>
-            </div>
-
-            <div class="setting-card">
-                <div class="card-head">
-                    <h3>Character</h3>
-                    <button class="toggle-btn sm" id="memRefreshBtn">Refresh</button>
-                </div>
-                <p class="card-desc">Per character: persona bindings, their cards, and every chat of theirs with its recap.</p>
-                <div id="memKnown" class="mem-chips" style="margin-top:8px;"></div>
-                <input id="memCharSearch" type="text" class="w-full" placeholder="Search all characters..." autocomplete="off" style="margin-top:10px;">
-                <div id="memCharResults" class="mem-results"></div>
-            </div>
-
-            <div id="memChar" style="display:none;">
-                <div class="setting-card">
-                    <div class="card-head"><h3 id="memCharName"></h3></div>
-                    <p class="card-desc" style="margin-bottom:8px;">Cards: <span id="memCards"></span></p>
-                    <input id="memCardSearch" type="text" class="w-full" placeholder="Add another card of the same person..." autocomplete="off">
-                    <div id="memCardResults" class="mem-results"></div>
-                </div>
-
-                <div class="setting-card">
-                    <div class="card-head"><h3>Persona bindings</h3></div>
-                    <p class="card-desc">A bound character remembers, in each chat with that persona, the chats you tick under it, plus every new chat with the persona from the day you bind (branches only if you tick them). A chat never brings in itself or its own branches.</p>
-                    <div id="memBindings"></div>
-                    <button class="toggle-btn primary" id="memBindToggle" style="margin-top:12px;">Bind to a persona</button>
-                    <div id="memPersonaPicker" class="mem-picker" style="display:none;">
-                        <input id="memPersonaSearch" type="text" class="w-full" placeholder="Search by name, title or description..." autocomplete="off">
-                        <div id="memPersonaResults" class="mem-pick-list"></div>
+            <div class="mem-graph-wrap" id="memGraphWrap">
+                <div class="setting-card mem-graph-card">
+                    <div class="mem-gbar">
+                        <div class="mem-gsearch">
+                            <input id="memGSearch" type="text" placeholder="Find a character, group or persona..." autocomplete="off" aria-label="Find a node">
+                            <div id="memGSearchResults" class="mem-gsearch-results" style="display:none;"></div>
+                        </div>
+                        <div class="mem-gchips">
+                            <button type="button" class="toggle-btn sm active" data-gfilter="char"><span class="mem-gdot char"></span>Characters</button>
+                            <button type="button" class="toggle-btn sm active" data-gfilter="group"><span class="mem-gdot group"></span>Group chats</button>
+                            <button type="button" class="toggle-btn sm active" data-gfilter="persona"><span class="mem-gdot persona"></span>Personas</button>
+                            <button type="button" class="toggle-btn sm" id="memGAll" title="Show every node, not only the linked ones and their neighbours">Show all</button>
+                        </div>
+                        <div class="mem-gchips">
+                            <button type="button" class="toggle-btn sm primary" id="memGConnect">Connect</button>
+                            <button type="button" class="toggle-btn sm" id="memGFit" title="Fit the graph to the view">Fit</button>
+                            <button type="button" class="toggle-btn sm" id="memRefreshBtn">Refresh</button>
+                        </div>
+                    </div>
+                    <div class="mem-gcanvas-box" id="memGBox">
+                        <canvas id="memGCanvas" aria-label="Character Memory graph"></canvas>
+                        <div id="memGBanner" class="mem-gbanner" style="display:none;"></div>
+                        <div id="memGEmpty" class="mem-gempty" style="display:none;"></div>
+                    </div>
+                    <div class="mem-glegend">
+                        <span><svg width="34" height="10" aria-hidden="true"><line x1="2" y1="5" x2="32" y2="5" class="lg-member"/></svg>in the group chat</span>
+                        <span><svg width="34" height="10" aria-hidden="true"><line x1="2" y1="5" x2="32" y2="5" class="lg-binding"/></svg>bound to a persona</span>
+                        <span><svg width="34" height="10" aria-hidden="true"><line x1="2" y1="5" x2="26" y2="5" class="lg-memory"/><path d="M24 1 L32 5 L24 9 Z" class="lg-head"/></svg>remembers (arrow: who remembers)</span>
                     </div>
                 </div>
 
-                <div class="setting-card">
-                    <div class="card-head">
-                        <h3>Chats</h3>
-                        <span id="memChatCount" class="list-item-meta"></span>
+                <aside id="memPanel" class="mem-panel" style="display:none;" aria-live="polite">
+                    <div class="mem-panel-grip" aria-hidden="true"></div>
+                    <div class="mem-panel-head">
+                        <div id="memPanelTitle" class="mem-panel-title"></div>
+                        <button type="button" class="toggle-btn sm" id="memPanelClose">Close</button>
                     </div>
-                    <p class="card-desc">The character's own chats and their group chats, each with the chats it's connected to. Open one to read or edit its recap, or to connect chats to it.</p>
-                    <div class="mem-inline" style="margin-bottom:10px;">
-                        <input id="memChatFilter" type="text" placeholder="Search name, branch, persona or last message..." style="flex:1;min-width:0;">
-                        <select id="memChatPersona" style="flex:0 1 45%;min-width:0;"></select>
+                    <div id="memPanelBody"></div>
+
+                    <div id="memChar" style="display:none;">
+                        <div class="mem-inline" style="margin-bottom:12px;">
+                            <button type="button" class="toggle-btn sm primary" id="memCharConnect">Connect to…</button>
+                        </div>
+                        <div class="mem-psec">
+                            <div class="mem-sub" style="margin-top:0;">Cards</div>
+                            <p class="card-desc" style="margin-bottom:8px;"><span id="memCards"></span></p>
+                            <input id="memCardSearch" type="text" class="w-full" placeholder="Add another card of the same person..." autocomplete="off">
+                            <div id="memCardResults" class="mem-results"></div>
+                        </div>
+
+                        <div class="mem-psec">
+                            <div class="mem-sub">Persona bindings</div>
+                            <p class="card-desc">A bound character remembers, in each chat with that persona, the chats you tick under it, plus every new chat with the persona from the day you bind (branches only if you tick them). A chat never brings in itself or its own branches.</p>
+                            <div id="memBindings"></div>
+                            <button class="toggle-btn primary" id="memBindToggle" style="margin-top:12px;">Bind to a persona</button>
+                            <div id="memPersonaPicker" class="mem-picker" style="display:none;">
+                                <input id="memPersonaSearch" type="text" class="w-full" placeholder="Search by name, title or description..." autocomplete="off">
+                                <div id="memPersonaResults" class="mem-pick-list"></div>
+                            </div>
+                        </div>
+
+                        <div class="mem-psec">
+                            <div class="mem-sub mem-sub-row"><span>Chats</span><span id="memChatCount" class="list-item-meta"></span></div>
+                            <p class="card-desc">The character's own chats and their group chats, each with the chats it's connected to. Open one to read or edit its recap, or to connect chats to it.</p>
+                            <div class="mem-inline" style="margin-bottom:10px;">
+                                <input id="memChatFilter" type="text" placeholder="Search name, branch, persona or last message..." style="flex:1;min-width:0;">
+                                <select id="memChatPersona" style="flex:0 1 45%;min-width:0;"></select>
+                            </div>
+                            <div id="memChats"></div>
+                        </div>
                     </div>
-                    <div id="memChats"></div>
-                </div>
+                </aside>
             </div>
 
-            <div class="setting-card">
-                <div class="card-head"><h3>What other chats get</h3></div>
-                <p class="card-desc">A chat remembered in another chat comes either as one <strong>synopsis</strong> or as its <strong>chapters</strong>. Each connection and each binding has its own choice: pick it when you connect a chat (or with <strong>Edit</strong> under Connections) and in each binding. The choice here is the default for new ones. In chapters mode Sonnet divides a chat of three parts or more (81 messages and up) by event, at the scene breaks its recaps mark, and each connection or binding can leave chapters out: open its recap to choose. Both are written from the chat's scene recaps, and scene recaps already shorter than the target are passed on as they are.</p>
+            <details class="setting-card mem-fold">
+                <summary class="card-head"><h3>What other chats get</h3></summary>
+                <p class="card-desc">A chat remembered in another chat comes either as one <strong>synopsis</strong> or as its <strong>chapters</strong>. Each connection and each binding has its own choice: pick it when you connect a chat (or with <strong>Edit</strong> on the connection) and in each binding. The choice here is the default for new ones. In chapters mode Sonnet divides a chat of three parts or more (81 messages and up) by event, at the scene breaks its recaps mark, and each connection or binding can leave chapters out: open its recap to choose. Both are written from the chat's scene recaps, and scene recaps already shorter than the target are passed on as they are.</p>
                 <div class="field-label">Default for new connections and bindings</div>
                 <div class="toggle-group" style="margin-bottom:12px;">
                     <button class="toggle-btn" data-mem-mode="synopsis">Synopsis</button>
@@ -2028,24 +1911,30 @@
                     <span id="memSettingsStatus" class="status-msg" style="display:none;">Saved!</span>
                 </div>
                 <p class="list-item-meta" id="memSettingsNote" style="margin-top:10px;"></p>
-            </div>
+            </details>
 
-            <h3 id="memHowItWorks">How it works</h3>
+            <details class="mem-fold mem-how" id="memHowItWorks">
+            <summary><h3>How it works</h3></summary>
             <dl class="prose-dl">
+                <dt>The graph</dt>
+                <dd>Each dot is a character (circle), a group chat (square) or a persona (diamond). A thin line joins a group to each member. A dashed line joins a persona to a character bound to it. A thick line with arrows is memory: the arrow points at the one who remembers, so a line with two arrows is mutual. It stands for every connection between their chats, branches included. At first the graph shows only what has memory or a binding, and their neighbours. <strong>Show all</strong> shows everything, the chips hide a kind, and the search box finds any node. Drag to move around, pinch or scroll to zoom, and drag a dot to move it. Tap a dot or a line to open it.</dd>
                 <dt>Setup</dt>
                 <dd>Turn on Character Memory in Settings, and install the bridge's SillyTavern extension, Bridge Memory: run <code>st-extension/install.sh</code> from the bridge's folder and reload SillyTavern. The extension adds which chat, persona and character each request is for, which nothing else in a request says. Memory skips turns without it. The status at the top of this tab says whether it has been heard from.</dd>
 
                 <dt>Recaps</dt>
-                <dd>The bridge reads a chat's file from SillyTavern's folder, and Sonnet recaps it 40 messages at a time, each part with the previous part's recap for context. A part the character has a message in is recapped from their point of view. A part they have no message in is recapped as a plain account of what happened, which never puts them in it, and every character who isn't in that part shares the one account. Hidden and empty messages are left out. A recap is written scene by scene, each paragraph opening with the number of the message its scene starts at, like <code>[#52]</code>; the model reads it without those marks. Recaps are built in the background when a chat that needs them is used or opened in SillyTavern, or when you ask here, and a reply uses whatever is ready; the rest arrives on later replies. A part is recapped again only when its messages change, and a branch shares its parent's recaps up to the branch point. Open a chat below to read what the character remembers of it; <strong>Recap</strong> beside a connected chat, or a chat in a binding, shows it in place. <strong>Edit</strong> lets you rewrite any part, the synopsis or a chapter; <strong>Redo</strong> has it written again. An edit of a synopsis or chapter lasts until a part it's written from changes.</dd>
+                <dd>The bridge reads a chat's file from SillyTavern's folder, and Sonnet recaps it 40 messages at a time, each part with the previous part's recap for context. A part the character has a message in is recapped from their point of view. A part they have no message in is recapped as a plain account of what happened, which never puts them in it, and every character who isn't in that part shares the one account. Hidden and empty messages are left out. A recap is written scene by scene, each paragraph opening with the number of the message its scene starts at, like <code>[#52]</code>; the model reads it without those marks. Recaps are built in the background when a chat that needs them is used or opened in SillyTavern, or when you ask here, and a reply uses whatever is ready; the rest arrives on later replies. A part is recapped again only when its messages change, and a branch shares its parent's recaps up to the branch point. Open a chat from a character's panel to read what the character remembers of it; <strong>Recap</strong> beside a connected chat, or a chat in a binding, shows it in place. <strong>Edit</strong> lets you rewrite any part, the synopsis or a chapter; <strong>Redo</strong> has it written again. An edit of a synopsis or chapter lasts until a part it's written from changes.</dd>
 
                 <dt>Synopsis or chapters</dt>
-                <dd>Other chats don't get a chat's part recaps but what's written from them, chosen for each connection (when you connect a chat, or with <strong>Edit</strong>) and each binding (its <strong>Other chats get each chat as</strong> switch); the choice at the top of this tab is the default for new ones. <strong>Synopsis</strong>: one recap of the whole chat in about the number of words you set. <strong>Chapters</strong>: Sonnet divides a chat of three parts or more (81 messages and up) into chapters by event, at the scene breaks its recaps mark, so a chapter can start in the middle of a part, once for every character, titles them, and writes each in about the number of words you set. A chat too short for chapters comes as its synopsis. When the chat grows, only its last chapter is divided again, so the earlier ones keep their place and what you chose for them. Untick chapters per connection (in its recap under Connections, or in the chat) and per binding; a binding's choice holds in all its chats. Scene recaps already within the word target go as they are, with no call. A chat one connection gets as a synopsis and another as chapters has both written from the same part recaps. Switching a connection or binding to the other mode, or changing a word target, has each chat it affects written that way the next time it's needed; a division into chapters, once made, is kept.</dd>
+                <dd>Other chats don't get a chat's part recaps but what's written from them, chosen for each connection (when you connect a chat, or with <strong>Edit</strong>) and each binding (its <strong>Other chats get each chat as</strong> switch); the choice at the top of this tab is the default for new ones. <strong>Synopsis</strong>: one recap of the whole chat in about the number of words you set. <strong>Chapters</strong>: Sonnet divides a chat of three parts or more (81 messages and up) into chapters by event, at the scene breaks its recaps mark, so a chapter can start in the middle of a part, once for every character, titles them, and writes each in about the number of words you set. A chat too short for chapters comes as its synopsis. When the chat grows, only its last chapter is divided again, so the earlier ones keep their place and what you chose for them. Untick chapters per connection (in its recap on the memory line, or in the chat) and per binding; a binding's choice holds in all its chats. Scene recaps already within the word target go as they are, with no call. A chat one connection gets as a synopsis and another as chapters has both written from the same part recaps. Switching a connection or binding to the other mode, or changing a word target, has each chat it affects written that way the next time it's needed; a division into chapters, once made, is kept.</dd>
 
                 <dt>Earlier in a chat</dt>
                 <dd>When SillyTavern leaves a chat's oldest messages out to fit the context, the recap of those messages comes in instead.</dd>
 
                 <dt>Connections</dt>
-                <dd>Connect any chat to any other under <strong>Connections</strong>, or from a chat's dialog: the chat that remembers, the chat it remembers, who remembers it, and what it gets, a synopsis or chapters. <strong>Edit</strong> on a connection changes the last two. In a one-character chat, that's the character. In a group chat it's everyone in it, members who join later included, or only the members you tick, so a private scene can stay with the one character who was in it. A character who isn't in the remembered chat at all gets it as background: the memory says they weren't there and know only what they'd have heard or been told. In a group chat, <strong>Leave out for</strong> in one member's view of the chat keeps a connection for everyone from that member.</dd>
+                <dd>Tap <strong>Connect</strong>, then the character or group whose chats should be remembered, then the one that remembers them (or <strong>Connect to…</strong> on a character). Pick the chat that's remembered and the chat that remembers it, who remembers it, and what it gets, a synopsis or chapters. A chat's dialog connects chats to it too. In a one-character chat, the character remembers it. In a group chat it's everyone in it, members who join later included, or only the members you tick, so a private scene can stay with the one character who was in it. A character who isn't in the remembered chat at all gets it as background: the memory says they weren't there and know only what they'd have heard or been told. In a group chat, <strong>Leave out for</strong> in one member's view of the chat keeps a connection for everyone from that member.</dd>
+
+                <dt>Directions and mirroring</dt>
+                <dd>Tap a memory line to see its connections and pick its direction: one way, the other way, or <strong>Mutual</strong>. Mutual adds, for every connection, its mirror: the chat that remembered is remembered back, for everyone in it, passed on the same way. One way turns the connections going the other way round, and <strong>Remove</strong> disconnects them all. The dashboard says first how many Sonnet calls recapping the new ones takes.</dd>
 
                 <dt>Persona bindings</dt>
                 <dd>Bind a character to a persona, then tick the chats with that persona they should remember; <strong>Select all</strong> ticks every chat with it. Each binding passes its chats on as a synopsis or as chapters, its own choice. From then on each new chat with that character and persona joins by itself. Branches don't, as they're alternate timelines; tick them if you want them. In every chat with the persona, the character remembers all the ticked chats except the chat itself and its own branches. A chat's <strong>Don't bring in through bindings</strong> keeps it out everywhere; <strong>Leave out here</strong> keeps one chat's memory out of one other chat.</dd>
@@ -2062,6 +1951,7 @@
                 <dt>Cost</dt>
                 <dd>Nothing runs per reply. Recapping takes one Sonnet call per 40 messages, once, plus one per 40 messages for the plain account of parts a character isn't in, shared by everyone who isn't. A connection for everyone in a group chat is recapped for each member, so the dashboard asks first with an estimate. A synopsis takes one more, chapters one to divide the chat plus one per chapter (none for a synopsis or chapter short enough already), and a conflict check one. They count against your plan like any other call and are listed on the History tab under Character Memory.</dd>
             </dl>
+            </details>
 
             <div id="memChatModal" class="modal-overlay">
                 <div class="modal">
@@ -2112,8 +2002,6 @@
             // Auto-refresh when switching tabs
             if (tabName === 'system') {
                 loadPromptPreview();
-            } else if (tabName === 'lorebook') {
-                refreshLorebook();
             } else if (tabName === 'memory') {
                 memLoad();
             } else if (tabName === 'history') {
@@ -2376,7 +2264,7 @@
             }
             if (!o.st_found) {
                 warn = true;
-                lines.push('SillyTavern\'s data folder wasn\'t found, so no chat can be read. The bridge looks for a SillyTavern folder next to its own, or next to the Lorebook tab\'s worlds folder.');
+                lines.push('SillyTavern\'s data folder wasn\'t found, so no chat can be read. The bridge looks for a SillyTavern folder next to its own, or in BRIDGE_SILLYTAVERN_DIR.');
             }
             if (!o.extension) {
                 warn = true;
@@ -2429,28 +2317,36 @@
 
         // ===== Connections: chats remembered in other chats =====
         // memConns: /api/memory/connections, one entry per chat that
-        // remembers others. memFormBox: the element the connect form is open
-        // in (one at a time); the list isn't redrawn under it. memConnShown:
-        // the recaps open in the list ("<target>\n<source>" -> the character
-        // shown), opened again when the list is redrawn.
+        // remembers others; a memory line's panel lists the ones it stands
+        // for. memFormBox: the element the connect form is open in (one at a
+        // time); the panel isn't redrawn under it. memConnShown: the recaps
+        // open in the list ("<target>\n<source>" -> the character shown),
+        // opened again when the list is redrawn.
         let memConns = [];
         let memFormBox = null;
         const memConnShown = new Map();
 
+        // The connections and the graph, and the memory line's panel if one
+        // is open.
         async function memLoadConns() {
             try {
                 memConns = (await memApi('/api/memory/connections')).connections || [];
             } catch (e) {
-                document.getElementById('memConns').innerHTML = `<div class="mem-empty">${memEsc(e.message)}</div>`;
-                return;
+                memConns = [];
             }
-            if (memFormBox && document.getElementById('memConns').contains(memFormBox)) return;
-            memRenderConns();
+            await memLoadGraph();
+            if (memSel?.kind === 'edge' && !(memFormBox && document.getElementById('memPanelBody').contains(memFormBox))) memRenderPanel();
         }
 
         // After a connection changed: the list, and the character and chat open.
         async function memAfterConnChange() {
             await memLoadConns();
+            // Connected from the graph: show the line it made.
+            if (memSel?.kind === 'connect') {
+                const pair = [memSel.a, memSel.b].sort();
+                const e = memGraph.edges.find(x => x.kind === 'memory' && x.a === pair[0] && x.b === pair[1]);
+                if (e) memSelectEdge(e);
+            }
             if (memCharId) await memLoadChar(memCharId);
             if (memChatId && !memChatDirty) await memRenderChatDetail();
         }
@@ -2486,13 +2382,16 @@
             return `<div class="mem-conn-note">Background for ${memEsc(shown)}, who ${names.length === 1 ? "isn't" : "aren't"} in it.</div>`;
         }
 
-        function memRenderConns() {
-            const box = document.getElementById('memConns');
-            if (!memConns.length) {
-                box.innerHTML = '<div class="mem-empty">No chat is connected to another yet.</div>';
+        // Connections in `box`, each chat that remembers with the chats it
+        // remembers joined under it. keep(target, source): which to show.
+        function memRenderConns(box, keep = () => true) {
+            const conns = memConns.map(conn => ({...conn, sources: conn.sources.filter(src => keep(conn.target.chat_id, src.chat.chat_id))}))
+                .filter(conn => conn.sources.length);
+            if (!conns.length) {
+                box.innerHTML = '<div class="mem-empty">No chat is connected to another here.</div>';
                 return;
             }
-            box.innerHTML = memConns.map((conn, k) => {
+            box.innerHTML = conns.map((conn, k) => {
                 const rows = conn.sources.map((src, i) => {
                     const st = src.state || {};
                     const acts = ['<button type="button" class="toggle-btn sm" data-act="recap">Recap</button>'];
@@ -2516,7 +2415,7 @@
                     <div class="mem-conn-list">${rows}</div></div>`;
             }).join('');
             box.querySelectorAll('.mem-conn').forEach(el => {
-                const conn = memConns[Number(el.dataset.k)];
+                const conn = conns[Number(el.dataset.k)];
                 const slot = el.querySelector('.mem-form-slot');
                 el.querySelector('[data-act="add"]').addEventListener('click', () => memToggleForm(slot, {target: conn.target}));
                 el.querySelectorAll('.mem-conn-src').forEach(row => {
@@ -2619,7 +2518,8 @@
         // each searched among all of SillyTavern's chats, 3. who remembers
         // it: everyone in the chat, or the members ticked, 4. what it gets:
         // a synopsis or chapters. pre: {target, source} already chosen (chat
-        // views); a connection that exists is edited.
+        // views); a connection that exists is edited. pre.nodes: {target,
+        // source} graph nodes whose chats each search is limited to.
         function memToggleForm(slot, pre = {}) {
             if (memFormBox === slot) {
                 memCloseForm();
@@ -2629,7 +2529,7 @@
             memFormBox = slot;
             memConnectOpen = !!slot.closest('#memChatModal');
             memRenderForm(slot, {target: pre.target || null, source: pre.source || null, fixed: !!pre.target,
-                                 preview: null, everyone: true, who: new Set(), mode: null, editing: false});
+                                 nodes: pre.nodes || null, preview: null, everyone: true, who: new Set(), mode: null, editing: false});
         }
 
         function memCloseForm() {
@@ -2672,19 +2572,28 @@
                     return `<div class="mem-step">${head}<div class="mem-chosen"><div class="mem-chat-main">${memChatSummary(chat)}</div>`
                         + (locked ? '' : `<div class="mem-source-acts"><button type="button" class="toggle-btn sm" data-change="${which}">Change</button></div>`) + '</div></div>';
                 }
-                return `<div class="mem-step">${head}<input type="text" class="w-full" data-search="${which}" placeholder="Search any chat: card or group name, member, file name, last message..." autocomplete="off">
+                const node = f.nodes && memGraphNode(f.nodes[which]);
+                const ph = node ? `Search ${node.name}'s chats: branch, persona, last message...` : 'Search any chat: card or group name, member, file name, last message...';
+                return `<div class="mem-step">${head}<input type="text" class="w-full" data-search="${which}" placeholder="${memEsc(ph)}" autocomplete="off">
                     <div class="mem-pick-list" data-results="${which}"></div></div>`;
             };
             const both = f.target && f.source;
             const ready = both && f.preview && !f.preview.error && (f.preview.members || []).length;
-            slot.innerHTML = `<div class="mem-picker mem-form">${step(1, 'The chat that remembers', 'target')}`
-                + (f.target ? step(2, 'The chat it remembers', 'source') : '')
+            const label = (text, which) => {
+                const node = f.nodes && memGraphNode(f.nodes[which]);
+                return node ? `${text} (${memEsc(node.name)})` : text;
+            };
+            slot.innerHTML = `<div class="mem-picker mem-form">${step(1, label('The chat that remembers', 'target'), 'target')}`
+                + (f.target ? step(2, label('The chat it remembers', 'source'), 'source') : '')
                 + (both ? `<div class="mem-step"><div class="mem-step-label"><span class="mem-step-n">3</span>Who remembers it</div>${memFormWho(f)}</div>` : '')
                 + (both && f.preview && !f.preview.error ? `<div class="mem-step"><div class="mem-step-label"><span class="mem-step-n">4</span>What it gets</div>${memFormMode(f)}</div>` : '')
                 + `<div class="mem-inline" style="margin-top:12px;">`
                 + (both ? `<button type="button" class="toggle-btn sm primary" data-act="connect"${ready ? '' : ' disabled'}>${f.editing ? 'Save' : 'Connect'}</button>` : '')
                 + '<button type="button" class="toggle-btn sm" data-act="cancel">Cancel</button></div></div>';
-            slot.querySelector('[data-act="cancel"]').addEventListener('click', memCloseForm);
+            slot.querySelector('[data-act="cancel"]').addEventListener('click', () => {
+                memCloseForm();
+                if (memSel?.kind === 'connect') memClosePanel();
+            });
             const go = slot.querySelector('[data-act="connect"]');
             if (go) go.addEventListener('click', () => memSubmitForm(f));
             slot.querySelectorAll('[data-change]').forEach(b => b.addEventListener('click', () => {
@@ -2734,7 +2643,8 @@
                 const n = ++seq;
                 let r;
                 try {
-                    r = await memApi(`/api/memory/chats?limit=25&q=${encodeURIComponent(input.value.trim())}`);
+                    const node = f.nodes?.[which] ? `&node=${encodeURIComponent(f.nodes[which])}` : '';
+                    r = await memApi(`/api/memory/chats?limit=25&q=${encodeURIComponent(input.value.trim())}${node}`);
                 } catch (e) {
                     out.innerHTML = `<div class="mem-empty">${memEsc(e.message)}</div>`;
                     return;
@@ -2790,12 +2700,9 @@
             memRenderStatus(o);
             memRenderJobs(o.jobs);
             memRenderSettings(o);
-            memLoadConns();
-            const known = (o.characters || []).filter(c => c.bindings || c.links || c.recaps || c.alerts);
-            const box = document.getElementById('memKnown');
-            box.innerHTML = known.map(c => `<button class="toggle-btn sm${c.id === memCharId ? ' active' : ''}" data-char="${memEsc(c.id)}">${memEsc(c.name)}${c.alerts ? ' ⚠' : ''}</button>`).join('');
-            box.querySelectorAll('[data-char]').forEach(b => b.addEventListener('click', () => memLoadChar(b.dataset.char)));
-            if (memCharId) await memLoadChar(memCharId);
+            await memLoadConns();
+            memGResize();
+            if (memCharId && memSel?.kind === 'node') await memLoadChar(memCharId);
             memStartJobsPoll();
         }
 
@@ -2829,8 +2736,6 @@
         async function memLoadChar(cid) {
             if (cid !== memCharId) {
                 // The first look at a character reads all their chat files.
-                document.getElementById('memChar').style.display = 'block';
-                document.getElementById('memCharName').textContent = 'Loading...';
                 document.getElementById('memChats').innerHTML = '<div class="mem-empty">Reading the chats...</div>';
             }
             let data;
@@ -2848,13 +2753,11 @@
             }
             memCharId = data.id;
             memCharData = data;
-            document.querySelectorAll('#memKnown [data-char]').forEach(b => b.classList.toggle('active', b.dataset.char === memCharId));
-            document.getElementById('memChar').style.display = 'block';
-            document.getElementById('memCharName').textContent = data.name;
             memRenderCards(data);
             if (!memDirtyBindings.size) memRenderBindings(data);
             memRenderChatFilters(data);
             memRenderChats();
+            memRenderGroupChats();
         }
 
         function memRenderCards(data) {
@@ -2864,13 +2767,13 @@
                 + '</span>').join('');
             el.querySelectorAll('[data-avatar]').forEach(b => b.addEventListener('click', () => {
                 if (!confirm(`Make ${b.dataset.avatar} a character of its own again? Its chats' memory goes with it.`)) return;
-                memDo('/api/memory/card', {character: memCharId, avatar: b.dataset.avatar, action: 'remove'}, () => memLoadChar(memCharId));
+                memDo('/api/memory/card', {character: memCharId, avatar: b.dataset.avatar, action: 'remove'}, memAfterCharChange);
             }));
         }
 
         function memAddCard(card) {
             if (!confirm(`Add ${card.name} (${card.avatar}) to ${memCharData.name}? Its chats and memory become ${memCharData.name}'s.`)) return;
-            memDo('/api/memory/card', {character: memCharId, avatar: card.avatar, action: 'add'}, () => memLoadChar(memCharId));
+            memDo('/api/memory/card', {character: memCharId, avatar: card.avatar, action: 'add'}, memAfterCharChange);
         }
 
         // A synopsis or chapter (a section of passed_on in memory.py): what it
@@ -3028,12 +2931,12 @@
                     const mode = btn.dataset.bmode;
                     if (mode === b.mode) return;
                     if (n && !confirm(`Pass this binding's ${n} chat${n === 1 ? '' : 's'} on ${memModeText(mode)}? Each is written that way the next time a chat with ${memPersonaLabel(b.persona, b.persona_name)} needs it: about one Sonnet call per synopsis or chapter, and one to divide a long chat into chapters. The calls count against your plan.`)) return;
-                    memDo('/api/memory/binding', {character: memCharId, persona: b.persona, action: 'mode', mode}, () => memLoadChar(memCharId));
+                    memDo('/api/memory/binding', {character: memCharId, persona: b.persona, action: 'mode', mode}, memAfterCharChange);
                 }));
                 body.querySelector('[data-act="unbind"]').addEventListener('click', () => {
                     if (!confirm(`Unbind ${data.name} from ${memPersonaLabel(b.persona, b.persona_name)}? The chats' recaps are kept.`)) return;
                     memDirtyBindings.delete(b.persona);
-                    memDo('/api/memory/binding', {character: memCharId, persona: b.persona, action: 'remove'}, () => memLoadChar(memCharId));
+                    memDo('/api/memory/binding', {character: memCharId, persona: b.persona, action: 'remove'}, memAfterCharChange);
                 });
                 box.appendChild(item);
             });
@@ -3051,7 +2954,7 @@
             if (calls && !confirm(`Recapping the newly ticked chats takes about ${calls} Sonnet call${calls === 1 ? '' : 's'}, which count against your plan. Go ahead?`)) return;
             memDirtyBindings.delete(b.persona);
             await memDo('/api/memory/binding/chats', {character: memCharId, persona: b.persona, add, remove}, async () => {
-                await memLoadChar(memCharId);
+                await memAfterCharChange();
                 memPollJobs();
             });
         }
@@ -3060,7 +2963,13 @@
             if (!persona || !memCharId) return;
             memTogglePersonaPicker(false);
             memOpenBindings.add(persona);
-            await memDo('/api/memory/binding', {character: memCharId, persona, action: 'add'}, () => memLoadChar(memCharId));
+            await memDo('/api/memory/binding', {character: memCharId, persona, action: 'add'}, memAfterCharChange);
+        }
+
+        // After a card or binding changed: the character, and the graph.
+        async function memAfterCharChange() {
+            await memLoadChar(memCharId);
+            await memLoadGraph();
         }
 
         function memTogglePersonaPicker(open) {
@@ -3412,6 +3321,904 @@
             }));
         }
 
+        // ===== The graph: characters, group chats and personas =====
+        // memGraph: /api/memory/graph, with byId. memSel: what the panel
+        // shows: {kind: 'node', id}, {kind: 'edge', key} or {kind:
+        // 'connect', a, b} (the connect form between two nodes). memG: the
+        // layout and the view: pos (node id -> {x, y, vx, vy, fixed}), the
+        // zoom k and offset tx, ty in CSS pixels, the kinds shown, showAll,
+        // extra (nodes found by search, shown with their neighbours), the
+        // visible nodes and edges, alpha (how much the layout still moves;
+        // it stops when it's cold), connect (picking two nodes to connect).
+        let memGraph = {nodes: [], edges: [], byId: new Map()};
+        let memSel = null;
+        const memG = {
+            canvas: null, ctx: null, w: 0, h: 0, dpr: 1, colors: {},
+            pos: new Map(), k: 1, tx: 0, ty: 0, fitted: false,
+            kinds: new Set(['char', 'group', 'persona']), showAll: false, extra: new Set(),
+            nodes: [], edges: [], adj: new Map(), alpha: 0, raf: 0,
+            ptrs: new Map(), drag: null, hover: null, connect: null,
+        };
+        // Rest lengths of the lines, in graph units.
+        const MEM_G_LEN = {member: 60, binding: 80, memory: 110};
+        const MEM_G_KIND = {char: 'Character', group: 'Group chat', persona: 'Persona'};
+
+        function memGraphNode(id) {
+            return memGraph.byId.get(id) || null;
+        }
+
+        function memEdgeKey(e) {
+            return `${e.kind}\n${e.a}\n${e.b}`;
+        }
+
+        function memSelEdge() {
+            return memSel?.kind === 'edge' ? memGraph.edges.find(e => memEdgeKey(e) === memSel.key) || null : null;
+        }
+
+        async function memLoadGraph() {
+            let g;
+            try {
+                g = await memApi('/api/memory/graph');
+            } catch (e) {
+                memGShowEmpty(e.message);
+                return;
+            }
+            memGraph = {nodes: g.nodes || [], edges: g.edges || [], byId: new Map((g.nodes || []).map(n => [n.id, n]))};
+            if ((memSel?.kind === 'edge' && !memSelEdge()) || (memSel?.kind === 'node' && !memGraph.byId.has(memSel.id))) memClosePanel();
+            memGRebuild();
+        }
+
+        // Which nodes and lines are shown: the kinds ticked, and unless Show
+        // all is on, the nodes with memory or a binding, the ones found or
+        // selected, and their neighbours.
+        function memGRebuild() {
+            const all = new Map();
+            memGraph.edges.forEach(e => {
+                if (!all.has(e.a)) all.set(e.a, []);
+                if (!all.has(e.b)) all.set(e.b, []);
+                all.get(e.a).push(e.b);
+                all.get(e.b).push(e.a);
+            });
+            const kindOk = id => memG.kinds.has(memGraphNode(id)?.type);
+            let show;
+            if (memG.showAll) {
+                show = new Set(memGraph.nodes.map(n => n.id));
+            } else {
+                show = new Set();
+                const seeds = memGraph.nodes.filter(n => n.linked).map(n => n.id).concat([...memG.extra]);
+                if (memSel?.kind === 'node') seeds.push(memSel.id);
+                seeds.forEach(id => {
+                    if (!memGraph.byId.has(id)) return;
+                    show.add(id);
+                    (all.get(id) || []).forEach(o => show.add(o));
+                });
+            }
+            show = new Set([...show].filter(kindOk));
+            const sel = memSelEdge();
+            if (sel) [sel.a, sel.b].forEach(id => show.add(id));
+            if (memSel?.kind === 'node' && memGraph.byId.has(memSel.id)) show.add(memSel.id);
+            memG.nodes = memGraph.nodes.filter(n => show.has(n.id));
+            memG.edges = memGraph.edges.filter(e => show.has(e.a) && show.has(e.b));
+            // A memory line between nodes that are also joined otherwise
+            // (a member and their group) curves away from that line.
+            const joined = new Set(memG.edges.filter(e => e.kind !== 'memory').map(e => [e.a, e.b].sort().join('\n')));
+            memG.edges.forEach(e => { e.curve = e.kind === 'memory' && joined.has([e.a, e.b].sort().join('\n')); });
+            memG.adj = new Map(memG.nodes.map(n => [n.id, []]));
+            memG.edges.forEach(e => {
+                memG.adj.get(e.a).push(e.b);
+                memG.adj.get(e.b).push(e.a);
+            });
+            // New nodes start next to a neighbour already placed, or spread
+            // around the middle.
+            const spread = 30 * Math.sqrt(memG.nodes.length + 1);
+            let added = 0;
+            memG.nodes.forEach(n => {
+                if (memG.pos.has(n.id)) return;
+                const near = memG.adj.get(n.id).map(o => memG.pos.get(o)).find(Boolean);
+                const a = Math.random() * Math.PI * 2, r = near ? 20 + Math.random() * 30 : spread * Math.sqrt(Math.random());
+                memG.pos.set(n.id, {x: (near ? near.x : 0) + Math.cos(a) * r, y: (near ? near.y : 0) + Math.sin(a) * r, vx: 0, vy: 0});
+                added++;
+            });
+            memG.nodes.forEach(n => { n.r = 5 + Math.min(9, Math.sqrt(memG.adj.get(n.id).length) * 1.6); });
+            if (added) {
+                memG.alpha = 1;
+                memGWarm(added > 20 ? 220 : 60);
+            }
+            memGShowEmpty(memG.nodes.length ? '' : memGraph.nodes.length
+                ? 'Nothing has memory or a persona binding yet. Tap Connect to draw a connection, Show all to see every character, group chat and persona, or search for one.'
+                : 'No characters, group chats or personas were found in SillyTavern.');
+            if (added && memG.w && (!memG.fitted || added > 20)) {
+                memGFit();
+                memG.fitted = true;
+            }
+            memGKick();
+        }
+
+        function memGShowEmpty(msg) {
+            const el = document.getElementById('memGEmpty');
+            el.textContent = msg;
+            el.style.display = msg ? 'flex' : 'none';
+        }
+
+        // One step of the layout: nodes push each other apart (exactly
+        // within neighbouring grid cells, by cell beyond), lines pull their
+        // ends to their length, and a weak pull holds everything near the
+        // middle.
+        function memGTick() {
+            const P = memG.pos, a = memG.alpha, cell = 100, cells = new Map();
+            const pts = memG.nodes.map(n => P.get(n.id));
+            pts.forEach(p => {
+                p.cx = Math.floor(p.x / cell);
+                p.cy = Math.floor(p.y / cell);
+                const key = `${p.cx},${p.cy}`;
+                let c = cells.get(key);
+                if (!c) cells.set(key, c = {cx: p.cx, cy: p.cy, x: 0, y: 0, m: 0, pts: []});
+                c.x += p.x;
+                c.y += p.y;
+                c.m++;
+                c.pts.push(p);
+            });
+            const cl = [...cells.values()];
+            cl.forEach(c => { c.x /= c.m; c.y /= c.m; });
+            const S = 70 * a;
+            pts.forEach(p => {
+                for (const c of cl) {
+                    if (Math.abs(c.cx - p.cx) <= 1 && Math.abs(c.cy - p.cy) <= 1) {
+                        for (const q of c.pts) {
+                            if (q === p) continue;
+                            let dx = p.x - q.x, dy = p.y - q.y, d2 = dx * dx + dy * dy;
+                            if (d2 < 1) { dx = Math.random() - 0.5; dy = Math.random() - 0.5; d2 = 1; }
+                            p.vx += dx * S / d2;
+                            p.vy += dy * S / d2;
+                        }
+                    } else {
+                        const dx = p.x - c.x, dy = p.y - c.y, d2 = dx * dx + dy * dy;
+                        p.vx += dx * S * c.m / d2;
+                        p.vy += dy * S * c.m / d2;
+                    }
+                }
+            });
+            memG.edges.forEach(e => {
+                const p = P.get(e.a), q = P.get(e.b);
+                const dx = q.x - p.x, dy = q.y - p.y, d = Math.sqrt(dx * dx + dy * dy) || 1;
+                const s = (d - MEM_G_LEN[e.kind]) / d * a * 0.5 / Math.min(memG.adj.get(e.a).length, memG.adj.get(e.b).length);
+                p.vx += dx * s; p.vy += dy * s;
+                q.vx -= dx * s; q.vy -= dy * s;
+            });
+            pts.forEach(p => {
+                p.vx -= p.x * 0.015 * a;
+                p.vy -= p.y * 0.015 * a;
+                if (p.fixed) {
+                    p.vx = p.vy = 0;
+                    return;
+                }
+                p.vx *= 0.6;
+                p.vy *= 0.6;
+                p.x += p.vx;
+                p.y += p.vy;
+            });
+            memG.alpha += (0 - memG.alpha) * 0.025;
+        }
+
+        function memGWarm(n) {
+            for (let i = 0; i < n && memG.alpha > 0.01; i++) memGTick();
+        }
+
+        function memGKick() {
+            if (memG.raf || !memG.canvas) return;
+            memG.raf = requestAnimationFrame(() => {
+                memG.raf = 0;
+                if (memG.alpha > 0.01) {
+                    memGTick();
+                    memGKick();
+                }
+                memGDraw();
+            });
+        }
+
+        function memGFit() {
+            if (!memG.nodes.length || !memG.w) return;
+            let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+            memG.nodes.forEach(n => {
+                const p = memG.pos.get(n.id);
+                x0 = Math.min(x0, p.x); y0 = Math.min(y0, p.y);
+                x1 = Math.max(x1, p.x); y1 = Math.max(y1, p.y);
+            });
+            const pad = 60;
+            memG.k = Math.max(0.1, Math.min(2.2, (memG.w - pad) / (x1 - x0 || 1), (memG.h - pad) / (y1 - y0 || 1)));
+            memG.tx = memG.w / 2 - (x0 + x1) / 2 * memG.k;
+            memG.ty = memG.h / 2 - (y0 + y1) / 2 * memG.k;
+            memGKick();
+        }
+
+        function memGCenterOn(id) {
+            const p = memG.pos.get(id);
+            if (!p || !memG.w) return;
+            memG.k = Math.max(memG.k, 1);
+            memG.tx = memG.w / 2 - p.x * memG.k;
+            memG.ty = memG.h / 2 - p.y * memG.k;
+            memGKick();
+        }
+
+        function memGResize() {
+            const box = document.getElementById('memGBox');
+            const w = box.clientWidth, h = box.clientHeight;
+            if (!w || !h) return;
+            const dpr = window.devicePixelRatio || 1;
+            // Keep the middle of the view where it was.
+            if (memG.w) {
+                memG.tx += (w - memG.w) / 2;
+                memG.ty += (h - memG.h) / 2;
+            }
+            memG.w = w; memG.h = h; memG.dpr = dpr;
+            memG.canvas.width = Math.round(w * dpr);
+            memG.canvas.height = Math.round(h * dpr);
+            if (!memG.fitted && memG.nodes.length) {
+                memGFit();
+                memG.fitted = true;
+            }
+            memGDraw();
+        }
+
+        // A line's ends, and its control point when it curves.
+        function memGEdgeGeom(e) {
+            const p = memG.pos.get(e.a), q = memG.pos.get(e.b);
+            if (!e.curve) return {p, q, c: null};
+            const mx = (p.x + q.x) / 2, my = (p.y + q.y) / 2, dx = q.x - p.x, dy = q.y - p.y;
+            return {p, q, c: {x: mx - dy * 0.25, y: my + dx * 0.25}};
+        }
+
+        // What's highlighted: the selected or hovered node and its
+        // neighbours, or the selected line's ends. null: everything.
+        function memGFocus() {
+            const id = memSel?.kind === 'node' ? memSel.id : memG.hover;
+            if (id && memG.adj.has(id)) return {nodes: new Set([id, ...memG.adj.get(id)]), edge: e => e.a === id || e.b === id};
+            const sel = memSelEdge();
+            if (sel) return {nodes: new Set([sel.a, sel.b]), edge: e => e === sel};
+            if (memSel?.kind === 'connect') return {nodes: new Set([memSel.a, memSel.b]), edge: () => false};
+            return null;
+        }
+
+        function memGArrow(ctx, from, tip, size) {
+            const dx = tip.x - from.x, dy = tip.y - from.y, d = Math.sqrt(dx * dx + dy * dy) || 1;
+            const ux = dx / d, uy = dy / d;
+            ctx.beginPath();
+            ctx.moveTo(tip.x, tip.y);
+            ctx.lineTo(tip.x - ux * size - uy * size * 0.55, tip.y - uy * size + ux * size * 0.55);
+            ctx.lineTo(tip.x - ux * size + uy * size * 0.55, tip.y - uy * size - ux * size * 0.55);
+            ctx.closePath();
+            ctx.fill();
+        }
+
+        // Where a line meets a node's edge, coming from `from`.
+        function memGTip(node, from) {
+            const p = memG.pos.get(node.id), dx = p.x - from.x, dy = p.y - from.y, d = Math.sqrt(dx * dx + dy * dy) || 1;
+            const r = node.r + 2.5 / memG.k;
+            return {x: p.x - dx / d * r, y: p.y - dy / d * r};
+        }
+
+        function memGNodePath(ctx, n, p, r) {
+            ctx.beginPath();
+            if (n.type === 'group') {
+                const s = r * 0.9, rr = s * 0.35;
+                ctx.moveTo(p.x - s + rr, p.y - s);
+                ctx.arcTo(p.x + s, p.y - s, p.x + s, p.y + s, rr);
+                ctx.arcTo(p.x + s, p.y + s, p.x - s, p.y + s, rr);
+                ctx.arcTo(p.x - s, p.y + s, p.x - s, p.y - s, rr);
+                ctx.arcTo(p.x - s, p.y - s, p.x + s, p.y - s, rr);
+                ctx.closePath();
+            } else if (n.type === 'persona') {
+                const s = r * 1.15;
+                ctx.moveTo(p.x, p.y - s);
+                ctx.lineTo(p.x + s, p.y);
+                ctx.lineTo(p.x, p.y + s);
+                ctx.lineTo(p.x - s, p.y);
+                ctx.closePath();
+            } else {
+                ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
+            }
+        }
+
+        function memGDraw() {
+            const {ctx, k, dpr, colors: C} = memG;
+            if (!ctx || !memG.w) return;
+            ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+            ctx.clearRect(0, 0, memG.w, memG.h);
+            ctx.setTransform(dpr * k, 0, 0, dpr * k, dpr * memG.tx, dpr * memG.ty);
+            const focus = memGFocus();
+            const px = v => v / k;
+            const order = {member: 0, binding: 1, memory: 2};
+            const edges = [...memG.edges].sort((x, y) => order[x.kind] - order[y.kind]);
+            for (const e of edges) {
+                const {p, q, c} = memGEdgeGeom(e);
+                const lit = focus ? focus.edge(e) : true;
+                ctx.globalAlpha = lit ? 1 : 0.12;
+                ctx.setLineDash(e.kind === 'binding' ? [px(6), px(4)] : []);
+                ctx.strokeStyle = C[e.kind];
+                ctx.lineWidth = px(e.kind === 'memory' ? (memSelEdge() === e ? 3.5 : 2.4) : e.kind === 'binding' ? 1.8 : (focus && lit ? 1.4 : 1));
+                if (e.kind === 'member' && !(focus && lit)) ctx.globalAlpha *= 0.7;
+                ctx.beginPath();
+                ctx.moveTo(p.x, p.y);
+                if (c) ctx.quadraticCurveTo(c.x, c.y, q.x, q.y); else ctx.lineTo(q.x, q.y);
+                ctx.stroke();
+                if (e.kind === 'memory') {
+                    ctx.fillStyle = C.memory;
+                    const size = px(11);
+                    const A = memGraphNode(e.a), B = memGraphNode(e.b);
+                    if (e.ab) memGArrow(ctx, c || p, memGTip(B, c || p), size);
+                    if (e.ba) memGArrow(ctx, c || q, memGTip(A, c || q), size);
+                }
+            }
+            ctx.setLineDash([]);
+            const showLabels = k >= 0.8;
+            const font = `${px(11.5)}px Inter, system-ui, sans-serif`;
+            for (const n of memG.nodes) {
+                const p = memG.pos.get(n.id);
+                const lit = focus ? focus.nodes.has(n.id) : true;
+                const chosen = (memSel?.kind === 'node' && memSel.id === n.id) || memG.connect?.from === n.id;
+                ctx.globalAlpha = lit ? 1 : 0.18;
+                memGNodePath(ctx, n, p, n.r);
+                ctx.fillStyle = C[n.type];
+                ctx.fill();
+                if (chosen || memG.hover === n.id) {
+                    ctx.lineWidth = px(2.5);
+                    ctx.strokeStyle = C.paper;
+                    ctx.stroke();
+                } else if (!n.linked) {
+                    ctx.lineWidth = px(1);
+                    ctx.strokeStyle = C.ink;
+                    ctx.stroke();
+                }
+                if (n.alerts) {
+                    ctx.beginPath();
+                    ctx.arc(p.x + n.r * 0.8, p.y - n.r * 0.8, px(4), 0, Math.PI * 2);
+                    ctx.fillStyle = C.error;
+                    ctx.fill();
+                }
+                if ((showLabels && (lit || !focus)) || (focus && lit) || n.linked && k >= 0.45) {
+                    ctx.font = font;
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'top';
+                    const y = p.y + n.r * (n.type === 'persona' ? 1.15 : 1) + px(3);
+                    ctx.lineWidth = px(3);
+                    ctx.strokeStyle = C.ink;
+                    ctx.strokeText(n.name, p.x, y);
+                    ctx.fillStyle = lit ? C.paper : C.faint;
+                    ctx.fillText(n.name, p.x, y);
+                }
+            }
+            ctx.globalAlpha = 1;
+        }
+
+        // ----- Pointer input: pan, pinch, zoom, drag a node, tap -----
+        function memGWorld(sx, sy) {
+            return {x: (sx - memG.tx) / memG.k, y: (sy - memG.ty) / memG.k};
+        }
+
+        function memGHitNode(sx, sy, touch) {
+            const w = memGWorld(sx, sy), slop = (touch ? 12 : 4) / memG.k;
+            let best = null, bd = Infinity;
+            for (const n of memG.nodes) {
+                const p = memG.pos.get(n.id), d = Math.hypot(p.x - w.x, p.y - w.y);
+                if (d <= n.r * 1.15 + slop && d < bd) { best = n; bd = d; }
+            }
+            return best;
+        }
+
+        function memGSegDist(x, y, a, b) {
+            const dx = b.x - a.x, dy = b.y - a.y, l2 = dx * dx + dy * dy;
+            const t = l2 ? Math.max(0, Math.min(1, ((x - a.x) * dx + (y - a.y) * dy) / l2)) : 0;
+            return Math.hypot(x - a.x - t * dx, y - a.y - t * dy);
+        }
+
+        function memGHitEdge(sx, sy, touch) {
+            const w = memGWorld(sx, sy), slop = (touch ? 14 : 6) / memG.k;
+            let best = null, bd = Infinity;
+            for (const e of memG.edges) {
+                const {p, q, c} = memGEdgeGeom(e);
+                let d;
+                if (!c) d = memGSegDist(w.x, w.y, p, q);
+                else {
+                    d = Infinity;
+                    let prev = p;
+                    for (let i = 1; i <= 12; i++) {
+                        const t = i / 12, u = 1 - t;
+                        const pt = {x: u * u * p.x + 2 * u * t * c.x + t * t * q.x, y: u * u * p.y + 2 * u * t * c.y + t * t * q.y};
+                        d = Math.min(d, memGSegDist(w.x, w.y, prev, pt));
+                        prev = pt;
+                    }
+                }
+                // Memory and binding lines win over a membership line
+                // they run next to.
+                const score = d * (e.kind === 'member' ? 1.6 : 1);
+                if (d <= slop && score < bd) { best = e; bd = score; }
+            }
+            return best;
+        }
+
+        function memGZoomAt(sx, sy, k) {
+            k = Math.max(0.08, Math.min(5, k));
+            const w = memGWorld(sx, sy);
+            memG.k = k;
+            memG.tx = sx - w.x * k;
+            memG.ty = sy - w.y * k;
+            memGKick();
+        }
+
+        function memGLocal(e) {
+            const r = memG.canvas.getBoundingClientRect();
+            return {x: e.clientX - r.left, y: e.clientY - r.top};
+        }
+
+        function memGPinch() {
+            const [a, b] = [...memG.ptrs.values()];
+            return {d: Math.hypot(a.x - b.x, a.y - b.y) || 1, x: (a.x + b.x) / 2, y: (a.y + b.y) / 2};
+        }
+
+        function memGPointerDown(e) {
+            const pt = memGLocal(e);
+            memG.canvas.setPointerCapture(e.pointerId);
+            memG.ptrs.set(e.pointerId, pt);
+            if (memG.ptrs.size === 2) {
+                const m = memGPinch();
+                if (memG.drag?.mode === 'node') memG.pos.get(memG.drag.id).fixed = false;
+                memG.drag = {mode: 'pinch', d0: m.d, k0: memG.k, w: memGWorld(m.x, m.y), moved: true};
+                return;
+            }
+            if (memG.ptrs.size > 2) return;
+            const touch = e.pointerType !== 'mouse';
+            const node = memGHitNode(pt.x, pt.y, touch);
+            memG.drag = {mode: node ? 'node' : 'pan', id: node?.id, sx: pt.x, sy: pt.y, lx: pt.x, ly: pt.y, moved: false, touch};
+        }
+
+        function memGPointerMove(e) {
+            const pt = memGLocal(e);
+            const d = memG.drag;
+            if (!memG.ptrs.has(e.pointerId)) {
+                // A mouse moving over the graph: hover.
+                if (e.pointerType !== 'mouse') return;
+                const n = memGHitNode(pt.x, pt.y, false);
+                const id = n?.id || null;
+                memG.canvas.style.cursor = n || memGHitEdge(pt.x, pt.y, false) ? 'pointer' : 'grab';
+                if (id !== memG.hover) {
+                    memG.hover = id;
+                    memGKick();
+                }
+                return;
+            }
+            memG.ptrs.set(e.pointerId, pt);
+            if (!d) return;
+            if (d.mode === 'pinch') {
+                if (memG.ptrs.size < 2) return;
+                const m = memGPinch();
+                memG.k = Math.max(0.08, Math.min(5, d.k0 * m.d / d.d0));
+                memG.tx = m.x - d.w.x * memG.k;
+                memG.ty = m.y - d.w.y * memG.k;
+                memGKick();
+                return;
+            }
+            if (!d.moved && Math.hypot(pt.x - d.sx, pt.y - d.sy) > (d.touch ? 8 : 4)) d.moved = true;
+            if (!d.moved) return;
+            if (d.mode === 'node') {
+                const p = memG.pos.get(d.id), w = memGWorld(pt.x, pt.y);
+                p.fixed = true;
+                p.x = w.x;
+                p.y = w.y;
+                memG.alpha = Math.max(memG.alpha, 0.25);
+            } else {
+                memG.tx += pt.x - d.lx;
+                memG.ty += pt.y - d.ly;
+                memG.canvas.style.cursor = 'grabbing';
+            }
+            d.lx = pt.x;
+            d.ly = pt.y;
+            memGKick();
+        }
+
+        function memGPointerUp(e) {
+            const d = memG.drag;
+            memG.ptrs.delete(e.pointerId);
+            if (d?.mode === 'pinch') {
+                if (!memG.ptrs.size) memG.drag = null;
+                return;
+            }
+            memG.drag = null;
+            if (!d) return;
+            if (d.mode === 'node') memG.pos.get(d.id).fixed = false;
+            if (e.pointerType === 'mouse') memG.canvas.style.cursor = 'grab';
+            if (d.moved || e.type === 'pointercancel') return;
+            const node = memGHitNode(d.sx, d.sy, d.touch);
+            if (node) return memGTapNode(node.id);
+            if (memG.connect) return;
+            const edge = memGHitEdge(d.sx, d.sy, d.touch);
+            if (edge) return memSelectEdge(edge);
+            memClosePanel();
+        }
+
+        function memGWheel(e) {
+            e.preventDefault();
+            const pt = memGLocal(e);
+            memGZoomAt(pt.x, pt.y, memG.k * Math.exp(-e.deltaY * (e.deltaMode ? 0.05 : 0.0015)));
+        }
+
+        // ----- Connecting two nodes -----
+        // memG.connect: {from} while picking, from null until the first
+        // node (whose chats are remembered) is tapped.
+        // The panel closes, so the graph is free to tap (on a phone it's a
+        // sheet over it).
+        function memGStartConnect(from = null) {
+            memClosePanel();
+            memG.connect = {from};
+            memGBanner();
+            memGKick();
+            const box = document.getElementById('memGBox'), r = box.getBoundingClientRect();
+            if (r.top < 0 || r.bottom > window.innerHeight) box.scrollIntoView({block: 'center', behavior: 'smooth'});
+        }
+
+        function memGEndConnect() {
+            memG.connect = null;
+            memGBanner();
+            memGKick();
+        }
+
+        function memGBanner() {
+            const el = document.getElementById('memGBanner');
+            document.getElementById('memGConnect').classList.toggle('active', !!memG.connect);
+            if (!memG.connect) {
+                el.style.display = 'none';
+                return;
+            }
+            const from = memGraphNode(memG.connect.from);
+            el.innerHTML = `<span>${from ? `Now tap the one who remembers <b>${memEsc(from.name)}</b>'s chats, or a persona to bind.`
+                : 'Tap the character or group chat whose chats will be remembered, or a persona to bind.'}</span>
+                <button type="button" class="toggle-btn sm" id="memGBannerCancel">Cancel</button>`;
+            el.style.display = 'flex';
+            document.getElementById('memGBannerCancel').addEventListener('click', memGEndConnect);
+        }
+
+        async function memGTapNode(id) {
+            const c = memG.connect;
+            if (!c) return memSelectNode(id);
+            if (!c.from) {
+                c.from = id;
+                memGBanner();
+                memGKick();
+                return;
+            }
+            if (id === c.from) return;
+            const a = c.from;
+            memGEndConnect();
+            await memGConnectPair(a, id);
+        }
+
+        // a's chats to be remembered by b's, or a persona bound to a
+        // character.
+        async function memGConnectPair(a, b) {
+            const A = memGraphNode(a), B = memGraphNode(b);
+            if (!A || !B) return;
+            const persona = [A, B].find(n => n.type === 'persona'), other = persona === A ? B : A;
+            if (persona) {
+                if (other.type !== 'char') {
+                    alert('A persona can only be bound to a character.');
+                    return;
+                }
+                await memSelectNode(other.id);
+                if (memCharData?.bindings.some(x => x.persona === persona.avatar)) {
+                    memOpenBindings.add(persona.avatar);
+                    memRenderBindings(memCharData);
+                    return;
+                }
+                await memBind(persona.avatar);
+                return;
+            }
+            memSel = {kind: 'connect', a, b};
+            memRenderPanel();
+            memToggleForm(document.getElementById('memConnSlot'), {nodes: {source: a, target: b}});
+            memGKick();
+        }
+
+        // ----- The panel: what's selected -----
+        async function memSelectNode(id, opts = {}) {
+            if (memG.connect) memGEndConnect();
+            if (memFormBox && document.getElementById('memPanel').contains(memFormBox)) memCloseForm();
+            const n = memGraphNode(id);
+            if (!n) return;
+            memSel = {kind: 'node', id};
+            if (!memG.adj.has(id)) {
+                memG.extra.add(id);
+                memGRebuild();
+            }
+            if (opts.center) memGCenterOn(id);
+            memGKick();
+            await memRenderPanel();
+        }
+
+        function memSelectEdge(e) {
+            if (memFormBox && document.getElementById('memPanel').contains(memFormBox)) memCloseForm();
+            memSel = {kind: 'edge', key: memEdgeKey(e)};
+            memGKick();
+            memRenderPanel();
+        }
+
+        function memClosePanel() {
+            if (memFormBox && document.getElementById('memPanel').contains(memFormBox)) memCloseForm();
+            memSel = null;
+            document.getElementById('memPanel').style.display = 'none';
+            document.getElementById('memGraphWrap').classList.remove('has-panel');
+            memGKick();
+        }
+
+        function memNodeLink(id) {
+            const n = memGraphNode(id);
+            return n ? `<button type="button" class="mem-nlink" data-node="${memEsc(id)}"><span class="mem-gdot ${n.type}"></span>${memEsc(n.name)}</button>` : '';
+        }
+
+        function memWireNodeLinks(root) {
+            root.querySelectorAll('[data-node]').forEach(b => b.addEventListener('click', () => memSelectNode(b.dataset.node, {center: true})));
+        }
+
+        async function memRenderPanel() {
+            const panel = document.getElementById('memPanel');
+            if (!memSel) return memClosePanel();
+            const title = document.getElementById('memPanelTitle'), body = document.getElementById('memPanelBody');
+            const charBox = document.getElementById('memChar');
+            const wasHidden = panel.style.display === 'none';
+            panel.style.display = 'block';
+            document.getElementById('memGraphWrap').classList.add('has-panel');
+            if (wasHidden) panel.scrollTop = 0;
+            charBox.style.display = 'none';
+            if (memSel.kind === 'connect') {
+                const A = memGraphNode(memSel.a), B = memGraphNode(memSel.b);
+                title.innerHTML = `${memEsc(A?.name)} <span class="mem-arrow">→</span> ${memEsc(B?.name)}`;
+                body.innerHTML = `<p class="card-desc">Pick a chat of ${memEsc(A?.name)}'s to be remembered, and the chat of ${memEsc(B?.name)}'s that remembers it.</p><div class="mem-form-slot" id="memConnSlot"></div>`;
+                return;
+            }
+            if (memSel.kind === 'edge') return memRenderEdgePanel(title, body);
+            const n = memGraphNode(memSel.id);
+            title.innerHTML = `<span class="mem-gdot ${n.type}"></span>${memEsc(n.name)}`;
+            const counts = [MEM_G_KIND[n.type]];
+            if (n.chats !== undefined) counts.push(`${n.chats} ${n.type === 'char' ? 'own ' : ''}chat${n.chats === 1 ? '' : 's'}`);
+            if (n.self_links) counts.push(`${n.self_links} connection${n.self_links === 1 ? '' : 's'} between its own chats`);
+            if (n.alerts) counts.push(`${n.alerts} open conflict${n.alerts === 1 ? '' : 's'}`);
+            const memLines = memGraph.edges.filter(e => e.kind === 'memory' && (e.a === n.id || e.b === n.id));
+            const lines = memLines.length ? `<div class="mem-sub">Memory</div><div class="mem-edge-list">${memLines.map(e => {
+                const other = e.a === n.id ? e.b : e.a;
+                const out = e.a === n.id ? e.ab : e.ba, inn = e.a === n.id ? e.ba : e.ab;
+                const how = out && inn ? 'they remember each other' : out ? `remembers ${memEsc(n.name)}'s chats` : `${memEsc(n.name)} remembers its chats`;
+                return `<div class="mem-edge-row" data-edge="${memEsc(memEdgeKey(e))}"><span>${memNodeLink(other)}</span><span class="list-item-meta">${how} · ${e.pairs.length} chat${e.pairs.length === 1 ? '' : 's'}</span></div>`;
+            }).join('')}</div>` : '';
+            if (n.type === 'char') {
+                body.innerHTML = `<div class="list-item-meta" style="margin-bottom:10px;">${memEsc(counts.join(' · '))}</div>${lines}`;
+                charBox.style.display = 'block';
+            } else if (n.type === 'group') {
+                const members = n.members.map(memNodeLink).join('');
+                const opts = n.members.map(m => `<option value="${memEsc(m)}">${memEsc(memGraphNode(m)?.name || m)}</option>`).join('');
+                body.innerHTML = `<div class="list-item-meta" style="margin-bottom:10px;">${memEsc(counts.join(' · '))}</div>
+                    <div class="mem-inline" style="margin-bottom:12px;"><button type="button" class="toggle-btn sm primary" id="memGroupConnect">Connect to…</button></div>
+                    ${lines}
+                    <div class="mem-sub">Members</div><div class="mem-nlinks">${members || '<span class="mem-empty">No members.</span>'}</div>
+                    <div class="mem-sub mem-sub-row"><span>Chats</span>${n.members.length ? `<label class="mem-inline list-item-meta">as remembered by <select id="memGroupAs">${opts}</select></label>` : ''}</div>
+                    <p class="card-desc">Open one to read a member's recap of it, or to connect chats to it.</p>
+                    <div id="memGroupChats"><div class="mem-empty">Reading the chats...</div></div>`;
+                document.getElementById('memGroupConnect').addEventListener('click', () => memGStartConnect(n.id));
+                const sel = document.getElementById('memGroupAs');
+                if (sel) {
+                    if (memCharId && n.members.includes(`char:${memCharId}`)) sel.value = `char:${memCharId}`;
+                    sel.addEventListener('change', () => memGroupLoad(n, sel.value));
+                    memGroupLoad(n, sel.value);
+                } else {
+                    document.getElementById('memGroupChats').innerHTML = '<div class="mem-empty">The group has no members to remember its chats.</div>';
+                }
+            } else {
+                await memPersonas().catch(() => []);
+                const p = memPersonaMap.get(n.avatar);
+                const bound = memGraph.edges.filter(e => e.kind === 'binding' && e.a === n.id);
+                body.innerHTML = `<div style="margin-bottom:12px;">${memPersonaHead(p, n.avatar, n.name)}</div>
+                    <div class="mem-sub">Bound characters</div>
+                    ${bound.length ? `<div class="mem-edge-list">${bound.map(e => `<div class="mem-edge-row"><span>${memNodeLink(e.b)}</span><span class="list-item-meta">remembers ${e.chats} chat${e.chats === 1 ? '' : 's'}, ${memModeText(e.mode)}</span></div>`).join('')}</div>`
+                        : '<div class="mem-empty">No character is bound to this persona.</div>'}
+                    <div class="mem-sub">Bind a character</div>
+                    <input id="memPBindSearch" type="text" class="w-full" placeholder="Search characters..." autocomplete="off">
+                    <div id="memPBindResults" class="mem-results"></div>`;
+                document.getElementById('memPBindSearch').addEventListener('input', () => memCardSearch('memPBindSearch', 'memPBindResults', async card => {
+                    const node = memGraph.nodes.find(x => x.type === 'char' && (x.cards || []).includes(card.avatar));
+                    if (node) await memGConnectPair(n.id, node.id);
+                }, bound.map(e => memGraphNode(e.b)?.cards || []).flat()));
+            }
+            body.querySelectorAll('[data-edge]').forEach(r => r.addEventListener('click', e => {
+                if (e.target.closest('[data-node]')) return;
+                const edge = memGraph.edges.find(x => memEdgeKey(x) === r.dataset.edge);
+                if (edge) memSelectEdge(edge);
+            }));
+            memWireNodeLinks(body);
+            if (n.type === 'char' && memCharId !== n.cid) await memLoadChar(n.cid);
+            else if (n.type === 'char' && memCharData) memRenderBindings(memCharData);
+        }
+
+        // A group's chats, as one member has them.
+        async function memGroupLoad(n, memberId) {
+            await memLoadChar(memberId.slice('char:'.length));
+            memRenderGroupChats();
+        }
+
+        function memRenderGroupChats() {
+            const box = document.getElementById('memGroupChats');
+            const n = memSel?.kind === 'node' ? memGraphNode(memSel.id) : null;
+            if (!box || !n || n.type !== 'group' || !memCharData) return;
+            const ids = new Set(n.chat_ids || []);
+            const rows = memCharData.chats.filter(c => ids.has(c.chat_id));
+            box.innerHTML = rows.length ? rows.map(c => `<div class="mem-chat" data-chat="${memEsc(c.chat_id)}">
+                    <div class="mem-chat-main">${memChatSummary(c)}</div>
+                    <div class="mem-chat-side">${memRecapTag(c)}${c.check ? '<div style="margin-top:4px;"><span class="mem-tag warn">conflict</span></div>' : ''}</div>
+                </div>`).join('') : '<div class="mem-empty">No chats.</div>';
+            box.querySelectorAll('[data-chat]').forEach(el => el.addEventListener('click', () => memOpenChat(el.dataset.chat)));
+        }
+
+        function memRenderEdgePanel(title, body) {
+            const e = memSelEdge();
+            if (!e) return memClosePanel();
+            const A = memGraphNode(e.a), B = memGraphNode(e.b);
+            if (e.kind === 'member') {
+                title.innerHTML = 'Group member';
+                body.innerHTML = `<p class="card-desc">${memNodeLink(e.b)} is in the group chat ${memNodeLink(e.a)}. Each member has their own recaps of the group's chats.</p>`;
+                memWireNodeLinks(body);
+                return;
+            }
+            if (e.kind === 'binding') {
+                title.innerHTML = 'Persona binding';
+                body.innerHTML = `<p class="card-desc">${memNodeLink(e.b)} is bound to ${memNodeLink(e.a)}: in each chat with that persona, they remember the ${e.chats} chat${e.chats === 1 ? '' : 's'} ticked in the binding, ${memModeText(e.mode)}, and every new chat with it.</p>
+                    <button type="button" class="toggle-btn sm primary" id="memOpenBinding">Open the binding</button>`;
+                memWireNodeLinks(body);
+                document.getElementById('memOpenBinding').addEventListener('click', () => {
+                    memOpenBindings.add(A.avatar);
+                    memSelectNode(e.b, {center: true});
+                });
+                return;
+            }
+            title.innerHTML = `${memEsc(A.name)} <span class="mem-arrow">${e.ab && e.ba ? '⇄' : e.ab ? '→' : '←'}</span> ${memEsc(B.name)}`;
+            const dir = e.ab && e.ba ? 'mutual' : e.ab ? 'ab' : 'ba';
+            const n = (frm, to) => e.pairs.filter(p => p.from === frm && p.to === to).length;
+            const flows = [];
+            if (e.ab) flows.push(`${memEsc(B.name)} remembers ${n(e.a, e.b)} of ${memEsc(A.name)}'s chats.`);
+            if (e.ba) flows.push(`${memEsc(A.name)} remembers ${n(e.b, e.a)} of ${memEsc(B.name)}'s chats.`);
+            const btn = (d, label) => `<button type="button" class="toggle-btn${dir === d ? ' active' : ''}" data-dir="${d}">${label}</button>`;
+            body.innerHTML = `<p class="card-desc">${flows.join(' ')} The arrow points at who remembers.</p>
+                <div class="field-label">Direction</div>
+                <div class="toggle-group mem-dir">${btn('ab', `${memEsc(A.name)} → ${memEsc(B.name)}`)}${btn('mutual', 'Mutual')}${btn('ba', `${memEsc(B.name)} → ${memEsc(A.name)}`)}</div>
+                <p class="list-item-meta" style="margin:6px 0 12px;">Mutual mirrors every connection: the chat that remembered is remembered back, for everyone in it. One way turns the connections going the other way round.</p>
+                <div class="mem-inline" style="margin-bottom:10px;">
+                    <button type="button" class="toggle-btn sm primary" data-add="ab">Add: ${memEsc(A.name)} → ${memEsc(B.name)}</button>
+                    <button type="button" class="toggle-btn sm primary" data-add="ba">Add: ${memEsc(B.name)} → ${memEsc(A.name)}</button>
+                    <button type="button" class="toggle-btn sm danger" data-dir="none">Remove all</button>
+                </div>
+                <div class="mem-form-slot" id="memEdgeSlot"></div>
+                <div class="mem-sub">Connections</div>
+                <div id="memEdgeConns"></div>`;
+            body.querySelectorAll('[data-dir]').forEach(b => b.addEventListener('click', () => {
+                if (b.dataset.dir !== dir) memSetDirection(e, b.dataset.dir);
+            }));
+            body.querySelectorAll('[data-add]').forEach(b => b.addEventListener('click', () => {
+                const [src, tgt] = b.dataset.add === 'ab' ? [e.a, e.b] : [e.b, e.a];
+                memToggleForm(document.getElementById('memEdgeSlot'), {nodes: {source: src, target: tgt}});
+            }));
+            const pairs = new Set(e.pairs.map(p => `${p.target}\n${p.source}`));
+            memRenderConns(document.getElementById('memEdgeConns'), (t, s) => pairs.has(`${t}\n${s}`));
+        }
+
+        async function memSetDirection(e, direction) {
+            const A = memGraphNode(e.a), B = memGraphNode(e.b);
+            let p;
+            try {
+                p = await memApi('/api/memory/edge/preview?' + new URLSearchParams({a: e.a, b: e.b, direction}));
+            } catch (err) {
+                alert(err.message);
+                return;
+            }
+            if (!p.add.length && !p.remove.length) return;
+            const list = xs => xs.slice(0, 8).map(x => `• ${memChatPlain(x.source_chat)}, remembered in ${memChatPlain(x.target_chat)}`).join('\n')
+                + (xs.length > 8 ? `\n• and ${xs.length - 8} more` : '');
+            const msg = [];
+            if (direction === 'none') msg.push(`Remove every connection between ${A.name} and ${B.name}? Their recaps are kept.`);
+            if (p.add.length) msg.push(`This connects ${p.add.length} chat${p.add.length === 1 ? '' : 's'}:\n${list(p.add)}`);
+            if (p.remove.length && direction !== 'none') msg.push(`and disconnects ${p.remove.length}:\n${list(p.remove)}`);
+            if (p.calls) msg.push(`Recapping takes about ${p.calls} Sonnet call${p.calls === 1 ? '' : 's'}, which count against your plan.`);
+            if (!confirm(msg.join('\n\n') + '\n\nGo ahead?')) return;
+            await memDo('/api/memory/edge', {a: e.a, b: e.b, direction}, async () => {
+                await memAfterConnChange();
+                memPollJobs();
+            });
+        }
+
+        // ----- Search, filters, setup -----
+        function memGSearch() {
+            const input = document.getElementById('memGSearch'), out = document.getElementById('memGSearchResults');
+            const q = input.value.trim().toLowerCase();
+            if (!q) {
+                out.style.display = 'none';
+                return [];
+            }
+            const hits = memGraph.nodes.filter(n => [n.name, n.title].join(' ').toLowerCase().includes(q))
+                .sort((x, y) => (y.linked - x.linked) || x.name.localeCompare(y.name)).slice(0, 12);
+            out.innerHTML = hits.length ? hits.map((n, i) => `<button type="button" class="mem-gsearch-hit" data-i="${i}"><span class="mem-gdot ${n.type}"></span><span>${memEsc(n.name)}${n.title ? ` <small>${memEsc(n.title)}</small>` : ''}</span><small>${MEM_G_KIND[n.type]}</small></button>`).join('')
+                : '<div class="mem-empty" style="padding:8px 10px;">Nothing matches.</div>';
+            out.style.display = 'block';
+            out.querySelectorAll('[data-i]').forEach(b => b.addEventListener('click', () => memGPick(hits[Number(b.dataset.i)])));
+            return hits;
+        }
+
+        function memGPick(n) {
+            const input = document.getElementById('memGSearch');
+            input.value = '';
+            document.getElementById('memGSearchResults').style.display = 'none';
+            if (!memG.kinds.has(n.type)) {
+                memG.kinds.add(n.type);
+                document.querySelector(`[data-gfilter="${n.type}"]`).classList.add('active');
+            }
+            memG.extra.add(n.id);
+            memGRebuild();
+            if (memG.connect) memGTapNode(n.id);
+            else memSelectNode(n.id, {center: true});
+        }
+
+        function memGInit() {
+            const canvas = document.getElementById('memGCanvas');
+            memG.canvas = canvas;
+            memG.ctx = canvas.getContext('2d');
+            const css = getComputedStyle(document.documentElement);
+            const v = name => css.getPropertyValue(name).trim();
+            memG.colors = {char: v('--g-char'), group: v('--g-group'), persona: v('--g-persona'), member: v('--g-member'),
+                           binding: v('--g-binding'), memory: v('--g-memory'), paper: v('--paper'), faint: v('--paper-faint'),
+                           ink: v('--ink-raised'), error: v('--error')};
+            canvas.addEventListener('pointerdown', memGPointerDown);
+            canvas.addEventListener('pointermove', memGPointerMove);
+            canvas.addEventListener('pointerup', memGPointerUp);
+            canvas.addEventListener('pointercancel', memGPointerUp);
+            canvas.addEventListener('pointerleave', e => {
+                if (e.pointerType === 'mouse' && memG.hover && !memG.ptrs.size) {
+                    memG.hover = null;
+                    memGKick();
+                }
+            });
+            canvas.addEventListener('wheel', memGWheel, {passive: false});
+            new ResizeObserver(memGResize).observe(document.getElementById('memGBox'));
+            document.querySelectorAll('[data-gfilter]').forEach(b => b.addEventListener('click', () => {
+                const t = b.dataset.gfilter;
+                if (memG.kinds.has(t)) memG.kinds.delete(t); else memG.kinds.add(t);
+                b.classList.toggle('active', memG.kinds.has(t));
+                memGRebuild();
+            }));
+            document.getElementById('memGAll').addEventListener('click', e => {
+                memG.showAll = !memG.showAll;
+                e.currentTarget.classList.toggle('active', memG.showAll);
+                memGRebuild();
+                memGFit();
+            });
+            document.getElementById('memGFit').addEventListener('click', memGFit);
+            document.getElementById('memGConnect').addEventListener('click', () => memG.connect ? memGEndConnect() : memGStartConnect());
+            document.getElementById('memCharConnect').addEventListener('click', () => memSel?.kind === 'node' && memGStartConnect(memSel.id));
+            document.getElementById('memPanelClose').addEventListener('click', memClosePanel);
+            const search = document.getElementById('memGSearch');
+            search.addEventListener('input', memGSearch);
+            search.addEventListener('keydown', e => {
+                if (e.key === 'Enter') {
+                    const hits = memGSearch();
+                    if (hits.length) memGPick(hits[0]);
+                } else if (e.key === 'Escape') {
+                    search.value = '';
+                    memGSearch();
+                }
+            });
+            document.addEventListener('click', e => {
+                if (!e.target.closest('.mem-gsearch')) document.getElementById('memGSearchResults').style.display = 'none';
+            });
+            document.addEventListener('keydown', e => {
+                if (e.key !== 'Escape' || !document.getElementById('memory').classList.contains('active')) return;
+                if (document.getElementById('memChatModal').style.display === 'flex') return;
+                if (memG.connect) memGEndConnect();
+                else if (memSel && !memFormBox) memClosePanel();
+            });
+        }
+
         async function memPollJobs() {
             let j;
             try {
@@ -3450,8 +4257,6 @@
                 memDirtyBindings.clear();
                 memLoad();
             });
-            document.getElementById('memCharSearch').addEventListener('input', () =>
-                memCardSearch('memCharSearch', 'memCharResults', card => memLoadChar(card.avatar)));
             document.getElementById('memCardSearch').addEventListener('input', () =>
                 memCardSearch('memCardSearch', 'memCardResults', memAddCard, (memCharData?.cards || []).map(c => c.avatar)));
             document.getElementById('memBindToggle').addEventListener('click', () =>
@@ -3460,7 +4265,7 @@
             document.getElementById('memChatFilter').addEventListener('input', memRenderChats);
             document.getElementById('memChatPersona').addEventListener('change', memRenderChats);
             document.getElementById('memChatCloseBtn').addEventListener('click', memCloseChat);
-            document.getElementById('memConnNewBtn').addEventListener('click', () => memToggleForm(document.getElementById('memConnFormTop')));
+            memGInit();
             document.querySelectorAll('[data-mem-mode]').forEach(b => b.addEventListener('click', () => memShowSettings(b.dataset.memMode)));
             ['memSynWords', 'memChapWords'].forEach(id => document.getElementById(id).addEventListener('input', memSettingsRefresh));
             document.getElementById('memSettingsSave').addEventListener('click', memSaveSettings);
@@ -3739,16 +4544,6 @@
                 updatePortNotice();
                 document.getElementById('endpointDisplay').textContent = `http://localhost:${RUNNING_PORT}/v1`;
 
-                // Lorebook settings
-                document.getElementById('lorebookEnabled').checked = settings.lorebook_enabled || false;
-                document.getElementById('lorebookStatus').textContent = settings.lorebook_enabled ? 'Enabled' : 'Disabled';
-                if (settings.lorebook_path) {
-                    document.getElementById('lorebookPath').value = settings.lorebook_path;
-                }
-                if (settings.lorebook_name) {
-                    document.getElementById('lorebookName').value = settings.lorebook_name;
-                }
-
                 // Optional style notes (empty = none)
                 document.getElementById('systemPromptEditor').value = settings.system_prompt_override || '';
 
@@ -3912,7 +4707,7 @@
             dialogueExamples: "The card's example dialogues, each introduced by the example separator.",
         };
 
-        // Used by the prompt preview and the Lorebook tab. Doesn't escape quotes.
+        // Used by the prompt preview. Doesn't escape quotes.
         function escapeHtml(text) {
             const div = document.createElement('div');
             div.textContent = text;
@@ -4250,292 +5045,6 @@
         document.getElementById('systemPromptEditor').addEventListener('input', () => {
             if (PREVIEW && document.getElementById('system').classList.contains('active')) renderPromptPreview();
         });
-
-        // ===== LOREBOOK FUNCTIONS =====
-
-        // Lorebook toggle
-        document.getElementById('lorebookEnabled').addEventListener('change', function() {
-            const enabled = this.checked;
-            document.getElementById('lorebookStatus').textContent = enabled ? 'Enabled' : 'Disabled';
-            saveLorebookSettings();
-        });
-
-        // Save lorebook settings
-        async function saveLorebookSettings() {
-            const settings = {
-                lorebook_enabled: document.getElementById('lorebookEnabled').checked,
-                lorebook_path: document.getElementById('lorebookPath').value,
-                lorebook_name: document.getElementById('lorebookName').value
-            };
-
-            try {
-                await fetch('/api/settings', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify(settings)
-                });
-                refreshLorebook();
-            } catch (e) {
-                console.error('Error saving lorebook settings:', e);
-            }
-        }
-
-        // Load lorebook info
-        async function refreshLorebook() {
-            try {
-                const response = await fetch('/api/lorebook');
-                const data = await response.json();
-
-                // Update status
-                const dot = document.getElementById('lorebookDot');
-                const status = document.getElementById('lorebookPathStatus');
-
-                if (data.exists) {
-                    dot.style.background = 'var(--success)';
-                    status.innerHTML = `<span style="color:var(--success);">✓</span> Lorebook found: ${data.entry_count} entries<br><small style="color:var(--paper-ghost);">${data.full_path}</small>`;
-                } else {
-                    dot.style.background = 'var(--warn)';
-                    status.innerHTML = `<span style="color:var(--warn);">○</span> Lorebook will be created on first entry<br><small style="color:var(--paper-ghost);">${data.full_path}</small>`;
-                }
-
-                // Update toggle state
-                document.getElementById('lorebookEnabled').checked = data.enabled;
-                document.getElementById('lorebookStatus').textContent = data.enabled ? 'Enabled' : 'Disabled';
-                document.getElementById('lorebookPath').value = data.path;
-                document.getElementById('lorebookName').value = data.filename;
-
-                // Display entries
-                const entriesDiv = document.getElementById('lorebookEntries');
-                if (data.entries.length === 0) {
-                    entriesDiv.innerHTML = '<p style="color:var(--paper-faint);margin:0;">No entries yet</p>';
-                } else {
-                    let html = '';
-                    data.entries.forEach((entry, index) => {
-                        const keywords = entry.keywords.join(', ');
-                        const preview = entry.content.substring(0, 150) + (entry.content.length > 150 ? '...' : '');
-                        const enabledClass = entry.enabled ? '' : 'opacity:0.5;';
-                        const posNames = ['Before Char', 'After Char', 'Before AN', 'After AN', 'At Depth'];
-
-                        html += `
-                        <div class="list-item" style="--item-color:var(--accent);${enabledClass}">
-                            <div class="list-item-head" onclick="toggleLoreEntry(${index})">
-                                <div style="min-width:0;">
-                                    <span style="font-weight:600;color:var(--paper);">${escapeHtml(entry.name || 'Unnamed')}</span>
-                                    <span class="list-item-meta" style="margin-left:10px;">${escapeHtml(keywords)}</span>
-                                </div>
-                                <div style="display:flex;gap:10px;align-items:center;flex-shrink:0;">
-                                    <span class="list-item-meta">${posNames[entry.position] || 'Unknown'}</span>
-                                    <span id="loreArrow${index}" class="caret">▼</span>
-                                </div>
-                            </div>
-                            <div id="loreContent${index}" class="list-item-body" style="display:none;">
-                                <pre class="code-block" style="max-height:200px;margin-bottom:10px;">${escapeHtml(entry.content)}</pre>
-                                <div class="btn-row">
-                                    <button class="btn btn-secondary btn-sm" onclick="toggleEntryEnabled('${entry.uid}', event)">
-                                        ${entry.enabled ? 'Disable' : 'Enable'}
-                                    </button>
-                                    <button class="btn btn-danger btn-sm" onclick="deleteLoreEntry('${entry.uid}', event)">
-                                        Delete
-                                    </button>
-                                </div>
-                            </div>
-                        </div>`;
-                    });
-                    entriesDiv.innerHTML = html;
-                }
-            } catch (e) {
-                console.error('Error loading lorebook:', e);
-                document.getElementById('lorebookEntries').innerHTML = '<p style="color:var(--error);">Error loading entries</p>';
-            }
-        }
-
-        function toggleLoreEntry(index) {
-            const div = document.getElementById('loreContent' + index);
-            const arrow = document.getElementById('loreArrow' + index);
-            if (div.style.display === 'none') {
-                div.style.display = 'block';
-                arrow.textContent = '▲';
-            } else {
-                div.style.display = 'none';
-                arrow.textContent = '▼';
-            }
-        }
-
-        async function addLorebookEntry() {
-            const keywords = document.getElementById('entryKeywords').value;
-            const name = document.getElementById('entryName').value;
-            const position = document.getElementById('entryPosition').value;
-            const content = document.getElementById('entryContent').value;
-
-            if (!keywords.trim() || !content.trim()) {
-                alert('Keywords and content are required');
-                return;
-            }
-
-            try {
-                const response = await fetch('/api/lorebook/entry', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({keywords, name, position, content})
-                });
-                const data = await response.json();
-
-                if (data.status === 'ok') {
-                    // Clear form
-                    document.getElementById('entryKeywords').value = '';
-                    document.getElementById('entryName').value = '';
-                    document.getElementById('entryContent').value = '';
-                    refreshLorebook();
-                } else {
-                    alert('Error: ' + (data.error || 'Unknown error'));
-                }
-            } catch (e) {
-                alert('Error adding entry: ' + e.message);
-            }
-        }
-
-        async function deleteLoreEntry(uid, event) {
-            event.stopPropagation();
-            if (!confirm('Delete this lorebook entry?')) return;
-
-            try {
-                await fetch(`/api/lorebook/entry/${uid}`, {method: 'DELETE'});
-                refreshLorebook();
-            } catch (e) {
-                alert('Error deleting entry: ' + e.message);
-            }
-        }
-
-        async function toggleEntryEnabled(uid, event) {
-            event.stopPropagation();
-            try {
-                await fetch(`/api/lorebook/toggle/${uid}`, {method: 'POST'});
-                refreshLorebook();
-            } catch (e) {
-                alert('Error toggling entry: ' + e.message);
-            }
-        }
-
-        async function clearLorebook() {
-            if (!confirm('Clear ALL lorebook entries? This cannot be undone.')) return;
-
-            try {
-                await fetch('/api/lorebook/clear', {method: 'POST'});
-                refreshLorebook();
-            } catch (e) {
-                alert('Error clearing lorebook: ' + e.message);
-            }
-        }
-
-        async function loadChatFiles() {
-            try {
-                const response = await fetch('/api/chats/list');
-                const data = await response.json();
-
-                const select = document.getElementById('chatFileSelect');
-                select.innerHTML = '<option value="">-- Select a chat file --</option>';
-
-                if (data.chats && data.chats.length > 0) {
-                    // Group by character
-                    const byChar = {};
-                    data.chats.forEach(chat => {
-                        if (!byChar[chat.character]) byChar[chat.character] = [];
-                        byChar[chat.character].push(chat);
-                    });
-
-                    for (const [char, chats] of Object.entries(byChar)) {
-                        const group = document.createElement('optgroup');
-                        group.label = char;
-                        chats.forEach(chat => {
-                            const opt = document.createElement('option');
-                            opt.value = chat.path;
-                            const size = (chat.size / 1024).toFixed(1);
-                            const date = new Date(chat.modified).toLocaleDateString();
-                            opt.textContent = `${chat.filename} (${size}KB, ${date})`;
-                            group.appendChild(opt);
-                        });
-                        select.appendChild(group);
-                    }
-                } else if (data.error) {
-                    console.error('Error loading chats:', data.error);
-                }
-            } catch (e) {
-                console.error('Error loading chat files:', e);
-            }
-        }
-
-        function updateChatFilePath() {
-            const select = document.getElementById('chatFileSelect');
-            const input = document.getElementById('chatFilePath');
-            if (select.value) {
-                input.value = select.value;
-            }
-        }
-
-        // Deep model toggle
-        document.querySelectorAll('[data-setting="deep-model"]').forEach(btn => {
-            btn.addEventListener('click', () => {
-                document.querySelectorAll('[data-setting="deep-model"]').forEach(b => b.classList.remove('active'));
-                btn.classList.add('active');
-            });
-        });
-
-        async function triggerQuickAnalysis() {
-            try {
-                const response = await fetch('/api/lorebook/quick-analyze', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({})
-                });
-                const data = await response.json();
-
-                if (data.status === 'ok') {
-                    alert('Quick analysis started!\n\n' + data.message + '\n\nCheck bridge console for results.');
-                } else {
-                    alert('Error: ' + (data.error || 'Unknown error'));
-                }
-            } catch (e) {
-                alert('Error: ' + e.message);
-            }
-        }
-
-        async function triggerDeepAnalysis() {
-            const chatFile = document.getElementById('chatFilePath').value.trim();
-            const useOpus = document.querySelector('[data-setting="deep-model"].active').dataset.value === 'opus';
-            const modelName = useOpus ? 'Opus (thorough)' : 'Sonnet (fast)';
-
-            const msg = chatFile
-                ? `Run deep analysis on:\n${chatFile}\n\n`
-                : 'Run deep analysis on current conversation?\n\n';
-
-            if (!confirm(msg + `• Model: ${modelName}\n• Scans FULL conversation (chunking for long RPs)\n• Can add NEW entries and UPDATE existing ones\n• ${useOpus ? 'May take longer but more thorough' : 'Faster, good for most cases'}\n\nProceed?`)) return;
-
-            // Show loading state
-            const btn = document.getElementById('deepAnalyzeBtn');
-            const originalText = btn.textContent;
-            btn.textContent = 'Analyzing...';
-            btn.disabled = true;
-
-            try {
-                const response = await fetch('/api/lorebook/deep-analyze', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({chat_file: chatFile, use_opus: useOpus})
-                });
-                const data = await response.json();
-
-                if (data.status === 'ok') {
-                    alert(`Deep analysis started!\n\n${data.message}\n\nCheck the bridge console for progress.\nRefresh this page in a few minutes to see new/updated entries.`);
-                } else {
-                    alert('Error: ' + (data.error || 'Unknown error'));
-                }
-            } catch (e) {
-                alert('Error triggering analysis: ' + e.message);
-            } finally {
-                btn.textContent = originalText;
-                btn.disabled = false;
-            }
-        }
 
         // ===== Test tab =====
         async function sendTestMessage() {
@@ -5090,11 +5599,7 @@
         (async () => {
             await loadPromptDefaults();
             await loadSettings();
-            await Promise.all([
-                refreshLorebook(),
-                loadChatFiles(),
-                loadVersionInfo(),
-            ]);
+            await loadVersionInfo();
         })();
     </script>
 </body>
