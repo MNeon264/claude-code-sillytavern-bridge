@@ -15,3 +15,9 @@ dest="$user_dir/extensions/bridge-memory"
 mkdir -p "$dest"
 cp "$here/manifest.json" "$here/index.js" "$here/style.css" "$dest/"
 echo "Installed to $dest. Reload SillyTavern in the browser."
+# A copy in SillyTavern's own third-party folder is served at the same URL
+# ahead of the user's, so the browser would keep loading that one.
+global="$user_dir/../../public/scripts/extensions/third-party/bridge-memory"
+if [ -d "$global" ]; then
+    echo "Warning: $global exists and is served instead of this install; remove it." >&2
+fi
