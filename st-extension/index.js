@@ -13,11 +13,11 @@
  * written jointly by every unmuted member, from their joined cards, with
  * {{char}} as their names joined by commas. SillyTavern has no hook for a
  * reply strategy, so the extension changes the group in memory around each
- * turn and puts it back (see groupReplyStart).
+ * turn and puts it back (see ensurePooled and groupReplyStart).
  *
  * Installed by st-extension/install.sh into data/<user>/extensions/.
  */
-import { setCharacterName } from '../../../../script.js';
+import { setCharacterId, setCharacterName } from '../../../../script.js';
 import { editGroup, group_activation_strategy, group_generation_mode, groups, is_group_generating, openGroupId } from '../../../group-chats.js';
 import { user_avatar } from '../../../personas.js';
 import { power_user } from '../../../power-user.js';
@@ -358,22 +358,38 @@ async function showMemories() {
 const GROUP_REPLY = 'bridge_group_reply';
 const STRATEGY_SELECT = 'rm_group_activation_strategy';
 
-// What a group-reply turn changed, to put back: the group, its strategy, muted
-// members and generation mode, and the group trimming setting.
+// What a group-reply turn changed, to put back: the group's generation mode
+// and the group trimming setting.
 let pending = null;
+// The turn that's starting was asked of one member (/trigger), so it stays theirs.
+let forcedMember = false;
 
 function groupReplyOn(groupId) {
     return !!(groupId && settings().groupReply[groupId]);
 }
 
-/** The group's unmuted members whose cards exist, as {avatar, name}. */
+/** The group's unmuted members whose cards exist, as {avatar, name, index}. */
 function unmutedMembers(group) {
     const characters = context().characters;
     return group.members
         .filter(avatar => !group.disabled_members.includes(avatar))
-        .map(avatar => characters.find(c => c.avatar === avatar))
-        .filter(Boolean)
-        .map(c => ({ avatar: c.avatar, name: c.name }));
+        .map(avatar => characters.findIndex(c => c.avatar === avatar))
+        .filter(index => index !== -1)
+        .map(index => ({ avatar: characters[index].avatar, name: characters[index].name, index }));
+}
+
+/**
+ * A group-reply group runs under Pooled order, which drafts exactly one
+ * unmuted member however the turn starts (a message, Regenerate, auto mode);
+ * groupReplyDrafted then makes it the joint reply. It is also what the group
+ * falls back to without this extension.
+ */
+function ensurePooled(groupId) {
+    const group = groupReplyOn(groupId) && groups.find(g => g.id === groupId);
+    if (group && group.activation_strategy !== group_activation_strategy.POOLED) {
+        group.activation_strategy = group_activation_strategy.POOLED;
+        editGroup(group.id, false, false);
+    }
 }
 
 /** Show Group reply as the strategy of the group whose panel is open; SillyTavern resets the select whenever the panel opens. */
@@ -399,6 +415,7 @@ function onStrategyChange(event) {
     if (event.target.value === GROUP_REPLY) {
         event.stopImmediatePropagation();
         s.groupReply[groupId] = true;
+        ensurePooled(groupId);
     } else {
         delete s.groupReply[groupId];
     }
@@ -406,24 +423,25 @@ function onStrategyChange(event) {
     syncGroupReplySelect();
 }
 
-/**
- * A group turn is about to choose its speakers. For a new reply, only the first
- * unmuted member is left unmuted for that choice, under List order, so one reply
- * is generated; groupReplyDrafted puts the real muted list back before the
- * prompt is built. Every group-reply turn joins the cards (exclude muted) and
- * keeps SillyTavern from cutting the reply at the other members' "Name:" lines.
- */
-function groupReplyStart(type, options, dryRun) {
+/** A turn from the chat box or a command: remember whether it names its member. */
+function groupReplyCommand(type, options, dryRun) {
     if (is_group_generating || dryRun) {
         return;
     }
+    forcedMember = typeof options?.force_chid === 'number';
+    ensurePooled(context().groupId);
+}
+
+/**
+ * The group's turn has started; its one member is drafted next. A group-reply
+ * turn joins the cards (exclude muted) and keeps SillyTavern from cutting the
+ * reply at the other members' "Name:" lines, until the turn ends.
+ */
+function groupReplyStart({ selected_group: groupId, type } = {}) {
     groupReplyRestore();
-    const groupId = context().groupId;
-    if (!groupReplyOn(groupId) || typeof options?.force_chid === 'number') {
-        return;
-    }
-    const newReply = ['normal', 'regenerate', undefined].includes(type);
-    if (!newReply && !['swipe', 'continue'].includes(type)) {
+    const forced = forcedMember;
+    forcedMember = false;
+    if (forced || !groupReplyOn(groupId) || ['impersonate', 'quiet'].includes(type)) {
         return;
     }
     const group = groups.find(g => g.id === groupId);
@@ -433,46 +451,34 @@ function groupReplyStart(type, options, dryRun) {
     }
     pending = {
         group,
-        names: unmuted.map(m => m.name).join(', '),
-        strategy: group.activation_strategy,
-        disabled: group.disabled_members,
+        unmuted,
+        // A swipe or continue stays with the card of the message it's for.
+        keepSpeaker: ['swipe', 'continue'].includes(type),
         mode: group.generation_mode,
         trimming: power_user.disable_group_trimming,
-        started: false,
     };
-    if (newReply) {
-        group.activation_strategy = group_activation_strategy.LIST;
-        group.disabled_members = group.members.filter(avatar => avatar !== unmuted[0].avatar);
-    }
     group.generation_mode = group_generation_mode.APPEND;
     power_user.disable_group_trimming = true;
-    // A turn can still stop before the group's own generation starts (no server, no connection).
-    const mine = pending;
-    setTimeout(() => {
-        if (pending === mine && !mine.started) {
-            groupReplyRestore();
-        }
-    }, 30000);
 }
 
-/** The speaker is chosen: the real muted list goes back for the joined cards, and {{char}} names everyone. */
+/** The member is drafted: the reply is the first unmuted member's card, and {{char}} names everyone. */
 function groupReplyDrafted() {
     if (!pending) {
         return;
     }
-    pending.group.activation_strategy = pending.strategy;
-    pending.group.disabled_members = pending.disabled;
-    setCharacterName(pending.names);
+    const { unmuted } = pending;
+    if (!pending.keepSpeaker) {
+        setCharacterId(unmuted[0].index);
+    }
+    setCharacterName(unmuted.map(m => m.name).join(', '));
 }
 
-/** The turn ended (or never started): put everything back, and save the group if SillyTavern saved it meanwhile. */
+/** The turn ended: put everything back, and save the group if SillyTavern saved it meanwhile. */
 function groupReplyRestore() {
     if (!pending) {
         return;
     }
     const { group, mode } = pending;
-    group.activation_strategy = pending.strategy;
-    group.disabled_members = pending.disabled;
     power_user.disable_group_trimming = pending.trimming;
     const changed = group.generation_mode !== mode;
     group.generation_mode = mode;
@@ -522,12 +528,9 @@ jQuery(() => {
     eventSource.on(eventTypes.CHAT_CHANGED, () => scheduleRefresh([800, 30000, 90000]));
     eventSource.on(eventTypes.CHAT_CHANGED, syncGroupReplySelect);
     eventSource.on(eventTypes.GROUP_UPDATED, syncGroupReplySelect);
-    eventSource.on(eventTypes.GENERATION_AFTER_COMMANDS, groupReplyStart);
-    eventSource.on(eventTypes.GROUP_WRAPPER_STARTED, () => {
-        if (pending) {
-            pending.started = true;
-        }
-    });
+    eventSource.on(eventTypes.CHAT_CHANGED, () => ensurePooled(context().groupId));
+    eventSource.on(eventTypes.GENERATION_AFTER_COMMANDS, groupReplyCommand);
+    eventSource.on(eventTypes.GROUP_WRAPPER_STARTED, groupReplyStart);
     eventSource.on(eventTypes.GROUP_MEMBER_DRAFTED, groupReplyDrafted);
     eventSource.on(eventTypes.GROUP_WRAPPER_FINISHED, () => {
         groupReplyRestore();
