@@ -54,8 +54,8 @@ ProtectSystem=strict
 # directory) and ~/.claude, ~/.cache and ~/.local/state, claude rewrites
 # ~/.claude.json through a lock dir and temp files created directly in
 # /home/box. With only those subdirectories writable it logs "continuing
-# without persisting" on every call. Also covers ~/.cache/huggingface
-# (Character Memory) and ~/SillyTavern/data (auto-lorebook World Info).
+# without persisting" on every call. The bridge only reads SillyTavern's
+# data (Character Memory); its own state stays in the bridge directory.
 ReadWritePaths=/home/box
 
 [Install]
