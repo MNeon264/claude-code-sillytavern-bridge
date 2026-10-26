@@ -361,7 +361,8 @@ const STRATEGY_SELECT = 'rm_group_activation_strategy';
 // What a group-reply turn changed, to put back: the group's generation mode
 // and the group trimming setting.
 let pending = null;
-// The turn that's starting was asked of one member (/trigger), so it stays theirs.
+// The turn that's starting was asked of one member (/trigger, a member's
+// speak button): it's still a joint reply, but under that member's card.
 let forcedMember = false;
 
 function groupReplyOn(groupId) {
@@ -441,7 +442,7 @@ function groupReplyStart({ selected_group: groupId, type } = {}) {
     groupReplyRestore();
     const forced = forcedMember;
     forcedMember = false;
-    if (forced || !groupReplyOn(groupId) || ['impersonate', 'quiet'].includes(type)) {
+    if (!groupReplyOn(groupId) || ['impersonate', 'quiet'].includes(type)) {
         return;
     }
     const group = groups.find(g => g.id === groupId);
@@ -452,8 +453,9 @@ function groupReplyStart({ selected_group: groupId, type } = {}) {
     pending = {
         group,
         unmuted,
-        // A swipe or continue stays with the card of the message it's for.
-        keepSpeaker: ['swipe', 'continue'].includes(type),
+        // A swipe or continue stays with the card of the message it's for,
+        // a forced turn with the member asked for.
+        keepSpeaker: forced || ['swipe', 'continue'].includes(type),
         mode: group.generation_mode,
         trimming: power_user.disable_group_trimming,
     };
@@ -461,16 +463,23 @@ function groupReplyStart({ selected_group: groupId, type } = {}) {
     power_user.disable_group_trimming = true;
 }
 
-/** The member is drafted: the reply is the first unmuted member's card, and {{char}} names everyone. */
-function groupReplyDrafted() {
+/**
+ * The member is drafted: a new reply is the first unmuted member's card, and
+ * {{char}} names everyone. A muted member asked for by name speaks too, and
+ * SillyTavern joins their card as well.
+ */
+function groupReplyDrafted(chid) {
     if (!pending) {
         return;
     }
     const { unmuted } = pending;
+    const names = unmuted.map(m => m.name);
     if (!pending.keepSpeaker) {
         setCharacterId(unmuted[0].index);
+    } else if (!unmuted.some(m => m.index === Number(chid)) && context().characters[chid]) {
+        names.unshift(context().characters[chid].name);
     }
-    setCharacterName(unmuted.map(m => m.name).join(', '));
+    setCharacterName(names.join(', '));
 }
 
 /** The turn ended: put everything back, and save the group if SillyTavern saved it meanwhile. */
